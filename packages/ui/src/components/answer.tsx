@@ -684,7 +684,23 @@ export function TaskAsks({
   return (
     <div className="space-y-4">
       {session?.prompt && <PromptCard session={session} onAnswered={onAnswered} context={who} />}
-      {open && <QuestionCard task={task} onAnswered={onAnswered} context={who} />}
+      {open && (
+        <QuestionCard
+          task={task}
+          onAnswered={onAnswered}
+          // The card's title already names the task id.
+          context={
+            showTask ? (
+              <Link
+                href={`/p/${task.project}/t/${task.id}`}
+                className="underline underline-offset-3 hover:text-foreground"
+              >
+                {task.title}
+              </Link>
+            ) : undefined
+          }
+        />
+      )}
     </div>
   );
 }

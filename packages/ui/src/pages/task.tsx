@@ -60,12 +60,42 @@ function Card({
 }) {
   return (
     <section className={cn('rounded-xl border border-border bg-card', className)}>
-      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+      <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2">
         <h2 className="text-sm font-semibold text-muted-foreground">{title}</h2>
         {action}
       </div>
-      <div className="px-4 py-4">{children}</div>
+      <div className="px-4 py-3">{children}</div>
     </section>
+  );
+}
+
+/** The brief is markdown (the control chat writes it); long ones open collapsed. */
+function Brief({ text }: { text: string }) {
+  const long = text.split('\n').length > 14 || text.length > 900;
+  const [open, setOpen] = useState(!long);
+  return (
+    <div>
+      <div className="relative">
+        <div className={cn('overflow-hidden', !open && 'max-h-64')}>
+          <Suspense fallback={<p className="text-[15px] whitespace-pre-wrap">{text}</p>}>
+            <ChatMarkdown text={text} className="text-[15px] leading-relaxed" />
+          </Suspense>
+        </div>
+        {!open && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-card to-transparent" />
+        )}
+      </div>
+      {long && (
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="mt-1.5 cursor-pointer text-sm text-muted-foreground underline underline-offset-3 hover:text-foreground"
+        >
+          {open ? 'Show less' : 'Show the whole brief'}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -158,7 +188,7 @@ function Reply({ task, session }: { task: TaskRecord; session: SessionView | nul
   };
   return (
     <div className="space-y-2">
-      <Label htmlFor="reply" className="text-[15px]">
+      <Label htmlFor="reply" className="sr-only">
         Message to the worker
       </Label>
       <Textarea
@@ -170,23 +200,23 @@ function Reply({ task, session }: { task: TaskRecord; session: SessionView | nul
           setMessage(e.target.value);
           if (error) setError(null);
         }}
-        rows={3}
+        rows={2}
         aria-invalid={!!error || undefined}
         aria-describedby={error ? 'reply-error' : 'reply-help'}
         className="text-[15px]"
       />
-      <p id="reply-help" className="text-sm text-muted-foreground">
-        {menuOpen
-          ? 'The worker is showing a menu. Answer it above first; a message now would pick its highlighted option.'
-          : 'Sent into the worker’s AoE session as a prompt. Every reply is recorded in the audit log.'}
-      </p>
       {error && (
         <p id="reply-error" className="text-sm text-st-red" role="alert">
           {error}
         </p>
       )}
-      <div className="flex justify-end">
-        <Button variant="secondary" disabled={sending || menuOpen} onClick={ask}>
+      <div className="flex items-start justify-between gap-3">
+        <p id="reply-help" className="text-sm text-muted-foreground">
+          {menuOpen
+            ? 'The worker is showing a menu. Answer it above first; a message now would pick its highlighted option.'
+            : 'Sent into the worker’s session as a prompt. Audited.'}
+        </p>
+        <Button variant="secondary" size="sm" disabled={sending || menuOpen} onClick={ask}>
           <PaperPlaneTiltIcon />
           Send reply
         </Button>
@@ -226,13 +256,13 @@ function Overview({
   const now = useNow();
   const base = `/p/${task.project}/t/${task.id}`;
   return (
-    <div className="grid gap-5 px-5 py-5 lg:px-7 xl:grid-cols-[minmax(0,1fr)_22rem]">
-      <div className="min-w-0 space-y-5">
+    <div className="grid gap-4 px-5 py-4 lg:px-7 xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="min-w-0 space-y-4">
         <TaskAsks task={task} session={session} />
 
         <Card title="Brief">
           {task.brief ? (
-            <p className="text-[15px] leading-relaxed break-words whitespace-pre-wrap">{task.brief}</p>
+            <Brief text={task.brief} />
           ) : (
             <p className="text-[15px] text-muted-foreground">
               No brief. The title is all the worker was given.
@@ -241,7 +271,7 @@ function Overview({
         </Card>
 
         {task.stage !== 'done' && (
-          <Card title="Reply">
+          <Card title="Message to the worker">
             <Reply task={task} session={session} />
           </Card>
         )}
@@ -269,50 +299,42 @@ function Overview({
         </Card>
       </div>
 
-      <aside className="min-w-0 space-y-5" aria-label="Task details">
+      <aside className="min-w-0 space-y-4" aria-label="Task details">
         <Card title="Progress">
-          <dl className="space-y-3 text-[15px]">
-            <div>
-              <dt className="mb-1.5 text-sm text-muted-foreground">Stage</dt>
-              <dd className="space-y-2">
-                <StageBadge stage={task.stage} />
-                <StageStepper stage={task.stage} blockedFrom={task.blockedFrom} />
-              </dd>
-            </div>
-            <div>
-              <dt className="mb-1 text-sm text-muted-foreground">Worker session</dt>
-              <dd className="flex flex-wrap items-center gap-x-2">
-                <LiveStatus status={session?.status ?? 'missing'} unread={session?.unread} />
-                {session?.statusSince && (
-                  <span className="text-sm text-muted-foreground">since {ago(session.statusSince, now)}</span>
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt className="mb-1 text-sm text-muted-foreground">Merge request</dt>
-              <dd>
-                <MrBadge mr={task.mr} />
-                {task.mr?.error && (
-                  <p className="mt-1 text-sm text-st-orange">Last check failed: {task.mr.error}</p>
-                )}
-                {task.mr?.checkedAt && (
-                  <p className="mt-1 text-sm text-muted-foreground">Checked {ago(task.mr.checkedAt, now)}</p>
-                )}
-              </dd>
-            </div>
-            <div>
-              <dt className="mb-1 text-sm text-muted-foreground">Plan</dt>
-              <dd>
-                {task.plan ? (
-                  <Link href={`${base}/plan`} className="underline underline-offset-3">
-                    {task.plan.status === 'approved' ? 'Approved plan' : 'Draft plan'}, saved{' '}
-                    {ago(task.plan.savedAt, now)}
-                  </Link>
-                ) : (
-                  <span className="text-muted-foreground">Not saved yet</span>
-                )}
-              </dd>
-            </div>
+          {/* Label column on the left keeps each fact on one line. */}
+          <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-baseline gap-x-3 gap-y-3 text-[15px]">
+            <dt className="text-sm text-muted-foreground">Stage</dt>
+            <dd className="space-y-1.5">
+              <StageBadge stage={task.stage} size="sm" />
+              <StageStepper stage={task.stage} blockedFrom={task.blockedFrom} />
+            </dd>
+            <dt className="text-sm text-muted-foreground">Session</dt>
+            <dd className="flex flex-wrap items-center gap-x-2">
+              <LiveStatus status={session?.status ?? 'missing'} unread={session?.unread} />
+              {session?.statusSince && (
+                <span className="text-sm text-muted-foreground">{ago(session.statusSince, now)}</span>
+              )}
+            </dd>
+            <dt className="text-sm text-muted-foreground">Merge request</dt>
+            <dd>
+              <MrBadge mr={task.mr} />
+              {task.mr?.error && (
+                <p className="mt-1 text-sm text-st-orange">Last check failed: {task.mr.error}</p>
+              )}
+              {task.mr?.checkedAt && (
+                <p className="mt-0.5 text-sm text-muted-foreground">Checked {ago(task.mr.checkedAt, now)}</p>
+              )}
+            </dd>
+            <dt className="text-sm text-muted-foreground">Plan</dt>
+            <dd>
+              {task.plan ? (
+                <Link href={`${base}/plan`} className="underline underline-offset-3">
+                  {task.plan.status === 'approved' ? 'Approved' : 'Draft'}, {ago(task.plan.savedAt, now)}
+                </Link>
+              ) : (
+                <span className="text-muted-foreground">Not saved yet</span>
+              )}
+            </dd>
           </dl>
         </Card>
 
@@ -332,10 +354,15 @@ function Overview({
                 </Link>
               </Button>
               {aoeOrigin && (
-                <Button variant="outline" size="sm" asChild>
-                  <a href={aoeOrigin} target="_blank" rel="noreferrer">
+                <Button variant="outline" size="icon-sm" asChild>
+                  <a
+                    href={aoeOrigin}
+                    target="_blank"
+                    rel="noreferrer"
+                    aria-label="Open in AoE"
+                    title="Open in AoE"
+                  >
                     <ArrowSquareOutIcon />
-                    Open in AoE
                   </a>
                 </Button>
               )}
@@ -410,28 +437,32 @@ export function TaskPage({
 
   return (
     <div className={cn('flex flex-col', tab === 'chat' && 'h-full min-h-0')}>
-      <header className="border-b border-border px-5 pt-5 lg:px-7">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <span translate="no" className="font-mono text-[14px] text-muted-foreground">
+      {/* One compact row that stays under the top bar, so the tabs are always in reach. */}
+      <header className="sticky top-14 z-[5] flex flex-wrap items-end gap-x-4 border-b border-border bg-surface/95 px-5 pt-2 backdrop-blur lg:px-7">
+        <div className="flex min-w-0 flex-1 items-center gap-x-2.5 pb-2.5">
+          <span translate="no" className="shrink-0 font-mono text-[13px] text-muted-foreground">
             {task.id}
           </span>
+          <h1 className="min-w-0 truncate text-[17px] leading-snug font-semibold" title={task.title}>
+            {task.title}
+          </h1>
           <StageBadge stage={task.stage} size="sm" />
-          <LiveStatus status={session?.status ?? 'missing'} unread={session?.unread} />
+          {tab !== 'chat' && (
+            <LiveStatus
+              status={session?.status ?? 'missing'}
+              unread={session?.unread}
+              className="max-md:hidden"
+            />
+          )}
         </div>
-        <h1 className="mt-1.5 text-[22px] leading-snug font-semibold text-balance break-words">
-          {task.title}
-        </h1>
-        <p translate="no" className="mt-0.5 font-mono text-[13px] break-all text-muted-foreground">
-          {task.branch} from {task.baseBranch}
-        </p>
-        <nav aria-label="Task" className="-mb-px mt-4 flex gap-1">
+        <nav aria-label="Task" className="-mb-px flex gap-1">
           {TABS.map(({ key, label, icon: I, suffix }) => (
             <Link
               key={key}
               href={`${base}${suffix}`}
               aria-current={tab === key ? 'page' : undefined}
               className={cn(
-                'inline-flex h-10 items-center gap-2 border-b-2 px-3 text-[15px] font-medium transition-colors',
+                'inline-flex h-10 items-center gap-2 border-b-2 px-2.5 text-[15px] font-medium transition-colors',
                 tab === key
                   ? 'border-foreground text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground',

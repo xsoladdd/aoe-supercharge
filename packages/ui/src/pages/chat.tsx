@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError, sendJson } from '@/lib/api';
+import { HeaderActions } from '@/lib/header-slot';
 import { useSearchParam } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 
@@ -353,11 +354,11 @@ function ChatComposer({
         e.preventDefault();
         void send();
       }}
-      className="mx-auto w-full max-w-3xl px-4 pb-4"
+      className="mx-auto w-full max-w-3xl px-4 pb-3"
     >
       <div
         className={cn(
-          'rounded-2xl border border-border-strong bg-card shadow-float transition-shadow focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/25',
+          'flex items-end gap-2 rounded-2xl border border-border-strong bg-card py-1.5 pr-1.5 pl-4 shadow-float transition-shadow focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/25',
           error && 'border-st-red/60',
         )}
       >
@@ -385,35 +386,31 @@ function ChatComposer({
               if (!sending) void send();
             }
           }}
-          className="block max-h-60 min-h-12 w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[15px] leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none"
+          className="block max-h-60 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none"
         />
-        <div className="flex items-center justify-between gap-3 px-3 pb-2.5 pl-4">
-          <span id="chat-help" className="truncate text-[13px] text-muted-foreground">
-            Enter to send, Shift+Enter for a new line
-          </span>
-          <button
-            type="submit"
-            aria-label={sending ? 'Sending' : 'Send message'}
-            className={cn(
-              'grid size-9 shrink-0 cursor-pointer place-items-center rounded-full bg-gradient-primary text-on-gradient shadow-[inset_0_1px_0_rgb(255_255_255/0.18)] transition hover:brightness-[0.94] active:scale-95',
-              !value.trim() && 'opacity-45',
-            )}
-          >
-            {sending ? (
-              <CircleNotchIcon className="size-4 animate-spin" />
-            ) : (
-              <ArrowUpIcon weight="bold" className="size-4" />
-            )}
-          </button>
-        </div>
+        <button
+          type="submit"
+          aria-label={sending ? 'Sending' : 'Send message'}
+          title="Send. Every message is recorded in the audit log."
+          className={cn(
+            'grid size-9 shrink-0 cursor-pointer place-items-center rounded-full bg-gradient-primary text-on-gradient shadow-[inset_0_1px_0_rgb(255_255_255/0.18)] transition hover:brightness-[0.94] active:scale-95',
+            !value.trim() && 'opacity-45',
+          )}
+        >
+          {sending ? (
+            <CircleNotchIcon className="size-4 animate-spin" />
+          ) : (
+            <ArrowUpIcon weight="bold" className="size-4" />
+          )}
+        </button>
       </div>
-      {error ? (
-        <p id="chat-error" role="alert" className="mt-2 text-center text-sm text-st-red">
+      <p id="chat-help" className="sr-only">
+        Enter sends, Shift+Enter adds a line. Sent into the AoE session as a prompt and recorded in the audit
+        log.
+      </p>
+      {error && (
+        <p id="chat-error" role="alert" className="mt-1.5 text-center text-sm text-st-red">
           {error}
-        </p>
-      ) : (
-        <p className="mt-2 text-center text-[13px] text-muted-foreground">
-          Sent into the AoE session as a prompt. Every message is recorded in the audit log.
         </p>
       )}
     </form>
@@ -440,51 +437,15 @@ function ChatHeader({
   /** Inside the task page, which already shows the title. */
   embedded: boolean;
 }) {
-  const context =
-    role.kind === 'control' ? (
-      <>
-        Control chat for{' '}
-        <Link
-          href={`/p/${role.project}`}
-          className="text-foreground underline decoration-border-strong underline-offset-3 hover:decoration-current"
-        >
-          {role.project}
-        </Link>
-      </>
-    ) : role.kind === 'worker' ? (
-      <>
-        Worker for{' '}
-        <Link
-          href={`/p/${role.project}/t/${role.taskId}`}
-          translate="no"
-          className="font-mono text-foreground underline decoration-border-strong underline-offset-3 hover:decoration-current"
-        >
-          {role.taskId}
-        </Link>
-      </>
-    ) : (
-      <span translate="no" className="font-mono text-[13px]">
-        {session.id}
-      </span>
-    );
   const attach = `aoe session attach ${session.id}`;
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-3 lg:px-6">
-      {embedded ? (
-        <div className="min-w-0 flex-1">
-          <LiveStatus status={session.status} unread={session.unread} />
-        </div>
-      ) : (
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[17px] leading-snug font-semibold" title={title}>
-            {title}
-          </h1>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
-            <LiveStatus status={session.status} unread={session.unread} />
-            <span className="min-w-0 truncate">{context}</span>
-          </div>
-        </div>
+    <HeaderActions>
+      {!embedded && (
+        <span className="hidden max-w-56 truncate text-sm text-muted-foreground xl:block" title={title}>
+          {title}
+        </span>
       )}
+      <LiveStatus status={session.status} unread={session.unread} className="max-sm:[&>span]:sr-only" />
       <nav aria-label="View" className="flex rounded-lg border border-border bg-background p-0.5">
         {(
           [
@@ -497,40 +458,37 @@ function ChatHeader({
             href={href}
             aria-current={view === key ? 'page' : undefined}
             className={cn(
-              'inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors',
+              'inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors',
               view === key
                 ? 'bg-raised text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
             <I className="size-4" />
-            {label}
+            <span className="max-sm:sr-only">{label}</span>
           </Link>
         ))}
       </nav>
       {rcUrl && (
-        <Button variant="outline" size="sm" asChild className="max-sm:hidden">
-          <a href={rcUrl} target="_blank" rel="noreferrer">
+        <Button variant="outline" size="icon-sm" asChild className="size-8">
+          <a
+            href={rcUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-label="Open on claude.ai"
+            title="Open on claude.ai"
+          >
             <ArrowSquareOutIcon />
-            Open on claude.ai
           </a>
         </Button>
       )}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label="More session actions">
+          <Button variant="ghost" size="icon-sm" className="size-8" aria-label="More session actions">
             <DotsThreeIcon weight="bold" className="size-5" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="min-w-56">
-          {rcUrl && (
-            <DropdownMenuItem asChild className="sm:hidden">
-              <a href={rcUrl} target="_blank" rel="noreferrer">
-                <ArrowSquareOutIcon />
-                Open on claude.ai
-              </a>
-            </DropdownMenuItem>
-          )}
           {aoeOrigin && (
             <DropdownMenuItem asChild>
               <a href={aoeOrigin} target="_blank" rel="noreferrer">
@@ -558,7 +516,7 @@ function ChatHeader({
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-    </div>
+    </HeaderActions>
   );
 }
 
@@ -685,6 +643,7 @@ export function SessionChat({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {!embedded && <h1 className="sr-only">{title}</h1>}
       <ChatHeader
         session={session}
         title={title}
@@ -726,7 +685,7 @@ export function SessionChat({
             tabIndex={0}
             className="h-full overflow-y-auto overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset"
           >
-            <div className="mx-auto max-w-3xl space-y-7 px-4 pt-6 pb-10">
+            <div className="mx-auto max-w-3xl space-y-7 px-4 pt-5 pb-6">
               {error && !chat && (
                 <p role="alert" className="text-[15px] text-st-red">
                   {error} It retries by itself.
@@ -814,7 +773,7 @@ export function SessionChat({
       <div className={cn(view === 'terminal' && 'pt-3')}>
         {session.prompt ? (
           // While a menu is open a typed message would pick its highlighted option, so answer it here instead.
-          <div className="mx-auto max-h-[62dvh] w-full max-w-3xl overflow-y-auto overscroll-contain px-4 pb-4">
+          <div className="mx-auto max-h-[62dvh] w-full max-w-3xl overflow-y-auto overscroll-contain px-4 pb-3">
             <PromptCard session={session} onAnswered={onAnswered} />
           </div>
         ) : (

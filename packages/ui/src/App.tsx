@@ -1,4 +1,4 @@
-import { Fragment, lazy, Suspense, useEffect } from 'react';
+import { Fragment, lazy, Suspense, useEffect, useState } from 'react';
 import { IconContext } from '@phosphor-icons/react';
 import { Link, Route, Switch, useLocation, useRoute } from 'wouter';
 import { toast } from 'sonner';
@@ -21,6 +21,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { sendJson } from '@/lib/api';
+import { HeaderSlotContext } from '@/lib/header-slot';
 import { useSearchParam } from '@/lib/nav';
 import { startLive, useLive, type Connection } from '@/lib/live';
 import { setThemePref, useResolvedTheme, useSyncThemeFrom } from '@/lib/theme';
@@ -151,6 +152,7 @@ export function App() {
   // Chats fill the window and scroll inside themselves, with the composer pinned under them.
   const isChat = isSessionChat || (!!taskParams && taskTab === 'chat');
   const legacySession = useSearchParam('session');
+  const [headerSlot, setHeaderSlot] = useState<HTMLDivElement | null>(null);
   const resolved = useResolvedTheme();
 
   useEffect(() => {
@@ -187,120 +189,125 @@ export function App() {
         >
           Skip to content
         </a>
-        <SidebarProvider style={{ '--sidebar-width': '18.5rem' } as React.CSSProperties}>
-          <AppSidebar snap={snap} onToggleTheme={toggleTheme} />
-          <SidebarInset
-            // The chat scrolls inside itself, with the composer pinned under it.
-            className={cn('min-w-0 bg-surface', isChat && 'h-dvh overflow-hidden md:h-[calc(100dvh-1rem)]')}
-          >
-            <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 rounded-t-xl border-b border-border bg-surface/95 px-4 backdrop-blur lg:px-6">
-              <SidebarTrigger className="size-9" />
-              <Separator orientation="vertical" className="h-5" />
-              <Breadcrumb className="min-w-0 flex-1">
-                <BreadcrumbList className="text-[15px]">
-                  <BreadcrumbItem>
-                    {crumbs.length ? (
-                      <BreadcrumbLink asChild>
-                        <Link href="/">Overview</Link>
-                      </BreadcrumbLink>
-                    ) : (
-                      <BreadcrumbPage>Overview</BreadcrumbPage>
-                    )}
-                  </BreadcrumbItem>
-                  {crumbs.map((c, i) => (
-                    <Fragment key={`${i}-${c.label}`}>
-                      <BreadcrumbSeparator />
-                      <BreadcrumbItem>
-                        {c.href && i < crumbs.length - 1 ? (
-                          <BreadcrumbLink asChild>
-                            <Link href={c.href} className={c.mono ? 'font-mono' : undefined}>
-                              {c.label}
-                            </Link>
-                          </BreadcrumbLink>
-                        ) : (
-                          <BreadcrumbPage className={c.mono ? 'font-mono' : undefined}>
-                            {c.label}
-                          </BreadcrumbPage>
-                        )}
-                      </BreadcrumbItem>
-                    </Fragment>
-                  ))}
-                </BreadcrumbList>
-              </Breadcrumb>
-              {snap.health.daemon.demo && (
-                <span
-                  className="tint rounded-full px-2.5 py-0.5 text-sm font-medium text-st-orange"
-                  title="Fake AoE and sample projects from npm run demo"
-                >
-                  Demo data
-                </span>
-              )}
-              <ConnectionPill connection={live.connection} />
-            </header>
-
-            <HealthBanners health={snap.health} connection={live.connection} />
-            {!isChat && <NeedsYouStrip items={snap.needsYou} />}
-
-            <main
-              id="main"
-              tabIndex={-1}
-              className={cn(
-                'outline-none',
-                isChat ? 'flex min-h-0 flex-1 flex-col' : taskParams ? 'pb-10' : 'px-5 pt-4 pb-10 lg:px-7',
-              )}
+        <HeaderSlotContext.Provider value={headerSlot}>
+          <SidebarProvider style={{ '--sidebar-width': '18.5rem' } as React.CSSProperties}>
+            <AppSidebar snap={snap} onToggleTheme={toggleTheme} />
+            <SidebarInset
+              // The chat scrolls inside itself, with the composer pinned under it.
+              className={cn('min-w-0 bg-surface', isChat && 'h-dvh overflow-hidden md:h-[calc(100dvh-1rem)]')}
             >
-              <Switch>
-                <Route path="/chat/:sessionId">
-                  <Suspense
-                    fallback={
-                      <div className="mx-auto w-full max-w-3xl space-y-3 px-4 pt-6" aria-busy="true">
-                        <Skeleton className="h-6 w-56" />
-                        <Skeleton className="h-4 w-3/4" />
-                      </div>
-                    }
+              <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 rounded-t-xl border-b border-border bg-surface/95 px-4 backdrop-blur lg:px-6">
+                <SidebarTrigger className="size-9" />
+                <Separator orientation="vertical" className="h-5" />
+                <Breadcrumb className="min-w-0 flex-1 max-md:[&_li:not(:last-child)]:hidden">
+                  <BreadcrumbList className="text-[15px]">
+                    <BreadcrumbItem>
+                      {crumbs.length ? (
+                        <BreadcrumbLink asChild>
+                          <Link href="/">Overview</Link>
+                        </BreadcrumbLink>
+                      ) : (
+                        <BreadcrumbPage>Overview</BreadcrumbPage>
+                      )}
+                    </BreadcrumbItem>
+                    {crumbs.map((c, i) => (
+                      <Fragment key={`${i}-${c.label}`}>
+                        <BreadcrumbSeparator />
+                        <BreadcrumbItem>
+                          {c.href && i < crumbs.length - 1 ? (
+                            <BreadcrumbLink asChild>
+                              <Link href={c.href} className={c.mono ? 'font-mono' : undefined}>
+                                {c.label}
+                              </Link>
+                            </BreadcrumbLink>
+                          ) : (
+                            <BreadcrumbPage className={c.mono ? 'font-mono' : undefined}>
+                              {c.label}
+                            </BreadcrumbPage>
+                          )}
+                        </BreadcrumbItem>
+                      </Fragment>
+                    ))}
+                  </BreadcrumbList>
+                </Breadcrumb>
+                {snap.health.daemon.demo && (
+                  <span
+                    className="tint rounded-full px-2.5 py-0.5 text-sm font-medium text-st-orange"
+                    title="Fake AoE and sample projects from npm run demo"
                   >
-                    {chatParams && (
-                      <ChatPage snap={snap} sessionId={decodeURIComponent(chatParams.sessionId)} />
-                    )}
-                  </Suspense>
-                </Route>
-                <Route path="/">
-                  <OverviewPage snap={snap} />
-                </Route>
-                <Route path="/settings">
-                  <SettingsPage health={snap.health} />
-                </Route>
-                <Route path="/p/:project/t/:taskId/:tab?">
-                  {taskParams && (
-                    <TaskPage
-                      snap={snap}
-                      project={taskParams.project}
-                      taskId={taskParams.taskId}
-                      tab={taskTab}
-                    />
-                  )}
-                </Route>
-                {/* Not a nested router: links inside the project page stay absolute (a nest prefixed them twice). */}
-                <Route path="/p/:project/*?">
-                  {(params: { project: string }) => (
-                    <ProjectPage snap={snap} name={params.project} changed={live.changed} />
-                  )}
-                </Route>
-                <Route>
-                  <p className="text-[15px] text-muted-foreground">
-                    Nothing here.{' '}
-                    <Link href="/" className="underline">
-                      Back to the overview
-                    </Link>
-                    .
-                  </p>
-                </Route>
-              </Switch>
-            </main>
-          </SidebarInset>
+                    Demo data
+                  </span>
+                )}
+                {/* Pages put their own controls here (the chat's view switch) instead of a second header. */}
+                <div ref={setHeaderSlot} className="flex shrink-0 items-center gap-2 empty:hidden" />
+                <ConnectionPill connection={live.connection} />
+              </header>
 
-          <Toaster position="bottom-right" />
-        </SidebarProvider>
+              <HealthBanners health={snap.health} connection={live.connection} />
+              {/* Chats and task pages show their own asks; the strip would push them down. */}
+              {!isChat && !taskParams && <NeedsYouStrip items={snap.needsYou} />}
+
+              <main
+                id="main"
+                tabIndex={-1}
+                className={cn(
+                  'outline-none',
+                  isChat ? 'flex min-h-0 flex-1 flex-col' : taskParams ? 'pb-10' : 'px-5 pt-4 pb-10 lg:px-7',
+                )}
+              >
+                <Switch>
+                  <Route path="/chat/:sessionId">
+                    <Suspense
+                      fallback={
+                        <div className="mx-auto w-full max-w-3xl space-y-3 px-4 pt-6" aria-busy="true">
+                          <Skeleton className="h-6 w-56" />
+                          <Skeleton className="h-4 w-3/4" />
+                        </div>
+                      }
+                    >
+                      {chatParams && (
+                        <ChatPage snap={snap} sessionId={decodeURIComponent(chatParams.sessionId)} />
+                      )}
+                    </Suspense>
+                  </Route>
+                  <Route path="/">
+                    <OverviewPage snap={snap} />
+                  </Route>
+                  <Route path="/settings">
+                    <SettingsPage health={snap.health} />
+                  </Route>
+                  <Route path="/p/:project/t/:taskId/:tab?">
+                    {taskParams && (
+                      <TaskPage
+                        snap={snap}
+                        project={taskParams.project}
+                        taskId={taskParams.taskId}
+                        tab={taskTab}
+                      />
+                    )}
+                  </Route>
+                  {/* Not a nested router: links inside the project page stay absolute (a nest prefixed them twice). */}
+                  <Route path="/p/:project/*?">
+                    {(params: { project: string }) => (
+                      <ProjectPage snap={snap} name={params.project} changed={live.changed} />
+                    )}
+                  </Route>
+                  <Route>
+                    <p className="text-[15px] text-muted-foreground">
+                      Nothing here.{' '}
+                      <Link href="/" className="underline">
+                        Back to the overview
+                      </Link>
+                      .
+                    </p>
+                  </Route>
+                </Switch>
+              </main>
+            </SidebarInset>
+
+            <Toaster position="bottom-right" />
+          </SidebarProvider>
+        </HeaderSlotContext.Provider>
       </TooltipProvider>
     </IconContext.Provider>
   );

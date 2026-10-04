@@ -170,7 +170,8 @@ test.describe('project', () => {
       asks.getByRole('heading', { name: /worker is asking you|workers are asking you/ }),
     ).toBeVisible();
     await expect(asks.getByText("Is the client's copy deck from Friday final")).toBeVisible();
-    await expect(asks.getByRole('link', { name: /NW-0002/ })).toBeVisible();
+    await expect(asks.getByRole('heading', { name: 'NW-0002 asks' })).toBeVisible();
+    await expect(asks.getByRole('link', { name: 'Content entry for launch pages' })).toBeVisible();
     await expect(asks.getByRole('radiogroup').getByText("Use Friday's deck")).toBeVisible();
     await expect(asks.getByRole('radiogroup').getByText('Write my own answer')).toBeVisible();
     await axe(page, 'control chat with worker questions');
@@ -281,7 +282,9 @@ test.describe('project', () => {
       .click();
     await expect(page).toHaveURL(/\/chat\/[0-9a-f]{16}$/);
     await expect(page.getByRole('heading', { level: 1, name: 'apollo-api control' })).toBeVisible();
-    await expect(page.getByText('Control chat for apollo-api')).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'breadcrumb' })).toContainText(
+      'apollo-apiControl chat',
+    );
     await expect(page.getByRole('link', { name: 'Open on claude.ai' })).toBeVisible();
     const message = `What is blocked right now? (${browserName})`;
     const box = page.getByLabel(/^Message /);
