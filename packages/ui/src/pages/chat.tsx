@@ -12,6 +12,9 @@ import {
   TerminalWindowIcon,
   WarningCircleIcon,
   XCircleIcon,
+  FileIcon,
+  PaperclipIcon,
+  XIcon,
 } from '@phosphor-icons/react';
 import {
   LIVE_STATUS_LABEL,
@@ -19,11 +22,15 @@ import {
   type ChatMessage,
   type SessionView,
   type Snapshot,
+  contextWindow,
+  splitAttachments,
+  withAttachments,
 } from '@aoe-supercharge/core/shared';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Link, useLocation, useSearch } from 'wouter';
 import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
+import { AnnotateDialog } from '@/components/chat/annotate';
 import { ChatMarkdown } from '@/components/chat/markdown';
 import { ModelMenu } from '@/components/chat/model-menu';
 import { shortPath, ToolCall } from '@/components/chat/tool-call';
@@ -40,7 +47,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ApiError, sendJson } from '@/lib/api';
+import { ApiError, sendJson, uploadFile } from '@/lib/api';
 import { HeaderActions } from '@/lib/header-slot';
 import { useSearchParam } from '@/lib/nav';
 import { cn } from '@/lib/utils';
@@ -54,6 +61,8 @@ interface Pending {
   key: number;
   text: string;
   sentAt: number;
+  /** Local previews of images sent with it, until the transcript has the message. */
+  previews: string[];
 }
 
 /** What the session is to Supercharge, for the header and the empty state. */
@@ -180,16 +189,53 @@ const AssistantTurn = memo(function AssistantTurn({
 });
 
 function UserBubble({ text, note }: { text: string; note?: string }) {
+  const { text: body, files } = useMemo(() => splitAttachments(text), [text]);
+  const images = files.filter((f) => f.image && f.url);
+  const others = files.filter((f) => !(f.image && f.url));
   return (
-    <div className="flex flex-col items-end gap-1">
-      <div
-        className={cn(
-          'max-w-[85%] rounded-2xl rounded-br-md bg-raised px-4 py-2.5 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap',
-          note && 'text-muted-foreground',
-        )}
-      >
-        {text}
-      </div>
+    <div className="flex flex-col items-end gap-1.5">
+      {images.length > 0 && (
+        <div className="flex max-w-[85%] flex-wrap justify-end gap-2">
+          {images.map((f) => (
+            <a key={f.path} href={f.url!} target="_blank" rel="noreferrer" title={f.name}>
+              <img
+                src={f.url!}
+                alt={f.name}
+                loading="lazy"
+                className="max-h-56 max-w-full rounded-xl border border-border object-contain"
+              />
+            </a>
+          ))}
+        </div>
+      )}
+      {others.length > 0 && (
+        <ul className="flex max-w-[85%] flex-wrap justify-end gap-2">
+          {others.map((f) => (
+            <li key={f.path}>
+              <a
+                href={f.url ?? undefined}
+                className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-sm"
+                title={f.path}
+              >
+                <FileIcon className="size-4 text-muted-foreground" />
+                <span translate="no" className="max-w-56 truncate">
+                  {f.name}
+                </span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      {body && (
+        <div
+          className={cn(
+            'max-w-[85%] rounded-2xl rounded-br-md bg-raised px-4 py-2.5 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap',
+            note && 'text-muted-foreground',
+          )}
+        >
+          {body}
+        </div>
+      )}
       {note && <span className="pr-1 text-[0.8125rem] text-muted-foreground">{note}</span>}
     </div>
   );
@@ -300,24 +346,108 @@ function ThreadSkeleton() {
 
 const drafts = new Map<string, string>();
 
-/** Claude-style message box: grows with the text, Enter sends, Shift+Enter adds a line. */
+/** Pick, paste or drop files here; images open in the mark-up editor before they are sent. */
+interface PendingFile {
+  id: number;
+  name: string;
+  blob: Blob;
+  preview: string | null;
+}
+
+const isImage = (f: Blob) => /^image\/(png|jpe?g|gif|webp)$/.test(f.type);
+
+/** How full the session's context is, as a small ring (like Claude Code's own meter). */
+function ContextMeter({ tokens, model }: { tokens: number | null; model: string | null }) {
+  if (!tokens) return null;
+  const windowSize = contextWindow(model);
+  const pct = Math.min(100, Math.round((tokens / windowSize) * 100));
+  const color = pct >= 85 ? 'text-st-red' : pct >= 60 ? 'text-st-yellow' : 'text-muted-foreground';
+  const r = 6.5;
+  const c = 2 * Math.PI * r;
+  return (
+    <span
+      className={cn('inline-flex h-8 items-center gap-1.5 px-1.5 text-xs tabular', color)}
+      title={`${tokens.toLocaleString()} of ${windowSize.toLocaleString()} tokens in context`}
+    >
+      <svg viewBox="0 0 16 16" className="size-4 -rotate-90" aria-hidden>
+        <circle
+          cx="8"
+          cy="8"
+          r={r}
+          fill="none"
+          stroke="currentColor"
+          strokeOpacity="0.25"
+          strokeWidth="2.5"
+        />
+        <circle
+          cx="8"
+          cy="8"
+          r={r}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeDasharray={`${(pct / 100) * c} ${c}`}
+          strokeLinecap="round"
+        />
+      </svg>
+      <span>
+        {pct}%<span className="sr-only"> of the context window used</span>
+      </span>
+    </span>
+  );
+}
+
+/** "Working 12s" while Claude runs, like the terminal's own spinner line. */
+function WorkingClock({ since }: { since: string | null }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const secs = since ? Math.max(0, Math.round((now - Date.parse(since)) / 1000)) : null;
+  const label = secs === null ? '' : secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m ${secs % 60}s`;
+  return (
+    <span className="inline-flex h-8 items-center gap-1.5 px-1.5 text-xs text-st-blue" role="status">
+      <CircleNotchIcon className="size-3.5 animate-spin" />
+      Working{label && <span className="tabular text-muted-foreground">{label}</span>}
+    </span>
+  );
+}
+
+/**
+ * Claude-style message box. Images (pasted, dropped or picked) open in the mark-up editor first; other
+ * files ride along as chips. Attachments are uploaded next to the session and sent as paths Claude
+ * opens. Under the text: attach, model and effort, the context meter, and progress.
+ */
 function ChatComposer({
-  sessionId,
+  session,
   label,
   value,
   onChange,
   onSent,
   inputRef,
+  model,
+  effort,
+  contextTokens,
 }: {
-  sessionId: string;
+  session: SessionView;
   label: string;
   value: string;
   onChange: (v: string) => void;
-  onSent: (text: string) => void;
+  onSent: (text: string, previews: string[]) => void;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  model: string | null;
+  effort: string | null;
+  contextTokens: number | null;
 }) {
+  const sessionId = session.id;
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [files, setFiles] = useState<PendingFile[]>([]);
+  const [editing, setEditing] = useState<File[]>([]);
+  const [dragging, setDragging] = useState(false);
+  const picker = useRef<HTMLInputElement>(null);
+  const seq = useRef(0);
 
   useLayoutEffect(() => {
     const el = inputRef.current;
@@ -325,25 +455,50 @@ function ChatComposer({
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }, [value, inputRef]);
+  useEffect(() => () => files.forEach((f) => f.preview && URL.revokeObjectURL(f.preview)), []);
 
-  const send = async () => {
-    const text = value;
-    if (!text.trim()) {
+  const addFile = (blob: Blob, name: string) =>
+    setFiles((fs) => [
+      ...fs,
+      { id: ++seq.current, name, blob, preview: isImage(blob) ? URL.createObjectURL(blob) : null },
+    ]);
+  const take = (list: FileList | File[]) => {
+    const all = [...list];
+    const images = all.filter(isImage);
+    for (const f of all.filter((f) => !isImage(f))) addFile(f, f.name || 'file');
+    if (images.length) setEditing((q) => [...q, ...images]);
+    setError(null);
+  };
+
+  const deliver = async (text: string, extra: { blob: Blob; name: string }[] = []) => {
+    const outgoing = [...files.map((f) => ({ blob: f.blob, name: f.name })), ...extra];
+    if (!text.trim() && !outgoing.length) {
       setError('Write a message first.');
       inputRef.current?.focus();
-      return;
+      return false;
     }
     setSending(true);
     setError(null);
     try {
-      await sendJson('POST', `/api/sessions/${encodeURIComponent(sessionId)}/send`, { message: text });
+      const saved = await Promise.all(outgoing.map((f) => uploadFile(sessionId, f.blob, f.name)));
+      const message = withAttachments(
+        text,
+        saved.map((s) => s.path),
+      );
+      await sendJson('POST', `/api/sessions/${encodeURIComponent(sessionId)}/send`, { message });
       onChange('');
-      onSent(text);
+      onSent(
+        message,
+        saved.filter((s) => /\.(png|jpe?g|gif|webp)$/i.test(s.file)).map((s) => s.url),
+      );
+      setFiles([]);
+      return true;
     } catch (e) {
       setError(
         `${e instanceof ApiError ? e.message : 'Could not send.'} Try again, or type in AoE directly.`,
       );
       toast.error('Message not sent');
+      return false;
     } finally {
       setSending(false);
     }
@@ -353,16 +508,60 @@ function ChatComposer({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        void send();
+        void deliver(value);
+      }}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files.length) return;
+        e.preventDefault();
+        setDragging(false);
+        take(e.dataTransfer.files);
       }}
       className="mx-auto w-full max-w-3xl px-4 pb-3"
     >
       <div
         className={cn(
-          'flex items-end gap-2 rounded-2xl border border-border-strong bg-card py-1.5 pr-1.5 pl-4 shadow-float transition-shadow focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/25',
+          'rounded-2xl border border-border-strong bg-card shadow-float transition-shadow focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/25',
           error && 'border-st-red/60',
+          dragging && 'border-ring ring-3 ring-ring/30',
         )}
       >
+        {files.length > 0 && (
+          <ul aria-label="Attachments" className="flex flex-wrap gap-2 px-3 pt-3">
+            {files.map((f) => (
+              <li key={f.id} className="group/file relative">
+                {f.preview ? (
+                  <img
+                    src={f.preview}
+                    alt={f.name}
+                    className="h-16 rounded-lg border border-border object-cover"
+                  />
+                ) : (
+                  <span className="flex h-16 max-w-48 items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm">
+                    <FileIcon className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{f.name}</span>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  aria-label={`Remove ${f.name}`}
+                  onClick={() => {
+                    if (f.preview) URL.revokeObjectURL(f.preview);
+                    setFiles((fs) => fs.filter((x) => x.id !== f.id));
+                  }}
+                  className="absolute -top-2 -right-2 grid size-6 cursor-pointer place-items-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:text-foreground"
+                >
+                  <XIcon className="size-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
         <label htmlFor="chat-input" className="sr-only">
           {label}
         </label>
@@ -381,39 +580,87 @@ function ChatComposer({
             onChange(e.target.value);
             if (error) setError(null);
           }}
+          onPaste={(e) => {
+            const pasted = [...e.clipboardData.files];
+            if (!pasted.length) return;
+            e.preventDefault();
+            take(pasted);
+          }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
-              if (!sending) void send();
+              if (!sending) void deliver(value);
             }
           }}
-          className="block max-h-60 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[0.9375rem] leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none"
+          className="block max-h-60 min-h-11 w-full resize-none bg-transparent px-4 pt-3 pb-1 text-[0.9375rem] leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none"
         />
-        <button
-          type="submit"
-          aria-label={sending ? 'Sending' : 'Send message'}
-          title="Send. Every message is recorded in the audit log."
-          className={cn(
-            'grid size-9 shrink-0 cursor-pointer place-items-center rounded-full bg-gradient-primary text-on-gradient shadow-[inset_0_1px_0_rgb(255_255_255/0.18)] transition hover:brightness-[0.94] active:scale-95',
-            !value.trim() && 'opacity-45',
-          )}
-        >
-          {sending ? (
-            <CircleNotchIcon className="size-4 animate-spin" />
-          ) : (
-            <ArrowUpIcon weight="bold" className="size-4" />
-          )}
-        </button>
+        <div className="flex items-center gap-1 px-2 pb-1.5">
+          <input
+            ref={picker}
+            type="file"
+            multiple
+            className="sr-only"
+            tabIndex={-1}
+            aria-hidden
+            onChange={(e) => {
+              if (e.target.files) take(e.target.files);
+              e.target.value = '';
+            }}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="size-8 text-muted-foreground"
+            aria-label="Attach files"
+            title="Attach files (or paste, or drop them here)"
+            onClick={() => picker.current?.click()}
+          >
+            <PaperclipIcon className="size-4" />
+          </Button>
+          <ModelMenu sessionId={sessionId} model={model} effort={effort} disabled={!!session.prompt} />
+          <ContextMeter tokens={contextTokens} model={model} />
+          <span className="flex-1" />
+          {session.status === 'working' && <WorkingClock since={session.statusSince} />}
+          <button
+            type="submit"
+            aria-label={sending ? 'Sending' : 'Send message'}
+            title="Send. Every message is recorded in the audit log."
+            className={cn(
+              'grid size-8 shrink-0 cursor-pointer place-items-center rounded-full bg-gradient-primary text-on-gradient shadow-[inset_0_1px_0_rgb(255_255_255/0.18)] transition hover:brightness-[0.94] active:scale-95',
+              !value.trim() && !files.length && 'opacity-45',
+            )}
+          >
+            {sending ? (
+              <CircleNotchIcon className="size-4 animate-spin" />
+            ) : (
+              <ArrowUpIcon weight="bold" className="size-4" />
+            )}
+          </button>
+        </div>
       </div>
       <p id="chat-help" className="sr-only">
-        Enter sends, Shift+Enter adds a line. Sent into the AoE session as a prompt and recorded in the audit
-        log.
+        Enter sends, Shift+Enter adds a line. Paste or drop images to mark them up first. Sent into the AoE
+        session as a prompt and recorded in the audit log.
       </p>
       {error && (
         <p id="chat-error" role="alert" className="mt-1.5 text-center text-sm text-st-red">
           {error}
         </p>
       )}
+      <AnnotateDialog
+        image={editing[0] ?? null}
+        initialText={value}
+        onClose={() => setEditing((q) => q.slice(1))}
+        onSend={async (png, text) => {
+          if (await deliver(text, [{ blob: png, name: 'screenshot.png' }])) setEditing((q) => q.slice(1));
+        }}
+        onAttach={(png, text) => {
+          addFile(png, 'screenshot.png');
+          onChange(text);
+          setEditing((q) => q.slice(1));
+        }}
+      />
     </form>
   );
 }
@@ -427,8 +674,6 @@ function ChatHeader({
   rcUrl,
   aoeOrigin,
   embedded,
-  model,
-  effort,
 }: {
   session: SessionView;
   title: string;
@@ -439,9 +684,6 @@ function ChatHeader({
   aoeOrigin: string | null;
   /** Inside the task page, which already shows the title. */
   embedded: boolean;
-  /** From the transcript: what the latest reply ran with. */
-  model: string | null;
-  effort: string | null;
 }) {
   const attach = `aoe session attach ${session.id}`;
   return (
@@ -452,7 +694,6 @@ function ChatHeader({
         </span>
       )}
       <LiveStatus status={session.status} unread={session.unread} className="max-sm:[&>span]:sr-only" />
-      <ModelMenu sessionId={session.id} model={model} effort={effort} disabled={!!session.prompt} />
       <nav aria-label="View" className="flex rounded-lg border border-border bg-background p-0.5">
         {(
           [
@@ -624,9 +865,9 @@ export function SessionChat({
     refresh();
     terminal.refresh();
   };
-  const onSent = (text: string) => {
+  const onSent = (text: string, previews: string[] = []) => {
     stick.current = true;
-    if (view === 'chat') setPending((p) => [...p, { key: Date.now(), text, sentAt: Date.now() }]);
+    if (view === 'chat') setPending((p) => [...p, { key: Date.now(), text, sentAt: Date.now(), previews }]);
     refresh();
     terminal.refresh();
   };
@@ -660,8 +901,6 @@ export function SessionChat({
         rcUrl={terminal.output?.rcUrl ?? null}
         aoeOrigin={snap.health.aoe.origin}
         embedded={embedded}
-        model={chat?.model ?? null}
-        effort={chat?.effort ?? null}
       />
 
       {view === 'terminal' ? (
@@ -787,12 +1026,15 @@ export function SessionChat({
           </div>
         ) : (
           <ChatComposer
-            sessionId={session.id}
+            session={session}
             label={`Message ${title}`}
             value={draft}
             onChange={setDraft}
             onSent={onSent}
             inputRef={inputRef}
+            model={chat?.model ?? null}
+            effort={chat?.effort ?? null}
+            contextTokens={chat?.contextTokens ?? null}
           />
         )}
       </div>

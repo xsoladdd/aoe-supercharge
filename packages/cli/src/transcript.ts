@@ -28,6 +28,8 @@ export class TranscriptParser {
   title: string | null = null;
   model: string | null = null;
   effort: string | null = null;
+  /** Tokens in the context at the latest reply (input, cache and output), for the context meter. */
+  contextTokens: number | null = null;
   private assistantById = new Map<string, ChatMessage>();
   private toolById = new Map<string, ToolBlock>();
 
@@ -59,6 +61,16 @@ export class TranscriptParser {
   ) {
     if (rec.type === 'assistant') {
       if (typeof message?.model === 'string' && !message.model.startsWith('<')) this.model = message.model;
+      const u = (message as { usage?: Record<string, unknown> } | undefined)?.usage;
+      if (u) {
+        const n = (k: string) => (typeof u[k] === 'number' ? (u[k] as number) : 0);
+        const total =
+          n('input_tokens') +
+          n('cache_creation_input_tokens') +
+          n('cache_read_input_tokens') +
+          n('output_tokens');
+        if (total > 0) this.contextTokens = total;
+      }
       if (typeof rec.effort === 'string') this.effort = rec.effort;
       return;
     }
@@ -229,6 +241,7 @@ export class TranscriptStore {
         note: 'No conversation yet. Send a message to start one.',
         model: null,
         effort: null,
+        contextTokens: null,
       };
     }
     const file = await this.findFile(claudeId, cwd);
@@ -242,6 +255,7 @@ export class TranscriptStore {
         note: 'No conversation yet. Send a message to start one.',
         model: null,
         effort: null,
+        contextTokens: null,
       };
     }
     let c = this.cache.get(aoeId);
@@ -276,6 +290,7 @@ export class TranscriptStore {
       note: all.length ? null : 'No messages yet. Send one below.',
       model: c.parser.model,
       effort: c.parser.effort,
+      contextTokens: c.parser.contextTokens,
     };
   }
 }

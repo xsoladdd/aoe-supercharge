@@ -22,6 +22,7 @@ import { GitLabProvider, type MrProvider } from './mr/gitlab.ts';
 import { installUserSkills, readTemplate, render, SKILL_NAMES, upsertManagedBlock } from './skills.ts';
 import { TerminalBusyError } from './aoe/client.ts';
 import { menuOnScreen } from './prompt.ts';
+import { uploadArgs } from './uploads.ts';
 import type { TranscriptStore } from './transcript.ts';
 import { CliError, EXIT } from './util/errors.ts';
 import { run } from './util/exec.ts';
@@ -225,6 +226,7 @@ export async function initProject(
       '--append-system-prompt-file',
       promptFile,
       ...modelArgs(ctx.config),
+      ...uploadArgs(ctx.paths),
       ...ctx.config.agent.extraArgs,
     ];
     if (ctx.config.remoteControl.enabled)
@@ -346,6 +348,7 @@ export async function newTask(
       '--append-system-prompt-file',
       promptFile,
       ...modelArgs(ctx.config),
+      ...uploadArgs(ctx.paths),
       '--permission-mode',
       ctx.config.agent.workerPermissionMode,
       ...ctx.config.agent.extraArgs,

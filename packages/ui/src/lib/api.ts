@@ -53,3 +53,26 @@ export async function sendJson<T>(
     throw new ApiError((parsed as { message?: string })?.message ?? res.statusText, res.status, parsed);
   return parsed as T;
 }
+
+/** Upload one file as raw bytes (the name goes in a header); same CSRF rules as other writes. */
+export async function uploadFile(
+  sessionId: string,
+  blob: Blob,
+  name: string,
+): Promise<{ path: string; url: string; file: string }> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/uploads`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'content-type': 'application/octet-stream',
+      'x-file-name': encodeURIComponent(name),
+      'x-csrf-token': await csrfToken(),
+    },
+    body: blob,
+  });
+  const parsed = await parse(res);
+  if (res.status === 403) csrf = null;
+  if (!res.ok)
+    throw new ApiError((parsed as { message?: string })?.message ?? res.statusText, res.status, parsed);
+  return parsed as { path: string; url: string; file: string };
+}

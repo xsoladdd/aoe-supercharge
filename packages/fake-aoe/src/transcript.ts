@@ -97,7 +97,14 @@ export class FakeTranscript {
         this.pending.push(content.id!);
       }
       this.write('assistant', {
-        message: { id, type: 'message', role: 'assistant', model: this.model, content: [content] },
+        message: {
+          id,
+          type: 'message',
+          role: 'assistant',
+          model: this.model,
+          content: [content],
+          usage: { input_tokens: 1200, cache_read_input_tokens: 40_000, output_tokens: 300 },
+        },
         effort: this.effort,
       });
     }

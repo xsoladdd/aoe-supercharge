@@ -4,6 +4,9 @@ import {
   computeNeedsYou,
   parseTerminalMenu,
   prettyModel,
+  splitAttachments,
+  withAttachments,
+  contextWindow,
   promptDetail,
   promptKind,
   type SessionView,
@@ -151,5 +154,35 @@ describe('prettyModel', () => {
     expect(prettyModel('claude-haiku-4-5-20251001')).toBe('Haiku 4.5');
     expect(prettyModel('claude-sonnet-5-5[1m]')).toBe('Sonnet 5.5 (1M)');
     expect(prettyModel('custom-model')).toBe('custom-model');
+  });
+});
+
+describe('attachments ride in the message as paths', () => {
+  it('round-trips text and files, and maps uploads to dashboard URLs', () => {
+    const msg = withAttachments('Look at the header', [
+      '/home/me/.local/state/supercharge/uploads/abc123/20261005T031500-1a2b-screenshot.png',
+      '/tmp/notes.txt',
+    ]);
+    expect(msg).toBe(
+      'Look at the header\n\nAttached: /home/me/.local/state/supercharge/uploads/abc123/20261005T031500-1a2b-screenshot.png\nAttached: /tmp/notes.txt',
+    );
+    const { text, files } = splitAttachments(msg);
+    expect(text).toBe('Look at the header');
+    expect(files).toEqual([
+      {
+        path: '/home/me/.local/state/supercharge/uploads/abc123/20261005T031500-1a2b-screenshot.png',
+        name: 'screenshot.png',
+        url: '/api/uploads/abc123/20261005T031500-1a2b-screenshot.png',
+        image: true,
+      },
+      { path: '/tmp/notes.txt', name: 'notes.txt', url: null, image: false },
+    ]);
+    expect(withAttachments('', ['/a.png'])).toBe('Attached: /a.png');
+  });
+
+  it('knows the context window', () => {
+    expect(contextWindow('claude-opus-5')).toBe(200_000);
+    expect(contextWindow('claude-sonnet-5-5[1m]')).toBe(1_000_000);
+    expect(contextWindow(null)).toBe(200_000);
   });
 });

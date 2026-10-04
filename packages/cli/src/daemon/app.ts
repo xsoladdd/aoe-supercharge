@@ -17,6 +17,7 @@ import { VERSION, type Ctx } from '../context.ts';
 import { buildProjectStatus } from '../status.ts';
 import { CliError } from '../util/errors.ts';
 import { PromptReader } from '../prompt.ts';
+import { MAX_UPLOAD_BYTES, readUpload, saveUpload } from '../uploads.ts';
 import type { TranscriptStore } from '../transcript.ts';
 import {
   answerPrompt,
@@ -67,7 +68,8 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data:",
+  "img-src 'self' data: blob:",
+  "media-src 'self' data: blob:",
   "font-src 'self'",
   "connect-src 'self'",
   "frame-ancestors 'none'",
@@ -311,6 +313,43 @@ export function createApp(deps: AppDeps) {
     } catch (err) {
       return sendError(c, err, 'send_failed');
     }
+  });
+
+  // A file you attach in a chat: saved outside the repo, under the session's uploads folder. The chat
+  // then sends its path in the message, and Claude opens it (the Read tool shows images to the model).
+  app.post('/api/sessions/:id/uploads', async (c) => {
+    const id = c.req.param('id');
+    if (!store.sessions.some((s) => s.id === id))
+      return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    const declared = Number(c.req.header('content-length') ?? 0);
+    if (declared > MAX_UPLOAD_BYTES)
+      return c.json({ error: 'too_large', message: 'Files up to 20 MB can be attached.' }, 413);
+    const bytes = new Uint8Array(await c.req.arrayBuffer());
+    if (!bytes.length) return c.json({ error: 'empty', message: 'The file is empty.' }, 400);
+    if (bytes.length > MAX_UPLOAD_BYTES)
+      return c.json({ error: 'too_large', message: 'Files up to 20 MB can be attached.' }, 413);
+    let name = 'file';
+    try {
+      name = decodeURIComponent(c.req.header('x-file-name') ?? 'file');
+    } catch {
+      // keep the default
+    }
+    const saved = await saveUpload(ctx.paths, id, name, bytes);
+    ctx.logger.info('upload saved', { session: id, file: saved.file, bytes: bytes.length });
+    return c.json(saved);
+  });
+
+  app.get('/api/uploads/:sessionId/:file', async (c) => {
+    const found = await readUpload(ctx.paths, c.req.param('sessionId'), c.req.param('file'));
+    if (!found) return c.json({ error: 'not_found', message: 'No such file' }, 404);
+    return new Response(new Uint8Array(found.bytes), {
+      headers: {
+        'content-type': found.type,
+        'content-disposition': found.inline ? 'inline' : 'attachment',
+        'cache-control': 'private, max-age=86400',
+        'x-content-type-options': 'nosniff',
+      },
+    });
   });
 
   // Switch a running session's model or effort (/model, /effort). The UI warns that Claude Code also

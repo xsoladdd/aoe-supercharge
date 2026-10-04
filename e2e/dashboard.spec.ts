@@ -366,6 +366,56 @@ test.describe('project', () => {
     });
   });
 
+  test('an image is marked up before it is sent, and shows in the chat', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    const id = await sessionId('apollo-api control');
+    await page.goto(`/chat/${id}`);
+    const png = await page.evaluate(() => {
+      const c = document.createElement('canvas');
+      c.width = 320;
+      c.height = 200;
+      const x = c.getContext('2d')!;
+      x.fillStyle = '#e5e7eb';
+      x.fillRect(0, 0, 320, 200);
+      x.fillStyle = '#111827';
+      x.fillRect(40, 40, 120, 60);
+      return c.toDataURL('image/png').split(',')[1]!;
+    });
+    await page
+      .locator('input[type="file"]')
+      .setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+    const dialog = page.getByRole('dialog', { name: 'Mark up the image' });
+    const canvas = dialog.getByLabel('Image to mark up');
+    await expect(canvas).toBeVisible();
+    const box = (await canvas.boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.7, { steps: 6 });
+    await page.mouse.up();
+    await expect(dialog.getByRole('button', { name: 'Undo' })).toBeEnabled();
+    const message = `The dark box is in the wrong place (${browserName})`;
+    const field = dialog.getByLabel('Message with the image');
+    await field.fill(message);
+    await field.press('Enter');
+    await expect(dialog).toHaveCount(0, { timeout: 15_000 });
+    await expect
+      .poll(async () => {
+        const state = (await fake('/__fake/state')) as { sent: { id: string; message: string }[] };
+        return state.sent.filter((m) => m.id === id).at(-1)?.message ?? '';
+      })
+      .toMatch(
+        new RegExp(
+          `^${message.replace(/[()]/g, '\\$&')}\\n\\nAttached: /\\S+/uploads/${id}/\\S+-screenshot\\.png$`,
+        ),
+      );
+    const log = page.getByRole('log', { name: /^Conversation with/ });
+    await expect(log.getByRole('img', { name: 'screenshot.png' }).first()).toBeVisible({ timeout: 15_000 });
+    // The context meter reads the latest reply's token usage.
+    await expect(page.getByTitle(/tokens in context$/)).toBeVisible();
+  });
+
   test('new task dialog builds the CLI command (dashboard never spawns agents)', async ({
     signedIn: page,
   }) => {

@@ -38,6 +38,8 @@ export interface ChatResponse {
   /** What the session last ran with: the model id and effort of its latest reply or /model, /effort. */
   model: string | null;
   effort: string | null;
+  /** Tokens in the context at the latest reply. */
+  contextTokens: number | null;
 }
 
 const MAX_TEXT = 4000;
@@ -67,4 +69,47 @@ export function prettyModel(id: string): string {
   if (!m) return id;
   const family = m[1]!.charAt(0).toUpperCase() + m[1]!.slice(1);
   return `${family} ${m[2]!.split('-').join('.')}${m[3] ? ' (1M)' : ''}`;
+}
+
+/** Context window for a model id: 1M for the long-context variants, else 200k. */
+export function contextWindow(model: string | null): number {
+  return model && /\[1m\]|1m$/i.test(model) ? 1_000_000 : 200_000;
+}
+
+/**
+ * Attachments ride in the message as `Attached: <path>` lines, which Claude reads with its file tool
+ * (images included). The dashboard turns them back into thumbnails.
+ */
+export const ATTACHMENT_LINE = /^Attached: (\/\S+)$/;
+
+export function withAttachments(text: string, paths: string[]): string {
+  const lines = paths.map((p) => `Attached: ${p}`);
+  return [text.trim(), lines.join('\n')].filter(Boolean).join('\n\n');
+}
+
+export interface Attachment {
+  path: string;
+  name: string;
+  /** Dashboard URL, for files in Supercharge's uploads folder. */
+  url: string | null;
+  image: boolean;
+}
+
+export function splitAttachments(text: string): { text: string; files: Attachment[] } {
+  const files: Attachment[] = [];
+  const kept = text.split('\n').filter((line) => {
+    const m = ATTACHMENT_LINE.exec(line.trim());
+    if (!m) return true;
+    const path = m[1]!;
+    const up = /\/uploads\/([A-Za-z0-9_-]+)\/([A-Za-z0-9][A-Za-z0-9._-]*)$/.exec(path);
+    const name = path.split('/').pop() ?? path;
+    files.push({
+      path,
+      name: name.replace(/^\d{8}T\d{6}-[0-9a-f]{4}-/, ''),
+      url: up ? `/api/uploads/${up[1]}/${up[2]}` : null,
+      image: /\.(png|jpe?g|gif|webp)$/i.test(path),
+    });
+    return false;
+  });
+  return { text: kept.join('\n').trim(), files };
 }

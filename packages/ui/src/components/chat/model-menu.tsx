@@ -111,7 +111,7 @@ export function ModelMenu({
             aria-label={`Model and effort: ${label}${effort ? `, ${effort}` : ''}`}
           >
             <CpuIcon className="size-4" />
-            <span className="max-w-32 truncate max-lg:hidden">
+            <span className="max-w-40 truncate text-xs">
               {label}
               {effort && <span className="text-muted-foreground"> · {effort}</span>}
             </span>

@@ -696,6 +696,40 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(audit).toMatch(/"action":"prompt_sent".*\/model sonnet/);
   });
 
+  it('stores attachments outside the repo and serves only images inline', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const snap = (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const control = snap.projects[0]!.controlSessionId!;
+    const upload = (name: string, body: Uint8Array<ArrayBuffer>) =>
+      fetch(`${base()}/api/sessions/${control}/uploads`, {
+        method: 'POST',
+        headers: {
+          ...auth,
+          'content-type': 'application/octet-stream',
+          'x-file-name': encodeURIComponent(name),
+        },
+        body: new Blob([body]),
+      });
+    const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+    const r = await upload('my shot (1).png', png);
+    expect(r.status).toBe(200);
+    const saved = (await r.json()) as { path: string; url: string; file: string };
+    expect(saved.path.startsWith(join(home, '.local/state/supercharge/uploads', control))).toBe(true);
+    expect(saved.file).toMatch(/^\d{8}T\d{6}-[0-9a-f]{4}-my-shot-1-\.png$/);
+    const got = await fetch(`${base()}${saved.url}`, { headers: auth });
+    expect(got.headers.get('content-type')).toBe('image/png');
+    expect(new Uint8Array(await got.arrayBuffer())).toEqual(png);
+    // An SVG could run script as the dashboard, so it only ever downloads.
+    const svg = (await (await upload('x.svg', new TextEncoder().encode('<svg/>'))).json()) as { url: string };
+    const svgRes = await fetch(`${base()}${svg.url}`, { headers: auth });
+    expect(svgRes.headers.get('content-type')).toBe('application/octet-stream');
+    expect(svgRes.headers.get('content-disposition')).toBe('attachment');
+    expect(
+      (await fetch(`${base()}/api/uploads/${control}/..%2F..%2Fconfig.toml`, { headers: auth })).status,
+    ).toBe(404);
+    expect((await upload('empty.txt', new Uint8Array())).status).toBe(400);
+  });
+
   it('serves the project status in the control-chat format', async () => {
     const r = await sc(['status', '--project', 'northwind', '--json']);
     const st = JSON.parse(r.stdout);

@@ -10,6 +10,8 @@ export interface Paths {
   projectsDir: string;
   rolesDir: string;
   stateDir: string;
+  /** Files you attach in a chat, one folder per session; Claude reads them from here (never the repo). */
+  uploadsDir: string;
   logsDir: string;
   logFile: string;
   auditFile: string;
@@ -44,6 +46,7 @@ export function resolvePaths(
     projectsDir: join(dataDir, 'projects'),
     rolesDir: join(dataDir, 'agent', 'claude-code', 'roles'),
     stateDir,
+    uploadsDir: join(stateDir, 'uploads'),
     logsDir,
     logFile: join(logsDir, 'daemon.log'),
     auditFile: join(stateDir, 'audit.jsonl'),
