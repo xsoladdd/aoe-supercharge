@@ -44,17 +44,17 @@ export function NeedsYouStrip({ items }: { items: NeedsYouItem[] }) {
   return (
     <section aria-labelledby="needs-you-heading" className="px-5 pt-4 pb-1 lg:px-7">
       <div className="mb-2.5 flex items-center gap-2">
-        <h2 id="needs-you-heading" className="text-[15px] font-semibold">
+        <h2 id="needs-you-heading" className="text-[0.9375rem] font-semibold">
           Needs you
         </h2>
         {items.length > 0 ? (
-          <span className="tabular grid h-6 min-w-6 place-items-center rounded-full bg-gradient-primary px-2 text-[13px] font-semibold text-on-gradient">
+          <span className="tabular grid h-6 min-w-6 place-items-center rounded-full bg-gradient-primary px-2 text-[0.8125rem] font-semibold text-on-gradient">
             {items.length}
           </span>
         ) : null}
       </div>
       {items.length === 0 ? (
-        <div className="flex items-center gap-2 rounded-lg border border-dashed border-border-strong px-4 py-3 text-[15px] text-muted-foreground">
+        <div className="flex items-center gap-2 rounded-lg border border-dashed border-border-strong px-4 py-3 text-[0.9375rem] text-muted-foreground">
           <SmileyIcon className="size-5" aria-hidden />
           Nothing needs you.
         </div>
@@ -71,7 +71,7 @@ export function NeedsYouStrip({ items }: { items: NeedsYouItem[] }) {
                   <span className="flex items-center justify-between gap-2">
                     <span
                       className={cn(
-                        'tint inline-flex h-6 items-center gap-1.5 rounded-full px-2 text-[13px] font-medium',
+                        'tint inline-flex h-6 items-center gap-1.5 rounded-full px-2 text-[0.8125rem] font-medium',
                         k.color,
                       )}
                     >
@@ -79,13 +79,13 @@ export function NeedsYouStrip({ items }: { items: NeedsYouItem[] }) {
                       {k.label}
                     </span>
                     <span
-                      className="tabular text-[13px] text-muted-foreground"
+                      className="tabular text-[0.8125rem] text-muted-foreground"
                       title={new Date(item.since).toLocaleString()}
                     >
                       {relativeTime(item.since, now)}
                     </span>
                   </span>
-                  <span className="min-w-0 truncate text-[15px] font-medium">{item.title}</span>
+                  <span className="min-w-0 truncate text-[0.9375rem] font-medium">{item.title}</span>
                   <span className="line-clamp-2 text-sm break-words text-muted-foreground">
                     {item.detail}
                   </span>

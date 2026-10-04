@@ -139,6 +139,10 @@ export const ConfigSchema = z.strictObject({
     .strictObject({
       theme: z.enum(['dark', 'light', 'system']).default('dark').describe('Dashboard theme.'),
       density: z.enum(['comfortable', 'compact']).default('comfortable').describe('Row density.'),
+      scale: z
+        .enum(['small', 'default', 'large', 'larger'])
+        .default('default')
+        .describe('Interface size: text and spacing scale together.'),
     })
     .prefault({}),
   logging: z

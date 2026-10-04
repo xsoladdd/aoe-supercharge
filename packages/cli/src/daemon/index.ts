@@ -105,7 +105,7 @@ async function runWorker(): Promise<void> {
   const store = new Store(health, {
     waitingDebounceSeconds: () => ctx.config.notifications.waitingDebounceSeconds,
   });
-  store.ui = { theme: ctx.config.ui.theme, density: ctx.config.ui.density };
+  store.ui = { theme: ctx.config.ui.theme, density: ctx.config.ui.density, scale: ctx.config.ui.scale };
 
   const notifier = new Notifier(() => ctx.config);
   // AoE's Claude hooks write each session's live Claude id under /tmp/aoe-hooks-<uid>/<id>/session_id.

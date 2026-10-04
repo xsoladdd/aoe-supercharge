@@ -175,7 +175,11 @@ export interface Snapshot {
   projects: ProjectRecord[];
   tasks: TaskRecord[];
   needsYou: NeedsYouItem[];
-  ui: { theme: 'dark' | 'light' | 'system'; density: 'comfortable' | 'compact' };
+  ui: {
+    theme: 'dark' | 'light' | 'system';
+    density: 'comfortable' | 'compact';
+    scale: 'small' | 'default' | 'large' | 'larger';
+  };
 }
 
 export type SnapshotEvent =

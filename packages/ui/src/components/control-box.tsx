@@ -47,12 +47,12 @@ export function ControlBox({ view, remoteControl }: { view: ProjectView; remoteC
               <Link
                 translate="no"
                 href={sessionHref(project.controlSessionId)}
-                className="font-mono text-[13px] text-muted-foreground hover:text-foreground hover:underline"
+                className="font-mono text-[0.8125rem] text-muted-foreground hover:text-foreground hover:underline"
               >
                 {project.controlSessionId}
               </Link>
             ) : (
-              <span className="text-[13px] text-muted-foreground">No session</span>
+              <span className="text-[0.8125rem] text-muted-foreground">No session</span>
             )}
           </div>
         </div>
@@ -60,11 +60,11 @@ export function ControlBox({ view, remoteControl }: { view: ProjectView; remoteC
           <LiveStatus
             status={control?.status ?? 'missing'}
             unread={control?.unread}
-            className="text-[15px]"
+            className="text-[0.9375rem]"
           />
           <span
             className={cn(
-              'inline-flex items-center gap-1.5 text-[15px]',
+              'inline-flex items-center gap-1.5 text-[0.9375rem]',
               remoteControl ? 'text-st-green' : 'text-muted-foreground',
             )}
           >
@@ -85,8 +85,8 @@ export function ControlBox({ view, remoteControl }: { view: ProjectView; remoteC
       <div className="grid gap-5 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,18rem)]">
         <div>
           <div className="flex items-end gap-3">
-            <span className="tabular text-[32px] leading-none font-semibold tracking-[-0.02em]">{pct}%</span>
-            <span className="pb-0.5 text-[15px] text-muted-foreground">
+            <span className="tabular text-[2rem] leading-none font-semibold tracking-[-0.02em]">{pct}%</span>
+            <span className="pb-0.5 text-[0.9375rem] text-muted-foreground">
               {done} of {tasks.length} {tasks.length === 1 ? 'task' : 'tasks'} done, {active.length} active
             </span>
           </div>
@@ -141,12 +141,12 @@ export function ControlBox({ view, remoteControl }: { view: ProjectView; remoteC
             })}
           </dl>
         </div>
-        <div className="flex flex-col gap-3 text-[15px]">
+        <div className="flex flex-col gap-3 text-[0.9375rem]">
           <div className="rounded-md border border-border px-3.5 py-3">
             <div className="text-sm text-muted-foreground">Oldest blocked</div>
             {blocked ? (
               <Link href={`/p/${project.name}/t/${blocked.id}`} className="mt-0.5 block hover:underline">
-                <span className="font-mono text-[14px]">{blocked.id}</span>, waiting{' '}
+                <span className="font-mono text-[0.875rem]">{blocked.id}</span>, waiting{' '}
                 {relativeTime(blocked.openQuestion!.askedAt, now)}
                 <span className="mt-0.5 line-clamp-2 block text-sm text-muted-foreground">
                   {blocked.openQuestion!.text}
@@ -163,7 +163,7 @@ export function ControlBox({ view, remoteControl }: { view: ProjectView; remoteC
                 {ready.map((t) => (
                   <li key={t.id}>
                     <Link href={`/p/${project.name}/t/${t.id}`} className="hover:underline">
-                      <span className="font-mono text-[14px]">{t.id}</span> {t.mr ? `!${t.mr.iid}` : ''}
+                      <span className="font-mono text-[0.875rem]">{t.id}</span> {t.mr ? `!${t.mr.iid}` : ''}
                     </Link>
                   </li>
                 ))}

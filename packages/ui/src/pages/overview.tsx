@@ -23,8 +23,8 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
-        <h1 className="text-[22px] leading-tight font-semibold tracking-tight text-balance">{title}</h1>
-        {sub && <div className="mt-1 text-[15px] text-muted-foreground">{sub}</div>}
+        <h1 className="text-[1.375rem] leading-tight font-semibold tracking-tight text-balance">{title}</h1>
+        {sub && <div className="mt-1 text-[0.9375rem] text-muted-foreground">{sub}</div>}
       </div>
       {children}
     </div>
@@ -38,10 +38,10 @@ function SessionRow({ s, now, href }: { s: SessionView; now: Date; href: string 
         href={href}
         className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 px-4 py-2.5 text-left transition-colors hover:bg-raised/70 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_9rem_3.5rem]"
       >
-        <span className="min-w-0 truncate text-[15px]">{s.title}</span>
+        <span className="min-w-0 truncate text-[0.9375rem]">{s.title}</span>
         <span
           translate="no"
-          className="hidden min-w-0 truncate font-mono text-[13px] text-muted-foreground md:block"
+          className="hidden min-w-0 truncate font-mono text-[0.8125rem] text-muted-foreground md:block"
         >
           {s.branch ?? ''}
         </span>
@@ -72,8 +72,8 @@ export function OverviewPage({ snap }: { snap: Snapshot }) {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-[22px] leading-tight font-semibold tracking-tight">Projects</h1>
-        <p className="mt-1 text-[15px] text-muted-foreground">
+        <h1 className="text-[1.375rem] leading-tight font-semibold tracking-tight">Projects</h1>
+        <p className="mt-1 text-[0.9375rem] text-muted-foreground">
           {plural(projects.length, 'project')},{' '}
           {plural(snap.tasks.filter((t) => t.stage !== 'done').length, 'active task')},{' '}
           {plural(snap.sessions.length, 'AoE session')}
@@ -88,7 +88,7 @@ export function OverviewPage({ snap }: { snap: Snapshot }) {
             </span>
             <div className="min-w-0 flex-1">
               <h2 className="text-base font-semibold">Register your first project</h2>
-              <p className="mt-1 max-w-xl text-[15px] text-muted-foreground">
+              <p className="mt-1 max-w-xl text-[0.9375rem] text-muted-foreground">
                 Run this inside a repository. It registers the project and starts its control chat in AoE.
                 Nothing is written into the repository.
               </p>
@@ -111,8 +111,8 @@ export function OverviewPage({ snap }: { snap: Snapshot }) {
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <div className="truncate text-[17px] font-semibold">{project.name}</div>
-                    <div translate="no" className="truncate font-mono text-[13px] text-muted-foreground">
+                    <div className="truncate text-[1.0625rem] font-semibold">{project.name}</div>
+                    <div translate="no" className="truncate font-mono text-[0.8125rem] text-muted-foreground">
                       {project.repoPath}
                     </div>
                   </div>
@@ -126,14 +126,14 @@ export function OverviewPage({ snap }: { snap: Snapshot }) {
                   <LiveStatus status={control?.status ?? 'missing'} unread={control?.unread} />
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1.5 border-t border-border pt-3">
-                  <span className="tabular text-[15px]">
+                  <span className="tabular text-[0.9375rem]">
                     <span className="font-semibold">{active.length}</span>{' '}
                     <span className="text-muted-foreground">active</span>
                   </span>
                   {shown.map((s) => {
                     const { icon: I, color } = STAGE_META[s];
                     return (
-                      <span key={s} className={cn('inline-flex items-center gap-1 text-[15px]', color)}>
+                      <span key={s} className={cn('inline-flex items-center gap-1 text-[0.9375rem]', color)}>
                         <I weight="bold" className="size-4" aria-hidden />
                         <span className="tabular font-semibold">{counts[s]}</span>
                         <span className="text-muted-foreground">{STAGE_LABEL[s]}</span>
@@ -152,14 +152,16 @@ export function OverviewPage({ snap }: { snap: Snapshot }) {
           <h2 id="aoe-sessions" className="text-base font-semibold">
             Other AoE sessions
           </h2>
-          <p className="text-[15px] text-muted-foreground">
+          <p className="text-[0.9375rem] text-muted-foreground">
             Sessions Supercharge doesn’t manage, grouped under their parent session.
           </p>
         </div>
         {!aoeOk && snap.sessions.length === 0 ? (
-          <p className="text-[15px] text-muted-foreground">Waiting for AoE…</p>
+          <p className="text-[0.9375rem] text-muted-foreground">Waiting for AoE…</p>
         ) : groups.length === 0 ? (
-          <p className="text-[15px] text-muted-foreground">None. Every AoE session belongs to a project.</p>
+          <p className="text-[0.9375rem] text-muted-foreground">
+            None. Every AoE session belongs to a project.
+          </p>
         ) : (
           groups.map((g) => (
             <div
@@ -173,7 +175,7 @@ export function OverviewPage({ snap }: { snap: Snapshot }) {
                   className="flex min-w-0 items-center gap-2.5 text-left hover:underline"
                 >
                   <TerminalWindowIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="truncate text-[15px] font-semibold">
+                  <span className="truncate text-[0.9375rem] font-semibold">
                     {g.parent?.title ?? 'Standalone sessions'}
                   </span>
                   <span className="tabular shrink-0 text-sm text-muted-foreground">

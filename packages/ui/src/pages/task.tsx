@@ -77,8 +77,8 @@ function Brief({ text }: { text: string }) {
     <div>
       <div className="relative">
         <div className={cn('overflow-hidden', !open && 'max-h-64')}>
-          <Suspense fallback={<p className="text-[15px] whitespace-pre-wrap">{text}</p>}>
-            <ChatMarkdown text={text} className="text-[15px] leading-relaxed" />
+          <Suspense fallback={<p className="text-[0.9375rem] whitespace-pre-wrap">{text}</p>}>
+            <ChatMarkdown text={text} className="text-[0.9375rem] leading-relaxed" />
           </Suspense>
         </div>
         {!open && (
@@ -121,7 +121,7 @@ function SavedPlan({ task }: { task: TaskRecord }) {
   const { plan, error } = usePlan(task);
   if (error)
     return (
-      <p role="alert" className="text-[15px] text-st-red">
+      <p role="alert" className="text-[0.9375rem] text-st-red">
         Could not load the plan: {error}. Reload the page to retry.
       </p>
     );
@@ -135,9 +135,9 @@ function SavedPlan({ task }: { task: TaskRecord }) {
     );
   if (!plan)
     return (
-      <p className="text-[15px] text-muted-foreground">
+      <p className="text-[0.9375rem] text-muted-foreground">
         No plan saved yet. The worker saves it with{' '}
-        <code className="font-mono text-[13px]">supercharge plan</code> once you approve it.
+        <code className="font-mono text-[0.8125rem]">supercharge plan</code> once you approve it.
       </p>
     );
   return (
@@ -203,7 +203,7 @@ function Reply({ task, session }: { task: TaskRecord; session: SessionView | nul
         rows={2}
         aria-invalid={!!error || undefined}
         aria-describedby={error ? 'reply-error' : 'reply-help'}
-        className="text-[15px]"
+        className="text-[0.9375rem]"
       />
       {error && (
         <p id="reply-error" className="text-sm text-st-red" role="alert">
@@ -229,7 +229,7 @@ function Reply({ task, session }: { task: TaskRecord; session: SessionView | nul
               The worker receives it as a prompt in its AoE session.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <blockquote className="rounded-md border border-border bg-raised px-3 py-2 text-[15px] whitespace-pre-wrap">
+          <blockquote className="rounded-md border border-border bg-raised px-3 py-2 text-[0.9375rem] whitespace-pre-wrap">
             {message}
           </blockquote>
           <AlertDialogFooter>
@@ -264,7 +264,7 @@ function Overview({
           {task.brief ? (
             <Brief text={task.brief} />
           ) : (
-            <p className="text-[15px] text-muted-foreground">
+            <p className="text-[0.9375rem] text-muted-foreground">
               No brief. The title is all the worker was given.
             </p>
           )}
@@ -285,7 +285,7 @@ function Overview({
                   <span className="absolute top-0.5 -left-[1.95rem] grid size-5 place-items-center rounded-full bg-card">
                     <I weight="bold" className={cn('size-4', color)} aria-hidden />
                   </span>
-                  <div className="flex flex-wrap items-baseline gap-x-2 text-[15px]">
+                  <div className="flex flex-wrap items-baseline gap-x-2 text-[0.9375rem]">
                     <span className="font-medium">{STAGE_LABEL[h.to]}</span>
                     <span className="text-sm text-muted-foreground">
                       by {h.by}, {ago(h.at, now)}
@@ -302,7 +302,7 @@ function Overview({
       <aside className="min-w-0 space-y-4" aria-label="Task details">
         <Card title="Progress">
           {/* Label column on the left keeps each fact on one line. */}
-          <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-baseline gap-x-3 gap-y-3 text-[15px]">
+          <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] items-baseline gap-x-3 gap-y-3 text-[0.9375rem]">
             <dt className="text-sm text-muted-foreground">Stage</dt>
             <dd className="space-y-1.5">
               <StageBadge stage={task.stage} size="sm" />
@@ -368,7 +368,7 @@ function Overview({
               )}
             </div>
             <CommandLine command={`aoe session attach ${task.aoeSessionId}`} />
-            <p translate="no" className="font-mono text-[13px] break-all text-muted-foreground">
+            <p translate="no" className="font-mono text-[0.8125rem] break-all text-muted-foreground">
               {task.worktreePath}
             </p>
           </div>
@@ -422,7 +422,7 @@ export function TaskPage({
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
         <WarningCircleIcon className="mx-auto size-8 text-st-red" />
         <h1 className="mt-3 text-xl font-semibold">Task not found</h1>
-        <p className="mt-2 text-[15px] text-muted-foreground">
+        <p className="mt-2 text-[0.9375rem] text-muted-foreground">
           There is no task {taskId} in {project}.{' '}
           <Link href={`/p/${project}`} className="underline">
             Back to the project
@@ -440,10 +440,10 @@ export function TaskPage({
       {/* One compact row that stays under the top bar, so the tabs are always in reach. */}
       <header className="sticky top-14 z-[5] flex flex-wrap items-end gap-x-4 border-b border-border bg-surface/95 px-5 pt-2 backdrop-blur lg:px-7">
         <div className="flex min-w-0 flex-1 items-center gap-x-2.5 pb-2.5">
-          <span translate="no" className="shrink-0 font-mono text-[13px] text-muted-foreground">
+          <span translate="no" className="shrink-0 font-mono text-[0.8125rem] text-muted-foreground">
             {task.id}
           </span>
-          <h1 className="min-w-0 truncate text-[17px] leading-snug font-semibold" title={task.title}>
+          <h1 className="min-w-0 truncate text-[1.0625rem] leading-snug font-semibold" title={task.title}>
             {task.title}
           </h1>
           <StageBadge stage={task.stage} size="sm" />
@@ -462,7 +462,7 @@ export function TaskPage({
               href={`${base}${suffix}`}
               aria-current={tab === key ? 'page' : undefined}
               className={cn(
-                'inline-flex h-10 items-center gap-2 border-b-2 px-2.5 text-[15px] font-medium transition-colors',
+                'inline-flex h-10 items-center gap-2 border-b-2 px-2.5 text-[0.9375rem] font-medium transition-colors',
                 tab === key
                   ? 'border-foreground text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground',
@@ -493,7 +493,7 @@ export function TaskPage({
             </Suspense>
           </div>
         ) : (
-          <p className="px-5 py-6 text-[15px] text-muted-foreground lg:px-7">
+          <p className="px-5 py-6 text-[0.9375rem] text-muted-foreground lg:px-7">
             The worker’s AoE session no longer exists, so there is no chat to show.
           </p>
         ))}

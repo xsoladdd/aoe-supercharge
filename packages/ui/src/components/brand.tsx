@@ -20,10 +20,10 @@ export function BrandMark({ className }: { className?: string }) {
 export function Wordmark() {
   return (
     <div className="flex min-w-0 items-center gap-2.5">
-      <BrandMark />
+      <BrandMark className="size-7" />
       <div className="min-w-0 leading-tight group-data-[collapsible=icon]:hidden">
-        <div className="text-[17px] font-semibold tracking-tight">Supercharge</div>
-        <div className="text-[13px] text-muted-foreground">Agent of Empires</div>
+        <div className="text-[0.9375rem] font-semibold tracking-tight">Supercharge</div>
+        <div className="text-xs text-muted-foreground">Agent of Empires</div>
       </div>
     </div>
   );

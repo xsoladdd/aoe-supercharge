@@ -52,6 +52,50 @@ export function useSyncThemeFrom(serverPref: ThemePref | undefined) {
   }, [serverPref]);
 }
 
+export type ScalePref = 'small' | 'default' | 'large' | 'larger';
+
+/** Root font size per interface size. Text, spacing and icons are all in rem, so they scale together. */
+export const SCALE_PX: Record<ScalePref, number> = { small: 14, default: 15, large: 16, larger: 17.5 };
+
+const SCALE_KEY = 'supercharge.scale';
+let scale: ScalePref = (() => {
+  try {
+    const v = localStorage.getItem(SCALE_KEY) as ScalePref | null;
+    return v && v in SCALE_PX ? v : 'default';
+  } catch {
+    return 'default';
+  }
+})();
+
+function applyScale() {
+  document.documentElement.style.fontSize = `${SCALE_PX[scale]}px`;
+  try {
+    localStorage.setItem(SCALE_KEY, scale);
+  } catch {
+    // private mode: the server value still applies on every load
+  }
+  for (const l of listeners) l();
+}
+// Before the first render, from the last session, so the page does not jump when the snapshot arrives.
+if (typeof document !== 'undefined') applyScale();
+
+export function setScalePref(s: ScalePref) {
+  if (s === scale) return;
+  scale = s;
+  applyScale();
+}
+
+export function useScalePref(): ScalePref {
+  return useSyncExternalStore(subscribe, () => scale);
+}
+
+/** Follow ui.scale from config.toml as it arrives over SSE. */
+export function useSyncScaleFrom(serverPref: ScalePref | undefined) {
+  useEffect(() => {
+    if (serverPref) setScalePref(serverPref);
+  }, [serverPref]);
+}
+
 /** Current time, refreshed every `intervalMs` so relative times stay fresh. */
 export function useNow(intervalMs = 30_000): Date {
   const subscribeTick = useCallback(

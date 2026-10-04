@@ -188,7 +188,7 @@
   }
   html {
     @apply font-sans antialiased;
-    font-size: 16px;
+    font-size: 15px; /* ui.scale "default"; lib/theme.ts sets the chosen size */
     font-feature-settings: 'ss01', 'cv11';
   }
   body {

@@ -74,13 +74,16 @@ export function Conversation({
       )}
     >
       {error ? (
-        <p role="alert" className="p-4 text-[15px] text-st-red">
+        <p role="alert" className="p-4 text-[0.9375rem] text-st-red">
           {error} It retries by itself.
         </p>
       ) : content === null ? (
-        <p className="p-4 text-[15px] text-muted-foreground">Loading the conversation…</p>
+        <p className="p-4 text-[0.9375rem] text-muted-foreground">Loading the conversation…</p>
       ) : (
-        <pre translate="no" className="min-w-max p-4 font-mono text-[13px] leading-[1.45] text-foreground">
+        <pre
+          translate="no"
+          className="min-w-max p-4 font-mono text-[0.8125rem] leading-[1.45] text-foreground"
+        >
           {content || '(no output yet)'}
         </pre>
       )}

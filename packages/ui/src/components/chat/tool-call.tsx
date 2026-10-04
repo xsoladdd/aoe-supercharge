@@ -72,7 +72,7 @@ export function ToolCall({
         <span
           translate="no"
           title={tool.summary}
-          className="min-w-0 flex-1 truncate font-mono text-[13px] text-muted-foreground"
+          className="min-w-0 flex-1 truncate font-mono text-[0.8125rem] text-muted-foreground"
         >
           {shortPath(tool.summary, cwd)}
         </span>
@@ -85,7 +85,7 @@ export function ToolCall({
               aria-label="Running"
             />
           ) : (
-            <span className="shrink-0 text-[13px] text-muted-foreground">No result</span>
+            <span className="shrink-0 text-[0.8125rem] text-muted-foreground">No result</span>
           )
         ) : tool.isError ? (
           <XCircleIcon
@@ -109,12 +109,14 @@ export function ToolCall({
         <CodeBlock language={input.language} code={input.code} />
         {tool.result !== null && (
           <div>
-            <div className={cn('mb-1 text-[13px]', tool.isError ? 'text-st-red' : 'text-muted-foreground')}>
+            <div
+              className={cn('mb-1 text-[0.8125rem]', tool.isError ? 'text-st-red' : 'text-muted-foreground')}
+            >
               {tool.isError ? 'Error' : 'Output'}
             </div>
             <pre
               translate="no"
-              className="max-h-80 overflow-auto rounded-md border border-border bg-background p-3 font-mono text-[13px] leading-relaxed whitespace-pre-wrap"
+              className="max-h-80 overflow-auto rounded-md border border-border bg-background p-3 font-mono text-[0.8125rem] leading-relaxed whitespace-pre-wrap"
             >
               {tool.result || '(empty)'}
             </pre>

@@ -28,7 +28,7 @@ function Banner({
         className={cn('mt-0.5 size-5 shrink-0', tone === 'error' ? 'text-st-red' : 'text-st-yellow')}
         aria-hidden
       />
-      <div className="min-w-0 text-[15px]">
+      <div className="min-w-0 text-[0.9375rem]">
         <div className="font-medium">{title}</div>
         {children && <div className="mt-0.5 text-muted-foreground">{children}</div>}
       </div>
@@ -37,7 +37,9 @@ function Banner({
 }
 
 const Code = ({ children }: { children: React.ReactNode }) => (
-  <code className="rounded-sm bg-raised px-1.5 py-0.5 font-mono text-[13px] text-foreground">{children}</code>
+  <code className="rounded-sm bg-raised px-1.5 py-0.5 font-mono text-[0.8125rem] text-foreground">
+    {children}
+  </code>
 );
 
 /** Problems that make the dashboard partial. Each names the fix (SPEC §14.0 rule 10). */

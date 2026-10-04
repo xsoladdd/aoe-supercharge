@@ -105,7 +105,7 @@ function Choices({
             <span
               aria-hidden
               className={cn(
-                'mt-px grid size-6 shrink-0 place-items-center rounded-md border font-mono text-[13px]',
+                'mt-px grid size-6 shrink-0 place-items-center rounded-md border font-mono text-[0.8125rem]',
                 checked
                   ? 'border-transparent bg-gradient-primary text-on-gradient'
                   : 'border-border text-muted-foreground',
@@ -114,7 +114,7 @@ function Choices({
               {o.n ?? i + 1}
             </span>
             <span className="min-w-0">
-              <span className="block text-[15px] leading-snug">{o.label}</span>
+              <span className="block text-[0.9375rem] leading-snug">{o.label}</span>
               {o.hint && <span className="mt-0.5 block text-sm text-muted-foreground">{o.hint}</span>}
             </span>
           </label>
@@ -141,9 +141,9 @@ function CardShell({
     <section className={cn('rounded-xl border border-st-yellow/45 bg-card shadow-float', className)}>
       <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-3">
         <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-st-yellow/12 text-st-yellow">
-          <I weight="fill" className="size-[18px]" />
+          <I weight="fill" className="size-[1.125rem]" />
         </span>
-        <h2 className="text-[15px] font-semibold">{title}</h2>
+        <h2 className="text-[0.9375rem] font-semibold">{title}</h2>
         {context && <span className="min-w-0 text-sm text-muted-foreground">{context}</span>}
       </header>
       <div className="space-y-4 px-4 py-4">{children}</div>
@@ -240,7 +240,7 @@ function AskForm({
                   {q.header}
                 </span>
               )}
-              <span className="text-[15px] font-medium">{q.question}</span>
+              <span className="text-[0.9375rem] font-medium">{q.question}</span>
               {multi && <span className="text-sm text-muted-foreground">Pick any</span>}
             </legend>
             <div className="space-y-1.5">
@@ -265,7 +265,7 @@ function AskForm({
                       className="mt-1 size-4 shrink-0 accent-[var(--primary)]"
                     />
                     <span className="min-w-0">
-                      <span className="block text-[15px] leading-snug">{label}</span>
+                      <span className="block text-[0.9375rem] leading-snug">{label}</span>
                       {o.description && (
                         <span className="mt-0.5 block text-sm text-muted-foreground">{o.description}</span>
                       )}
@@ -288,7 +288,7 @@ function AskForm({
                 setOther((all) => all.map((x, i) => (i === qi ? v : x)));
               }}
               placeholder="Something else…"
-              className="block h-10 w-full rounded-lg border border-input bg-background px-3 text-[15px] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 focus-visible:outline-none"
+              className="block h-10 w-full rounded-lg border border-input bg-background px-3 text-[0.9375rem] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 focus-visible:outline-none"
             />
           </fieldset>
         );
@@ -310,7 +310,7 @@ function AskForm({
           autoComplete="off"
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          className="block w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-[15px] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 focus-visible:outline-none"
+          className="block w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-[0.9375rem] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 focus-visible:outline-none"
         />
       </div>
       {error && (
@@ -401,7 +401,7 @@ export function PromptCard({
       {prompt.tool && prompt.kind === 'permission' && (
         <div className="rounded-lg border border-border bg-background px-3 py-2">
           <div className="text-sm text-muted-foreground">{prompt.tool.name}</div>
-          <code translate="no" className="block font-mono text-[13px] break-all">
+          <code translate="no" className="block font-mono text-[0.8125rem] break-all">
             {prompt.tool.summary || '(no details)'}
           </code>
         </div>
@@ -459,7 +459,7 @@ export function PromptCard({
           />
         ) : (
           <>
-            <p className="text-[15px]">{prompt.question}</p>
+            <p className="text-[0.9375rem]">{prompt.question}</p>
             <p className="text-sm text-muted-foreground">
               Could not read these questions from the conversation, so answer them in the terminal.
             </p>
@@ -477,7 +477,7 @@ export function PromptCard({
           }}
           className="space-y-3"
         >
-          {prompt.question && <p className="text-[15px] font-medium">{prompt.question}</p>}
+          {prompt.question && <p className="text-[0.9375rem] font-medium">{prompt.question}</p>}
           <Choices
             name={`answer-${id}`}
             label={prompt.question || title}
@@ -506,7 +506,7 @@ export function PromptCard({
                 autoComplete="off"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                className="block w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-[15px] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 focus-visible:outline-none"
+                className="block w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-[0.9375rem] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 focus-visible:outline-none"
                 placeholder="Tell Claude what to change…"
               />
             </div>
@@ -593,7 +593,7 @@ export function QuestionCard({
       context={context ?? `${ago(q.askedAt, now)}, the worker is blocked until you answer`}
       className={className}
     >
-      <p className="text-[15px] font-medium break-words whitespace-pre-wrap">{q.text}</p>
+      <p className="text-[0.9375rem] font-medium break-words whitespace-pre-wrap">{q.text}</p>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -632,7 +632,7 @@ export function QuestionCard({
                 if (error) setError(null);
               }}
               placeholder="Your answer…"
-              className="block w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-[15px] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 focus-visible:outline-none"
+              className="block w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-[0.9375rem] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 focus-visible:outline-none"
             />
           </div>
         )}

@@ -23,7 +23,7 @@ export function WorkerList({
     return (
       <div className="rounded-xl border border-dashed border-border-strong px-6 py-10 text-center">
         <div className="text-base font-medium">No workers yet</div>
-        <p className="mx-auto mt-1 max-w-md text-[15px] text-muted-foreground">
+        <p className="mx-auto mt-1 max-w-md text-[0.9375rem] text-muted-foreground">
           Ask this project’s control chat for work, or create a task yourself. Each task gets its own branch,
           worktree and worker session.
         </p>
@@ -49,13 +49,16 @@ export function WorkerList({
                 >
                   <span
                     translate="no"
-                    className="shrink-0 font-mono text-[14px] whitespace-nowrap text-muted-foreground"
+                    className="shrink-0 font-mono text-[0.875rem] whitespace-nowrap text-muted-foreground"
                   >
                     {t.id}
                   </span>
-                  <span className="min-w-0 truncate text-[15px] font-medium">{t.title}</span>
+                  <span className="min-w-0 truncate text-[0.9375rem] font-medium">{t.title}</span>
                 </Link>
-                <span translate="no" className="block truncate font-mono text-[13px] text-muted-foreground">
+                <span
+                  translate="no"
+                  className="block truncate font-mono text-[0.8125rem] text-muted-foreground"
+                >
                   {t.branch}
                 </span>
               </span>

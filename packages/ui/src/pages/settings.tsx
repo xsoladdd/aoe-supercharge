@@ -21,6 +21,15 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError, getJson, sendJson } from '@/lib/api';
+import {
+  SCALE_PX,
+  setScalePref,
+  setThemePref,
+  useScalePref,
+  useThemePref,
+  type ScalePref,
+  type ThemePref,
+} from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/pages/overview';
 
@@ -103,7 +112,10 @@ function Desc({ text }: { text: string }) {
     <>
       {text.split(/(`[^`]+`)/g).map((part, i) =>
         part.startsWith('`') && part.endsWith('`') ? (
-          <code key={i} className="rounded-sm bg-raised px-1 py-0.5 font-mono text-[13px] text-foreground">
+          <code
+            key={i}
+            className="rounded-sm bg-raised px-1 py-0.5 font-mono text-[0.8125rem] text-foreground"
+          >
             {part.slice(1, -1)}
           </code>
         ) : (
@@ -168,7 +180,7 @@ function FieldInput({
     return (
       <div className="flex items-start justify-between gap-6 py-3">
         <div className="min-w-0">
-          <Label htmlFor={id} className="text-[15px]">
+          <Label htmlFor={id} className="text-[0.9375rem]">
             {label}
           </Label>
           {desc && (
@@ -189,14 +201,14 @@ function FieldInput({
   let control: React.ReactNode;
   if (schema.const !== undefined) {
     control = (
-      <p className="flex h-10 items-center text-[15px] text-muted-foreground">
+      <p className="flex h-10 items-center text-[0.9375rem] text-muted-foreground">
         {String(schema.const)} (only option in v1)
       </p>
     );
   } else if (schema.enum) {
     control = (
       <Select value={String(value ?? '')} onValueChange={(v) => onChange(v)}>
-        <SelectTrigger {...common} className="h-10 w-full max-w-xs text-[15px]">
+        <SelectTrigger {...common} className="h-10 w-full max-w-xs text-[0.9375rem]">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -224,7 +236,7 @@ function FieldInput({
               .filter(Boolean),
           )
         }
-        className="max-w-md font-mono text-[14px]"
+        className="max-w-md font-mono text-[0.875rem]"
       />
     );
   } else if (schema.type === 'integer' || schema.type === 'number') {
@@ -238,7 +250,7 @@ function FieldInput({
         max={schema.maximum}
         value={value === undefined || value === null ? '' : String(value)}
         onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
-        className="h-10 max-w-40 text-[15px]"
+        className="h-10 max-w-40 text-[0.9375rem]"
       />
     );
   } else {
@@ -249,13 +261,13 @@ function FieldInput({
         spellCheck={false}
         value={String(value ?? '')}
         onChange={(e) => onChange(e.target.value)}
-        className="h-10 max-w-md font-mono text-[14px]"
+        className="h-10 max-w-md font-mono text-[0.875rem]"
       />
     );
   }
   return (
     <div className="grid gap-1.5 py-3">
-      <Label htmlFor={id} className="text-[15px]">
+      <Label htmlFor={id} className="text-[0.9375rem]">
         {label}
       </Label>
       {control}
@@ -271,6 +283,107 @@ function FieldInput({
         </p>
       )}
     </div>
+  );
+}
+
+/** One choice out of a few, as a row of buttons. */
+function Segmented<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={label}
+      className="inline-flex flex-wrap rounded-lg border border-border bg-background p-0.5"
+    >
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={cn(
+            'h-8 cursor-pointer rounded-md px-3 text-sm font-medium transition-colors',
+            value === o.value
+              ? 'bg-raised text-foreground shadow-sm'
+              : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const SCALES: { value: ScalePref; label: string }[] = [
+  { value: 'small', label: 'Small' },
+  { value: 'default', label: 'Default' },
+  { value: 'large', label: 'Large' },
+  { value: 'larger', label: 'Larger' },
+];
+
+/** Theme and interface size: applied at once, saved to config.toml like the sidebar's theme toggle. */
+function Appearance() {
+  const theme = useThemePref();
+  const scale = useScalePref();
+  const save = (patch: Record<string, string>) =>
+    sendJson('PUT', '/api/config', { patch: { ui: patch } }).catch((e: Error) =>
+      toast.error('Could not save the appearance', { description: e.message }),
+    );
+  return (
+    <section aria-labelledby="s-ui" className="rounded-xl border border-border bg-card px-5 pt-4 pb-4">
+      <h2 id="s-ui" className="text-base font-semibold">
+        Appearance
+      </h2>
+      <div className="divide-y divide-border">
+        <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+          <div>
+            <div className="text-[0.9375rem] font-medium">Theme</div>
+            <div className="text-sm text-muted-foreground">System follows your computer.</div>
+          </div>
+          <Segmented<ThemePref>
+            label="Theme"
+            value={theme}
+            options={[
+              { value: 'dark', label: 'Dark' },
+              { value: 'light', label: 'Light' },
+              { value: 'system', label: 'System' },
+            ]}
+            onChange={(v) => {
+              setThemePref(v);
+              void save({ theme: v });
+            }}
+          />
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+          <div>
+            <div className="text-[0.9375rem] font-medium">Interface size</div>
+            <div className="text-sm text-muted-foreground">
+              Text, spacing and icons together ({SCALE_PX[scale]}px base).
+            </div>
+          </div>
+          <Segmented<ScalePref>
+            label="Interface size"
+            value={scale}
+            options={SCALES}
+            onChange={(v) => {
+              setScalePref(v);
+              void save({ scale: v });
+            }}
+          />
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -297,7 +410,8 @@ export function SettingsPage({ health }: { health: Health }) {
     () =>
       data
         ? Object.entries(data.schema.properties ?? {})
-            .filter(([k]) => k !== 'projects')
+            // Appearance has its own section above: it applies the moment you pick.
+            .filter(([k]) => k !== 'projects' && k !== 'ui')
             .map(([k, s]) => ({ key: k, fields: fieldsOf(s, `${k}.`) }))
         : [],
     [data],
@@ -378,7 +492,7 @@ export function SettingsPage({ health }: { health: Health }) {
         title="Settings"
         sub={
           data ? (
-            <span translate="no" className="font-mono text-[13px] break-all">
+            <span translate="no" className="font-mono text-[0.8125rem] break-all">
               {data.path}
             </span>
           ) : (
@@ -403,7 +517,7 @@ export function SettingsPage({ health }: { health: Health }) {
           role="status"
           className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-st-yellow/40 bg-st-yellow/8 px-4 py-3"
         >
-          <div className="text-[15px]">
+          <div className="text-[0.9375rem]">
             <span className="font-medium">Restart required</span>
             <span className="text-muted-foreground"> for {restart.join(', ')}</span>
           </div>
@@ -432,7 +546,7 @@ export function SettingsPage({ health }: { health: Health }) {
       )}
 
       {loadError && (
-        <p role="alert" className="text-[15px] text-st-red">
+        <p role="alert" className="text-[0.9375rem] text-st-red">
           Could not load settings: {loadError}. Reload the page; if it persists, check supercharge logs.
         </p>
       )}
@@ -446,6 +560,7 @@ export function SettingsPage({ health }: { health: Health }) {
 
       {data && (
         <div className="grid gap-4 xl:grid-cols-2">
+          <Appearance />
           {sections.map(({ key, fields }) => {
             const needsRestart = data.restartPrefixes.includes(key);
             return (
@@ -476,10 +591,10 @@ export function SettingsPage({ health }: { health: Health }) {
               </section>
             );
           })}
-          <section className="rounded-xl border border-dashed border-border-strong px-5 py-4 text-[15px] text-muted-foreground xl:col-span-2">
-            Per-project overrides (<code className="font-mono text-[13px]">[projects.&lt;name&gt;]</code>) are
-            edited in config.toml or with{' '}
-            <code className="font-mono text-[13px]">supercharge config edit</code>.
+          <section className="rounded-xl border border-dashed border-border-strong px-5 py-4 text-[0.9375rem] text-muted-foreground xl:col-span-2">
+            Per-project overrides (<code className="font-mono text-[0.8125rem]">[projects.&lt;name&gt;]</code>
+            ) are edited in config.toml or with{' '}
+            <code className="font-mono text-[0.8125rem]">supercharge config edit</code>.
           </section>
         </div>
       )}

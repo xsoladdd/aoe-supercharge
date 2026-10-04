@@ -24,7 +24,7 @@ import { sendJson } from '@/lib/api';
 import { HeaderSlotContext } from '@/lib/header-slot';
 import { useSearchParam } from '@/lib/nav';
 import { startLive, useLive, type Connection } from '@/lib/live';
-import { setThemePref, useResolvedTheme, useSyncThemeFrom } from '@/lib/theme';
+import { setThemePref, useResolvedTheme, useSyncScaleFrom, useSyncThemeFrom } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 import { OverviewPage } from '@/pages/overview';
 import { ProjectPage } from '@/pages/project';
@@ -71,7 +71,7 @@ function CenterCard({ children }: { children: React.ReactNode }) {
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-7">
         <div className="mb-5 flex items-center gap-2.5">
           <BrandMark />
-          <span className="text-[17px] font-semibold">Supercharge</span>
+          <span className="text-[1.0625rem] font-semibold">Supercharge</span>
         </div>
         {children}
       </div>
@@ -82,8 +82,8 @@ function CenterCard({ children }: { children: React.ReactNode }) {
 function SignedOut() {
   return (
     <CenterCard>
-      <h1 className="text-[22px] font-semibold">Sign in from your terminal</h1>
-      <p className="mt-2 text-[15px] text-muted-foreground">
+      <h1 className="text-[1.375rem] font-semibold">Sign in from your terminal</h1>
+      <p className="mt-2 text-[0.9375rem] text-muted-foreground">
         The dashboard only accepts this machine’s local token. Run this to open a signed-in tab:
       </p>
       <CommandLine command="supercharge open" className="mt-4" />
@@ -94,8 +94,8 @@ function SignedOut() {
 function Unreachable({ error }: { error: string | null }) {
   return (
     <CenterCard>
-      <h1 className="text-[22px] font-semibold">The daemon is not answering</h1>
-      <p className="mt-2 text-[15px] text-muted-foreground">{error ?? 'Check that it is running:'}</p>
+      <h1 className="text-[1.375rem] font-semibold">The daemon is not answering</h1>
+      <p className="mt-2 text-[0.9375rem] text-muted-foreground">{error ?? 'Check that it is running:'}</p>
       <CommandLine command="supercharge status" className="mt-4" />
     </CenterCard>
   );
@@ -159,6 +159,7 @@ export function App() {
     void startLive();
   }, []);
   useSyncThemeFrom(snap?.ui.theme);
+  useSyncScaleFrom(snap?.ui.scale);
   // Links from before the chat page (`?session=<id>`) still land on the chat.
   useEffect(() => {
     if (legacySession) navigate(`/chat/${encodeURIComponent(legacySession)}`, { replace: true });
@@ -190,7 +191,7 @@ export function App() {
           Skip to content
         </a>
         <HeaderSlotContext.Provider value={headerSlot}>
-          <SidebarProvider style={{ '--sidebar-width': '18.5rem' } as React.CSSProperties}>
+          <SidebarProvider style={{ '--sidebar-width': '16.5rem' } as React.CSSProperties}>
             <AppSidebar snap={snap} onToggleTheme={toggleTheme} />
             <SidebarInset
               // The chat scrolls inside itself, with the composer pinned under it.
@@ -200,7 +201,7 @@ export function App() {
                 <SidebarTrigger className="size-9" />
                 <Separator orientation="vertical" className="h-5" />
                 <Breadcrumb className="min-w-0 flex-1 max-md:[&_li:not(:last-child)]:hidden">
-                  <BreadcrumbList className="text-[15px]">
+                  <BreadcrumbList className="text-[0.9375rem]">
                     <BreadcrumbItem>
                       {crumbs.length ? (
                         <BreadcrumbLink asChild>
@@ -293,7 +294,7 @@ export function App() {
                     )}
                   </Route>
                   <Route>
-                    <p className="text-[15px] text-muted-foreground">
+                    <p className="text-[0.9375rem] text-muted-foreground">
                       Nothing here.{' '}
                       <Link href="/" className="underline">
                         Back to the overview

@@ -115,7 +115,7 @@ function ToolGroup({ tools, running, cwd }: { tools: Tool[]; running: boolean; c
       <summary className="flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-3 py-2 text-sm select-none hover:bg-raised/70 [&::-webkit-details-marker]:hidden">
         <StackIcon className="size-4 shrink-0 text-muted-foreground" />
         <span className="shrink-0 font-medium">{tools.length} tool calls</span>
-        <span translate="no" className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
+        <span translate="no" className="min-w-0 flex-1 truncate text-[0.8125rem] text-muted-foreground">
           {pending ? (
             <span className="font-mono">
               {latest.name} {shortPath(latest.summary, cwd)}
@@ -132,7 +132,7 @@ function ToolGroup({ tools, running, cwd }: { tools: Tool[]; running: boolean; c
             aria-label="Running"
           />
         ) : failed ? (
-          <span className="inline-flex shrink-0 items-center gap-1 text-[13px] text-st-red">
+          <span className="inline-flex shrink-0 items-center gap-1 text-[0.8125rem] text-st-red">
             <XCircleIcon weight="fill" className="size-4" />
             {failed} failed
           </span>
@@ -183,20 +183,20 @@ function UserBubble({ text, note }: { text: string; note?: string }) {
     <div className="flex flex-col items-end gap-1">
       <div
         className={cn(
-          'max-w-[85%] rounded-2xl rounded-br-md bg-raised px-4 py-2.5 text-[15px] leading-relaxed break-words whitespace-pre-wrap',
+          'max-w-[85%] rounded-2xl rounded-br-md bg-raised px-4 py-2.5 text-[0.9375rem] leading-relaxed break-words whitespace-pre-wrap',
           note && 'text-muted-foreground',
         )}
       >
         {text}
       </div>
-      {note && <span className="pr-1 text-[13px] text-muted-foreground">{note}</span>}
+      {note && <span className="pr-1 text-[0.8125rem] text-muted-foreground">{note}</span>}
     </div>
   );
 }
 
 function Working() {
   return (
-    <div className="flex items-center gap-2.5 text-[15px] text-muted-foreground" role="status">
+    <div className="flex items-center gap-2.5 text-[0.9375rem] text-muted-foreground" role="status">
       <span className="flex gap-1" aria-hidden>
         {[0, 150, 300].map((d) => (
           <span
@@ -216,7 +216,7 @@ function WaitingCallout({ terminalHref }: { terminalHref: string }) {
     <div className="flex flex-wrap items-start gap-x-3 gap-y-2 rounded-xl border border-st-yellow/40 bg-st-yellow/8 px-4 py-3">
       <HandPalmIcon weight="fill" className="mt-0.5 size-5 shrink-0 text-st-yellow" />
       <div className="min-w-0 flex-1">
-        <p className="text-[15px] font-medium">Claude is waiting on you</p>
+        <p className="text-[0.9375rem] font-medium">Claude is waiting on you</p>
         <p className="text-sm text-muted-foreground">
           If it is showing a menu, like a permission prompt or a plan to approve, answer it in the terminal.
         </p>
@@ -258,7 +258,7 @@ function EmptyState({
       <h2 className="mt-4 text-xl font-semibold">
         {role.kind === 'control' ? `Talk to the ${role.project} control chat` : 'Start the conversation'}
       </h2>
-      <p className="mt-2 text-[15px] text-pretty text-muted-foreground">
+      <p className="mt-2 text-[0.9375rem] text-pretty text-muted-foreground">
         {note ?? 'No messages yet.'}{' '}
         {role.kind === 'control' && 'It plans work and starts a worker for each task.'}
       </p>
@@ -386,7 +386,7 @@ function ChatComposer({
               if (!sending) void send();
             }
           }}
-          className="block max-h-60 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[15px] leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none"
+          className="block max-h-60 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[0.9375rem] leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none"
         />
         <button
           type="submit"
@@ -528,14 +528,14 @@ export function ChatPage({ snap, sessionId }: { snap: Snapshot; sessionId: strin
       <div className="mx-auto max-w-lg px-4 py-16 text-center">
         <WarningCircleIcon className="mx-auto size-8 text-st-red" />
         <h1 className="mt-3 text-xl font-semibold">Session not found</h1>
-        <p className="mt-2 text-[15px] text-muted-foreground">
+        <p className="mt-2 text-[0.9375rem] text-muted-foreground">
           AoE has no live session{' '}
-          <span translate="no" className="font-mono text-[13px]">
+          <span translate="no" className="font-mono text-[0.8125rem]">
             {sessionId}
           </span>
           . It may have been removed or stopped.
         </p>
-        <Link href="/" className="mt-4 inline-block text-[15px] underline">
+        <Link href="/" className="mt-4 inline-block text-[0.9375rem] underline">
           Back to the overview
         </Link>
       </div>
@@ -687,13 +687,13 @@ export function SessionChat({
           >
             <div className="mx-auto max-w-3xl space-y-7 px-4 pt-5 pb-6">
               {error && !chat && (
-                <p role="alert" className="text-[15px] text-st-red">
+                <p role="alert" className="text-[0.9375rem] text-st-red">
                   {error} It retries by itself.
                 </p>
               )}
               {!chat && !error && <ThreadSkeleton />}
               {chat?.state === 'unavailable' && (
-                <p className="rounded-lg border border-border bg-card px-4 py-3 text-[15px] text-muted-foreground">
+                <p className="rounded-lg border border-border bg-card px-4 py-3 text-[0.9375rem] text-muted-foreground">
                   {chat.note}{' '}
                   <Link href={`${basePath}?view=terminal`} className="text-foreground underline">
                     Show terminal
@@ -735,7 +735,7 @@ export function SessionChat({
                 >
                   <WarningCircleIcon weight="fill" className="mt-0.5 size-5 shrink-0 text-st-red" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[15px] font-medium">AoE reports an error for this session</p>
+                    <p className="text-[0.9375rem] font-medium">AoE reports an error for this session</p>
                     <p className="text-sm break-words text-muted-foreground">
                       {session.lastError ?? 'No details from AoE.'} The terminal shows what the session last
                       printed.

@@ -29,7 +29,7 @@ export function CodeBlock({
   return (
     <div className="group/code my-3 overflow-hidden rounded-lg border border-border bg-background">
       <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <span translate="no" className="font-mono text-[13px] text-muted-foreground">
+        <span translate="no" className="font-mono text-[0.8125rem] text-muted-foreground">
           {language ?? 'text'}
         </span>
         <button
@@ -40,13 +40,13 @@ export function CodeBlock({
               setTimeout(() => setCopied(false), 1500);
             }
           }}
-          className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-[13px] text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
+          className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-[0.8125rem] text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
         >
           {copied ? <CheckIcon className="size-3.5 text-st-green" /> : <CopyIcon className="size-3.5" />}
           {copied ? 'Copied' : 'Copy'}
         </button>
       </div>
-      <pre translate="no" className="overflow-x-auto p-3.5 font-mono text-[13px] leading-relaxed">
+      <pre translate="no" className="overflow-x-auto p-3.5 font-mono text-[0.8125rem] leading-relaxed">
         <code className="hljs">{children ?? code}</code>
       </pre>
     </div>
@@ -62,7 +62,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   className?: string;
 }) {
   return (
-    <div className={cn('chat-md text-[15px] leading-7 break-words', className)}>
+    <div className={cn('chat-md text-[0.9375rem] leading-7 break-words', className)}>
       <Markdown
         remarkPlugins={[remarkGfm]}
         // Highlight after sanitising, so token classes survive.

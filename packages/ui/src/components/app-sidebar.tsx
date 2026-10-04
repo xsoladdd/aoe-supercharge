@@ -50,13 +50,13 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
 
   return (
     <Sidebar variant="inset" collapsible="icon">
-      <SidebarHeader className="px-3 pt-4 pb-2">
+      <SidebarHeader className="px-3 pt-3 pb-1">
         <Link href="/" className="rounded-md focus-visible:outline-2">
           <Wordmark />
         </Link>
       </SidebarHeader>
 
-      <SidebarContent className="gap-1">
+      <SidebarContent className="gap-0 [&>[data-slot=sidebar-group]]:py-1">
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -65,11 +65,10 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                   asChild
                   isActive={location === '/'}
                   tooltip="Overview"
-                  size="lg"
-                  className="text-[15px]"
+                  className="h-8 text-[0.9375rem]"
                 >
                   <Link href="/">
-                    <SquaresFourIcon weight={location === '/' ? 'fill' : 'regular'} className="size-5" />
+                    <SquaresFourIcon weight={location === '/' ? 'fill' : 'regular'} className="size-4" />
                     <span>Overview</span>
                   </Link>
                 </SidebarMenuButton>
@@ -84,11 +83,11 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel className="text-[13px]">Projects</SidebarGroupLabel>
+          <SidebarGroupLabel className="text-[0.8125rem]">Projects</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {projects.length === 0 && (
-                <p className="px-2 py-1.5 text-[13px] text-muted-foreground group-data-[collapsible=icon]:hidden">
+                <p className="px-2 py-1.5 text-[0.8125rem] text-muted-foreground group-data-[collapsible=icon]:hidden">
                   None yet. Run <code className="font-mono">supercharge init</code> in a repository.
                 </p>
               )}
@@ -103,13 +102,12 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                         asChild
                         isActive={location === href}
                         tooltip={project.name}
-                        size="lg"
-                        className="text-[15px] font-medium"
+                        className="h-9 text-[0.9375rem] font-medium"
                       >
                         <Link href={href}>
                           <span
                             className={cn(
-                              'grid size-6 shrink-0 place-items-center rounded-md text-[12px] font-semibold',
+                              'grid size-5 shrink-0 place-items-center rounded text-[0.6875rem] font-semibold',
                               active
                                 ? 'bg-gradient-primary text-on-gradient'
                                 : 'bg-raised text-muted-foreground',
@@ -127,7 +125,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                       )}
                       <CollapsibleTrigger asChild>
                         <button
-                          className="absolute top-2.5 right-1.5 grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-sidebar-accent group-data-[collapsible=icon]:hidden"
+                          className="absolute top-[calc((2.25rem_-_max(1.5rem,24px))/2)] right-1 grid size-[max(1.5rem,24px)] place-items-center rounded-md text-muted-foreground hover:bg-sidebar-accent group-data-[collapsible=icon]:hidden"
                           aria-label={`Toggle ${project.name}`}
                         >
                           <CaretRightIcon className="size-3.5 transition-transform group-data-[state=open]/collapsible:rotate-90" />
@@ -139,7 +137,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                             <SidebarMenuSubButton
                               asChild
                               size="md"
-                              className="h-9"
+                              className="h-8"
                               isActive={
                                 !!project.controlSessionId && location === chatHref(project.controlSessionId)
                               }
@@ -171,7 +169,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                                     asChild
                                     size="md"
                                     isActive={location === taskHref || location.startsWith(`${taskHref}/`)}
-                                    className="h-9"
+                                    className="h-8"
                                   >
                                     <Link href={taskHref}>
                                       <I
@@ -183,7 +181,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                                       />
                                       <span
                                         translate="no"
-                                        className="font-mono text-[13px] text-muted-foreground"
+                                        className="font-mono text-[0.8125rem] text-muted-foreground"
                                       >
                                         {t.id.split('-')[1]}
                                       </span>
@@ -211,7 +209,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
 
         {groups.length > 0 && (
           <SidebarGroup>
-            <SidebarGroupLabel className="text-[13px]">Other AoE sessions</SidebarGroupLabel>
+            <SidebarGroupLabel className="text-[0.8125rem]">Other AoE sessions</SidebarGroupLabel>
             <SidebarGroupContent>
               <SidebarMenu>
                 {groups.map((g) => (
@@ -219,7 +217,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                     <SidebarMenuButton
                       asChild
                       tooltip={g.parent?.title ?? 'Standalone sessions'}
-                      className="h-9"
+                      className="h-8"
                     >
                       <Link href={`/#${g.parent ? `group-${g.parent.id}` : 'standalone'}`}>
                         <TerminalWindowIcon className="size-4" />
@@ -228,7 +226,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                           {g.children.some((c) => c.status === 'waiting') && (
                             <LiveStatus status="waiting" labelled={false} />
                           )}
-                          <span className="tabular text-[13px] text-muted-foreground">
+                          <span className="tabular text-[0.8125rem] text-muted-foreground">
                             {g.children.length}
                           </span>
                         </span>
@@ -242,32 +240,36 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
         )}
       </SidebarContent>
 
-      <SidebarFooter className="gap-1 pb-3">
+      <SidebarFooter className="gap-0.5 pb-2">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               asChild
               isActive={location === '/settings'}
               tooltip="Settings"
-              className="h-10 text-[15px]"
+              className="h-8 text-[0.9375rem]"
             >
               <Link href="/settings">
-                <GearSixIcon weight={location === '/settings' ? 'fill' : 'regular'} className="size-5" />
+                <GearSixIcon weight={location === '/settings' ? 'fill' : 'regular'} className="size-4" />
                 <span>Settings</span>
                 {snap.health.config.restartRequired.length > 0 && (
-                  <span className="ml-auto text-[13px] text-st-yellow">Restart</span>
+                  <span className="ml-auto text-[0.8125rem] text-st-yellow">Restart</span>
                 )}
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton onClick={onToggleTheme} tooltip="Toggle theme" className="h-10 text-[15px]">
-              {theme === 'dark' ? <SunIcon className="size-5" /> : <MoonIcon className="size-5" />}
+            <SidebarMenuButton
+              onClick={onToggleTheme}
+              tooltip="Toggle theme"
+              className="h-8 text-[0.9375rem]"
+            >
+              {theme === 'dark' ? <SunIcon className="size-4" /> : <MoonIcon className="size-4" />}
               <span>{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
-        <div className="px-2 pt-1 text-[13px] leading-snug text-muted-foreground group-data-[collapsible=icon]:hidden">
+        <div className="px-2 pt-1 text-xs leading-snug text-muted-foreground group-data-[collapsible=icon]:hidden">
           <div className="flex items-center gap-1.5">
             <span
               className={cn(

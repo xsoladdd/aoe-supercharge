@@ -50,7 +50,7 @@ export async function axe(page: Page, label: string) {
         `${v.id}: ${v.help} (${v.nodes.length}) ${v.nodes
           .slice(0, 3)
           .map((n) => n.target.join(' '))
-          .join(' | ')}`,
+          .join(' | ')} :: ${v.nodes[0]?.failureSummary?.replace(/\s+/g, ' ') ?? ''}`,
     ),
     `axe on ${label}`,
   ).toEqual([]);

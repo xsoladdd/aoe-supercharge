@@ -57,7 +57,7 @@ function NewTaskDialog({ project }: { project: string }) {
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Build the listing template…"
-              className="h-10 text-[15px]"
+              className="h-10 text-[0.9375rem]"
             />
           </div>
           <div className="space-y-2">
@@ -69,7 +69,7 @@ function NewTaskDialog({ project }: { project: string }) {
               value={brief}
               onChange={(e) => setBrief(e.target.value)}
               rows={3}
-              className="text-[15px]"
+              className="text-[0.9375rem]"
             />
             <p className="text-sm text-muted-foreground">Goal, constraints and what counts as done.</p>
           </div>
@@ -114,7 +114,7 @@ export function ProjectPage({
       <PageHeader
         title={view.project.name}
         sub={
-          <span translate="no" className="font-mono text-[13px] break-all">
+          <span translate="no" className="font-mono text-[0.8125rem] break-all">
             {view.project.repoPath}
           </span>
         }
@@ -128,7 +128,7 @@ export function ProjectPage({
             Workers
           </h2>
           {done > 0 && (
-            <label className="flex cursor-pointer items-center gap-2 text-[15px] text-muted-foreground">
+            <label className="flex cursor-pointer items-center gap-2 text-[0.9375rem] text-muted-foreground">
               <Switch checked={showDone} onCheckedChange={setShowDone} aria-label="Show done tasks" />
               Show done ({done})
             </label>

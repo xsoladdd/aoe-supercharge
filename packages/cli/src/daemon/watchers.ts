@@ -342,7 +342,11 @@ export class ConfigWatcher {
       remoteControl: loaded.config.remoteControl.enabled,
       config: { ok: true, errors: [], restartRequired },
     });
-    this.store.setUi({ theme: loaded.config.ui.theme, density: loaded.config.ui.density });
+    this.store.setUi({
+      theme: loaded.config.ui.theme,
+      density: loaded.config.ui.density,
+      scale: loaded.config.ui.scale,
+    });
     this.onApplied(loaded.config);
   }
 

@@ -31,7 +31,7 @@ export function CommandLine({ command, className }: { command: string; className
         className,
       )}
     >
-      <code translate="no" className="min-w-0 flex-1 truncate font-mono text-[13px]" title={command}>
+      <code translate="no" className="min-w-0 flex-1 truncate font-mono text-[0.8125rem]" title={command}>
         {command}
       </code>
       <span className="sr-only" aria-live="polite">
