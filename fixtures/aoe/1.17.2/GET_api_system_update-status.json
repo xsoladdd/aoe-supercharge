@@ -1,0 +1,9 @@
+{
+  "update_check_mode": "notify",
+  "current_version": "1.17.2",
+  "latest_version": "1.18.0",
+  "update_available": true,
+  "release_url": "https://github.com/agent-of-empires/agent-of-empires/releases/tag/v1.18.0",
+  "error": null,
+  "dismissed_version": null
+}

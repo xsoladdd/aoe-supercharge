@@ -1,0 +1,169 @@
+{
+  "status": "warn",
+  "cpu_fraction": 0.4457000000000001,
+  "memory_used_bytes": 26043138048,
+  "memory_total_bytes": 34359738368,
+  "load_average": [
+    7.93,
+    8.67,
+    8.46
+  ],
+  "swap_used_bytes": 21981760061,
+  "swap_total_bytes": 23622320128,
+  "agent_count": 19,
+  "proc_count": 227,
+  "agents": [
+    {
+      "id": "f000000000000100",
+      "title": "session-1",
+      "cpu_fraction": null,
+      "memory_bytes": 205078528,
+      "procs": 9,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000101",
+      "title": "session-2",
+      "cpu_fraction": null,
+      "memory_bytes": 148373504,
+      "procs": 9,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000102",
+      "title": "session-3",
+      "cpu_fraction": null,
+      "memory_bytes": 192528384,
+      "procs": 9,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000103",
+      "title": "session-4",
+      "cpu_fraction": null,
+      "memory_bytes": 184893440,
+      "procs": 9,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000104",
+      "title": "session-5",
+      "cpu_fraction": null,
+      "memory_bytes": 344244224,
+      "procs": 14,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000105",
+      "title": "session-6",
+      "cpu_fraction": null,
+      "memory_bytes": 308396032,
+      "procs": 14,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000106",
+      "title": "session-7",
+      "cpu_fraction": null,
+      "memory_bytes": 216203264,
+      "procs": 9,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000107",
+      "title": "session-8",
+      "cpu_fraction": null,
+      "memory_bytes": 1870659584,
+      "procs": 18,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000108",
+      "title": "session-9",
+      "cpu_fraction": null,
+      "memory_bytes": 347193344,
+      "procs": 14,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000109",
+      "title": "session-10",
+      "cpu_fraction": null,
+      "memory_bytes": 1599913984,
+      "procs": 23,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000110",
+      "title": "session-11",
+      "cpu_fraction": null,
+      "memory_bytes": 970555392,
+      "procs": 19,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000111",
+      "title": "session-12",
+      "cpu_fraction": null,
+      "memory_bytes": 220053504,
+      "procs": 9,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000112",
+      "title": "session-13",
+      "cpu_fraction": null,
+      "memory_bytes": 173424640,
+      "procs": 9,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000113",
+      "title": "session-14",
+      "cpu_fraction": null,
+      "memory_bytes": 161529856,
+      "procs": 9,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000114",
+      "title": "session-15",
+      "cpu_fraction": null,
+      "memory_bytes": 307281920,
+      "procs": 12,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000115",
+      "title": "session-16",
+      "cpu_fraction": null,
+      "memory_bytes": 205340672,
+      "procs": 9,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000116",
+      "title": "session-17",
+      "cpu_fraction": null,
+      "memory_bytes": 267878400,
+      "procs": 9,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000117",
+      "title": "session-18",
+      "cpu_fraction": null,
+      "memory_bytes": 336117760,
+      "procs": 14,
+      "sandboxed": false
+    },
+    {
+      "id": "f000000000000118",
+      "title": "session-19",
+      "cpu_fraction": null,
+      "memory_bytes": 187269120,
+      "procs": 9,
+      "sandboxed": false
+    }
+  ]
+}

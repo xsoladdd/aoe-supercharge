@@ -1,0 +1,4 @@
+Daemon: running (PID 57065)
+Mode:   local
+URL:    http://127.0.0.1:8080/?token=<REDACTED>
+Log:    /Users/dev/.agent-of-empires/debug.log

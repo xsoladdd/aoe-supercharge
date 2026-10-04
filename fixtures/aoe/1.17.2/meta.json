@@ -1,0 +1,25 @@
+{
+  "aoe_version": "1.17.2",
+  "source_tag": "v1.17.2",
+  "recorded_at": "2026-10-04",
+  "platform": "darwin-arm64 (macOS 26.5.1)",
+  "auth": "Authorization: Bearer <token from 'aoe url --token-only'>, no Origin header",
+  "redaction": "allowlist: enum fields, timestamps, booleans, numbers kept; ids/titles/paths/branches/groups remapped deterministically (parent links preserved)",
+  "statuses_observed": ["Idle", "Running"],
+  "statuses_from_source": ["Running", "Waiting", "Idle", "Unknown", "Stopped", "Error", "Starting", "Deleting", "Creating"],
+  "files": {
+    "GET_api_sessions.json": "GET /api/sessions",
+    "GET_api_about.json": "GET /api/about (version source for compat check)",
+    "GET_api_groups.json": "GET /api/groups",
+    "GET_api_profiles.json": "GET /api/profiles",
+    "GET_api_projects.json": "GET /api/projects",
+    "GET_api_system_health.json": "GET /api/system/health",
+    "GET_api_system_update-status.json": "GET /api/system/update-status",
+    "cli_list_json.json": "aoe list --json --state=live (only source of parent_session_id + worktree object)",
+    "cli_session_show_json.json": "aoe session show <id> --json",
+    "cli_status_json.json": "aoe status --json",
+    "cli_version.txt": "aoe --version",
+    "cli_serve_status.txt": "aoe serve --status",
+    "NOTE_spa_fallback.txt": "unknown /api paths return 200 text/html when authed"
+  }
+}

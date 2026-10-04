@@ -1,0 +1,13 @@
+{
+  "id": "f000000000000002",
+  "title": "session-2",
+  "path": "/Users/dev/code/repo-a-worktrees/feature/task-1",
+  "group": "group-1",
+  "tool": "claude",
+  "command": "",
+  "status": "idle",
+  "state": "live",
+  "agent_session_id": "00000000-0000-4000-8000-000000000001",
+  "parent_session_id": "f000000000000001",
+  "profile": "main"
+}

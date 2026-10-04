@@ -1,0 +1,366 @@
+[
+  {
+    "id": "f000000000000001",
+    "title": "session-1",
+    "path": "/Users/dev/code/repo-a",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-09-30T08:50:05.152644Z",
+    "workspace_repos": []
+  },
+  {
+    "id": "f000000000000002",
+    "title": "session-2",
+    "path": "/Users/dev/code/repo-a",
+    "group": "",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-09-30T09:07:20.048831Z",
+    "workspace_repos": []
+  },
+  {
+    "id": "f000000000000003",
+    "title": "session-3",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-1",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-09-30T11:11:30.795532Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-2",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f000000000000004",
+    "title": "session-4",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-4",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-09-30T11:36:16.361621Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-5",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f000000000000005",
+    "title": "session-5",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-6",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-09-30T11:39:14.142494Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-7",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f000000000000006",
+    "title": "session-6",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-8",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-09-30T11:39:33.569297Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-9",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f000000000000007",
+    "title": "session-7",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-10",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-09-30T16:46:13.398215Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-11",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f000000000000008",
+    "title": "session-8",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-12",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-09-30T16:46:36.077886Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-13",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f000000000000009",
+    "title": "session-9",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-14",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-09-30T19:05:40.127256Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-15",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f00000000000000a",
+    "title": "session-10",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-16",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-09-30T19:05:52.982575Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-17",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f00000000000000b",
+    "title": "session-11",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-18",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-10-01T01:33:59.056695Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-19",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f00000000000000c",
+    "title": "session-12",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-20",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-10-01T05:00:44.909957Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-21",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f00000000000000d",
+    "title": "session-13",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-22",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-10-01T05:01:09.886884Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-23",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f00000000000000e",
+    "title": "session-14",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-24",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-10-01T06:32:35.380564Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-25",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f00000000000000f",
+    "title": "session-15",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-26",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-10-02T04:50:33.214326Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-27",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f000000000000010",
+    "title": "session-16",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-28",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-10-02T07:29:24.565220Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-29",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f000000000000011",
+    "title": "session-17",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-30",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-10-03T06:28:15.372657Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-31",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f000000000000012",
+    "title": "session-18",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-32",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-10-04T14:00:42.588791Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-33",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f000000000000013",
+    "title": "session-19",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-34",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-10-04T14:00:49.793285Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-35",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f000000000000014",
+    "title": "session-20",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-36",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-10-04T14:00:59.902316Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-37",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  },
+  {
+    "id": "f000000000000015",
+    "title": "session-21",
+    "path": "/Users/dev/code/repo-e-worktrees/feature/task-38",
+    "group": "group-1",
+    "tool": "claude",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-10-04T14:01:06.959549Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "feature/task-39",
+      "main_repo_path": "/Users/dev/code/repo-e",
+      "managed_by_aoe": true,
+      "base_branch": "feature/task-3"
+    },
+    "parent_session_id": "f000000000000001"
+  }
+]

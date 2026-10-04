@@ -1,0 +1,2 @@
+# Probe: unknown /api path with valid token
+GET /api/does-not-exist -> 200 text/html (SPA fallback). Without token -> 401.
