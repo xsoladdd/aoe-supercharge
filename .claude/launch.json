@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "demo",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "demo:nobuild"],
+      "port": 4391,
+      "url": "http://localhost:4391"
+    }
+  ]
+}

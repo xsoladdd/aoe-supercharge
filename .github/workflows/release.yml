@@ -1,0 +1,54 @@
+name: Release
+
+# Tag vX.Y.Z → test, publish to npm with provenance, create a GitHub release, and open a PR on the
+# Homebrew tap. Needs secrets NPM_TOKEN and TAP_TOKEN (a token with push access to xsoladdd/homebrew-tap).
+# Before the first release: choose a license (add LICENSE and "license" in packages/cli/package.json).
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      - name: Version matches the tag
+        run: test "v$(node -p "require('./packages/cli/package.json').version")" = "$GITHUB_REF_NAME"
+      - run: npm run build
+      - run: npx vitest run
+      - name: Publish to npm
+        run: npm publish -w aoe-supercharge --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --generate-notes
+      - name: Update the Homebrew tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          url="https://registry.npmjs.org/aoe-supercharge/-/aoe-supercharge-${version}.tgz"
+          sha="$(curl -fsSL "$url" | sha256sum | awk '{print $1}')"
+          sed -e "s/{{VERSION}}/${version}/g" -e "s/{{SHA256}}/${sha}/g" Formula/aoe-supercharge.rb.tmpl > aoe-supercharge.rb
+          gh repo clone xsoladdd/homebrew-tap tap
+          mkdir -p tap/Formula && cp aoe-supercharge.rb tap/Formula/
+          cd tap
+          git switch -c "aoe-supercharge-${version}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/aoe-supercharge.rb
+          git commit -m "aoe-supercharge ${version}"
+          git push -u origin "aoe-supercharge-${version}"
+          gh pr create --title "aoe-supercharge ${version}" --body "Automated update from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"

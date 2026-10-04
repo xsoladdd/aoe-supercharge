@@ -1,0 +1,35 @@
+# Homebrew formula template. release.yml fills {{VERSION}} and {{SHA256}} and opens a PR on
+# xsoladdd/homebrew-tap. Install with: brew install xsoladdd/tap/aoe-supercharge
+class AoeSupercharge < Formula
+  desc "Parent/child dashboard for Claude Code sessions on Agent of Empires"
+  homepage "https://github.com/xsoladdd/aoe-supercharge"
+  url "https://registry.npmjs.org/aoe-supercharge/-/aoe-supercharge-{{VERSION}}.tgz"
+  sha256 "{{SHA256}}"
+
+  depends_on "aoe"
+  depends_on "git"
+  depends_on "glab"
+  depends_on "node"
+  depends_on "tmux"
+
+  def install
+    system "npm", "install", *std_npm_args
+    bin.install_symlink Dir["#{libexec}/bin/*"]
+  end
+
+  def caveats
+    <<~EOS
+      Claude Code is required and is not a Homebrew formula:
+        curl -fsSL https://claude.ai/install.sh | bash
+
+      Then:
+        supercharge doctor   # check everything
+        supercharge start    # background service, starts at login
+        supercharge open     # sign in and open the dashboard
+    EOS
+  end
+
+  test do
+    assert_match version.to_s, shell_output("#{bin}/supercharge --version")
+  end
+end

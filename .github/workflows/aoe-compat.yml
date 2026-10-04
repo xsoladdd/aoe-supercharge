@@ -1,0 +1,103 @@
+name: AoE compatibility (weekly)
+
+# SPEC §10.5: test the latest AoE release every Monday. If it passes and is outside compat.json,
+# open a PR that widens the range (with fresh fixtures). If it fails, open or update an issue.
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  latest:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.latest.outputs.version }}
+      in_range: ${{ steps.check.outputs.in_range }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: echo "version=$(gh api repos/agent-of-empires/agent-of-empires/releases/latest --jq .tag_name | sed 's/^v//')" >> "$GITHUB_OUTPUT"
+      - id: check
+        run: npx tsx scripts/compat.ts check "${{ steps.latest.outputs.version }}" >> "$GITHUB_OUTPUT"
+
+  contract:
+    needs: latest
+    if: needs.latest.outputs.in_range != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install tmux
+        run: ${{ runner.os == 'Linux' && 'sudo apt-get update && sudo apt-get install -y tmux' || 'brew install tmux' }}
+      - id: aoe
+        run: echo "bin=$(bash scripts/fetch-aoe.sh "${{ needs.latest.outputs.version }}")" >> "$GITHUB_OUTPUT"
+      - name: Live contract
+        run: |
+          set -o pipefail
+          npx tsx scripts/contract-live.ts --aoe-bin "${{ steps.aoe.outputs.bin }}" --record fixtures/aoe | tee contract.log
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-${{ matrix.os }}
+          path: |
+            contract.log
+            fixtures/aoe/${{ needs.latest.outputs.version }}/
+
+  report:
+    needs: [latest, contract]
+    if: always() && needs.latest.outputs.in_range != 'true'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.latest.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Passed on both OSes, so open a PR that widens the range
+        if: needs.contract.result == 'success'
+        run: |
+          branch="aoe-compat/$VERSION"
+          git switch -c "$branch"
+          npx tsx scripts/compat.ts widen "$VERSION"
+          mkdir -p "fixtures/aoe/$VERSION"
+          cp -R "artifacts/contract-ubuntu-latest/fixtures/aoe/$VERSION/." "fixtures/aoe/$VERSION/" 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add compat.json "fixtures/aoe/$VERSION"
+          git commit -m "Allow AoE $VERSION (live contract passed on macOS and Ubuntu)"
+          git push -u origin "$branch"
+          gh pr create --title "Allow AoE $VERSION" --body "The weekly live contract passed against AoE $VERSION on macOS and Ubuntu. This widens compat.json and adds fixtures recorded from the sandboxed run. Review the fixture diff before merging." || true
+      - name: Failed, so open or update an issue
+        if: needs.contract.result != 'success'
+        run: |
+          title="AoE $VERSION incompatible"
+          body="$(printf 'The weekly live contract failed against AoE %s.\n\n```\n%s\n```\n\nRun: %s' "$VERSION" "$(tail -40 artifacts/contract-*/contract.log 2>/dev/null)" "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")"
+          existing="$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')"
+          if [ -n "$existing" ]; then gh issue comment "$existing" --body "$body"; else gh issue create --title "$title" --body "$body"; fi

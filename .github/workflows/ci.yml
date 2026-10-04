@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Unit, integration and offline contract tests
+        run: npx vitest run
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+      - name: E2E (Chromium, Firefox, WebKit) with design gate
+        run: npx playwright test
+        env:
+          E2E_SKIP_BUILD: '1'
+      - name: Upload screenshots and report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ matrix.os }}
+          path: |
+            test-results/
+            playwright-report/
+          retention-days: 14
+      - name: Resource check
+        run: npx tsx scripts/resource-check.ts
+        env:
+          IDLE_SECONDS: '60'
+          RSS_LIMIT_MB: ${{ matrix.os == 'ubuntu-latest' && '100' || '' }}
+
+  installer:
+    name: Installer (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zsh and shellcheck (Ubuntu)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zsh shellcheck
+      - name: shellcheck
+        if: runner.os == 'Linux'
+        run: shellcheck install.sh scripts/fetch-aoe.sh
+      - name: Dry run under bash
+        run: bash install.sh --dry-run
+      - name: Dry run under zsh
+        run: zsh install.sh --dry-run
+      - name: Dry run piped (curl | bash style)
+        run: cat install.sh | bash -s -- --dry-run
+
+  installer-distros:
+    name: Installer dry run (${{ matrix.image }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['fedora:latest', 'archlinux:latest', 'debian:stable']
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash install.sh --dry-run
+
+  contract-live:
+    name: Live AoE contract (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Install tmux
+        run: ${{ runner.os == 'Linux' && 'sudo apt-get update && sudo apt-get install -y tmux' || 'brew install tmux' }}
+      - name: Download the tested AoE
+        id: aoe
+        run: echo "bin=$(bash scripts/fetch-aoe.sh "$(npx tsx scripts/compat.ts tested)")" >> "$GITHUB_OUTPUT"
+      - name: Run the live contract against it
+        run: npx tsx scripts/contract-live.ts --aoe-bin "${{ steps.aoe.outputs.bin }}"
