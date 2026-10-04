@@ -1,0 +1,45 @@
+#!/usr/bin/env node
+// Fake `glab` for tests and demos. Serves JSON from $FAKE_GLAB_DIR:
+//   mr-<iid>.json             glab mr view <iid> -F json
+//   discussions-<iid>.json    glab api .../merge_requests/<iid>/discussions
+//   mr-list.json              glab mr list --source-branch <b> -F json  (filtered by source_branch)
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const dir = process.env.FAKE_GLAB_DIR ?? '';
+const args = process.argv.slice(2);
+const val = (f) => {
+  const i = args.indexOf(f);
+  return i >= 0 ? args[i + 1] : undefined;
+};
+const read = (name, fallback) => {
+  const p = join(dir, name);
+  return existsSync(p) ? readFileSync(p, 'utf8') : fallback;
+};
+process.stderr.write('Warning: Multiple config files found. Only the first one will be used.\n');
+
+if (args[0] === 'version') {
+  process.stdout.write('glab 1.94.0 (fake)\n');
+} else if (args[0] === 'auth' && args[1] === 'status') {
+  process.stdout.write(
+    `${val('--hostname') ?? 'gitlab.com'}\n  ✓ Logged in to ${val('--hostname') ?? 'gitlab.com'} as fake\n`,
+  );
+} else if (args[0] === 'mr' && args[1] === 'view') {
+  const body = read(`mr-${args[2]}.json`, null);
+  if (!body) {
+    process.stderr.write('404 Not Found\n');
+    process.exit(1);
+  }
+  process.stdout.write(body);
+} else if (args[0] === 'mr' && args[1] === 'list') {
+  const all = JSON.parse(read('mr-list.json', '[]'));
+  const b = val('--source-branch');
+  process.stdout.write(JSON.stringify(b ? all.filter((m) => m.source_branch === b) : all));
+} else if (args[0] === 'api') {
+  const path = args.find((a) => a.includes('/discussions')) ?? '';
+  const iid = path.match(/merge_requests\/(\d+)\/discussions/)?.[1];
+  process.stdout.write(read(`discussions-${iid}.json`, '[]'));
+} else {
+  process.stderr.write(`fake glab: unsupported ${args.join(' ')}\n`);
+  process.exit(2);
+}

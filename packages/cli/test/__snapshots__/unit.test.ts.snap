@@ -1,0 +1,59 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`service files > renders a launchd plist 1`] = `
+"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.github.xsoladdd.aoe-supercharge</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/me/.nvm/versions/node/v24.14.0/bin/node</string>
+    <string>/opt/sc/dist/supercharge.mjs</string>
+    <string>daemon</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin</string>
+    <key>HOME</key>
+    <string>/Users/me</string>
+    <key>SUPERCHARGE_SERVICE</key>
+    <string>launchd</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+  <key>StandardOutPath</key>
+  <string>/Users/me/.local/state/supercharge/logs/launchd.out</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/me/.local/state/supercharge/logs/launchd.out</string>
+</dict>
+</plist>
+"
+`;
+
+exports[`service files > renders a systemd user unit 1`] = `
+"[Unit]
+Description=Agent of Empires: Supercharge dashboard daemon
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/Users/me/.nvm/versions/node/v24.14.0/bin/node /opt/sc/dist/supercharge.mjs daemon
+Environment=PATH=/opt/homebrew/bin:/usr/bin
+Environment=SUPERCHARGE_SERVICE=systemd
+Restart=on-failure
+RestartSec=5
+RestartPreventExitStatus=78
+
+[Install]
+WantedBy=default.target
+"
+`;
