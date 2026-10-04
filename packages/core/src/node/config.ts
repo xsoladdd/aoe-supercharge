@@ -150,6 +150,10 @@ export const ConfigSchema = z.strictObject({
     .strictObject({
       theme: z.enum(['dark', 'light', 'system']).default('dark').describe('Dashboard theme.'),
       density: z.enum(['comfortable', 'compact']).default('comfortable').describe('Row density.'),
+      sound: z
+        .boolean()
+        .default(true)
+        .describe('Play a sound in the dashboard when something new needs you.'),
       scale: z
         .enum(['small', 'default', 'large', 'larger'])
         .default('default')

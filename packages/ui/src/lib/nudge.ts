@@ -1,0 +1,58 @@
+import type { NeedsYouItem } from '@aoe-supercharge/core/shared';
+import { useEffect, useRef, useState } from 'react';
+
+const NUDGE_EVENT = 'supercharge:nudge';
+let audio: HTMLAudioElement | null = null;
+
+/** The "needs you" sound. Browsers only allow it after you have clicked somewhere on the page once. */
+export function playNudge(): Promise<void> {
+  audio ??= new Audio('/sounds/needs-you.mp3');
+  audio.currentTime = 0;
+  return audio.play().catch(() => {
+    // Autoplay is blocked until the first interaction; the visual nudge still shows.
+  });
+}
+
+/**
+ * Watches Needs-you for items that were not there before (not on first load) and nudges: plays the
+ * sound when it is on, tells listeners (the control chat's status strip) which items are new, and
+ * keeps the count in the tab title.
+ */
+export function useNeedsYouNudge(items: NeedsYouItem[] | undefined, sound: boolean) {
+  const seen = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!items) return;
+    const ids = new Set(items.map((i) => i.id));
+    if (seen.current) {
+      const fresh = items.filter((i) => !seen.current!.has(i.id));
+      if (fresh.length) {
+        if (sound) void playNudge();
+        window.dispatchEvent(new CustomEvent<NeedsYouItem[]>(NUDGE_EVENT, { detail: fresh }));
+      }
+    }
+    seen.current = ids;
+    document.title = items.length ? `(${items.length}) Supercharge` : 'Supercharge';
+  }, [items, sound]);
+}
+
+/** True for a few seconds after a new Needs-you item that matches `filter` arrives. */
+export function useNudgeFlash(filter: (item: NeedsYouItem) => boolean, ms = 4000): boolean {
+  const [on, setOn] = useState(false);
+  const match = useRef(filter);
+  match.current = filter;
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const onNudge = (e: Event) => {
+      if (!(e as CustomEvent<NeedsYouItem[]>).detail.some((i) => match.current(i))) return;
+      setOn(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => setOn(false), ms);
+    };
+    window.addEventListener(NUDGE_EVENT, onNudge);
+    return () => {
+      window.removeEventListener(NUDGE_EVENT, onNudge);
+      clearTimeout(timer);
+    };
+  }, [ms]);
+  return on;
+}

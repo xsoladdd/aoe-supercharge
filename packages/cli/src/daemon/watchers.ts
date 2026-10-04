@@ -346,6 +346,7 @@ export class ConfigWatcher {
       theme: loaded.config.ui.theme,
       density: loaded.config.ui.density,
       scale: loaded.config.ui.scale,
+      sound: loaded.config.ui.sound,
     });
     this.onApplied(loaded.config);
   }

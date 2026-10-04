@@ -934,6 +934,9 @@ All four phases are built. The verification behind each claim below is listed in
   - Typed in the TUI, `/model` is saved to `userSettings` as the default for new sessions. So is `/effort` low to xhigh; `max` and `auto` are session-only. The dashboard confirms each change with that spelled out, and offers only aliases. Aliases stay under AoE's 16-byte literal-send limit, so AoE's trailing space keeps autocomplete from eating the Enter.
   - Each assistant record carries `message.model` and a top-level `effort`. Commands leave `<local-command-stdout>Set model to …` / `Set effort level to …` echoes. The chat bar reads both.
 
+- **Attachments.** Claude Code turns a pasted image path into an inline image only when the whole paste is the path, and AoE's Enter would then send it alone. So attachments are uploaded to `<state>/uploads/<session>/` (never the repo) and sent as `Attached: <path>` lines that Claude opens with its Read tool. New sessions get `--add-dir` for that folder.
+- **Plan comments and notes** live in the ledger: `tasks/<id>/comments.json` and `projects/<name>/notes.md`. Sending comments while the worker shows its plan for approval uses that menu's "Tell Claude what to change"; otherwise they go as one message.
+
 ### 20.3 Measured
 
 | Metric | Target | Result |

@@ -416,6 +416,69 @@ test.describe('project', () => {
     await expect(page.getByTitle(/tokens in context$/)).toBeVisible();
   });
 
+  test('the control chat panel: comment on a plan, then send the comments in one go', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/chat/${await sessionId('northwind-web control')}`);
+    const panel = page.getByRole('complementary', { name: 'Project panel' });
+    await expect(panel.getByRole('heading', { name: /Needs you|All clear/ })).toBeVisible();
+    await panel.getByRole('tab', { name: 'Plans' }).click();
+    const card = panel.locator('details', { hasText: 'NW-0005' });
+    await card.locator('summary').click();
+    await card.getByText('Browser matrix').click({ clickCount: 3 });
+    await card.getByRole('button', { name: 'Comment' }).click();
+    const comment = `Add Edge too (${browserName})`;
+    await card.getByPlaceholder('What should change here?').fill(comment);
+    await card.getByRole('button', { name: 'Save comment' }).click();
+    await expect(card.getByText(comment)).toBeVisible();
+    await panel.getByRole('tab', { name: 'Comments' }).click();
+    await expect(panel.getByText(comment)).toBeVisible();
+    await panel.getByRole('button', { name: /^Send 1 to NW-0005$/ }).click();
+    await expect
+      .poll(async () => {
+        const id = await sessionId('NW-0005');
+        const state = (await fake('/__fake/state')) as { sent: { id: string; message: string }[] };
+        return state.sent.filter((m) => m.id === id).at(-1)?.message ?? '';
+      })
+      .toContain(`1. On "Browser matrix"\n   ${comment}`);
+    await axe(page, 'control chat panel');
+  });
+
+  test('the control chat panel keeps notes and nudges when something new needs you', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/chat/${await sessionId('northwind-web control')}`);
+    const panel = page.getByRole('complementary', { name: 'Project panel' });
+    await panel.getByRole('tab', { name: 'Notes' }).click();
+    const notes = panel.getByLabel('Notes for northwind-web');
+    const text = `Compare NW-0001 with the Figma frames (${browserName})`;
+    await notes.fill(text);
+    await expect(panel.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible();
+    await page.reload();
+    await page
+      .getByRole('complementary', { name: 'Project panel' })
+      .getByRole('tab', { name: 'Notes' })
+      .click();
+    await expect(page.getByLabel('Notes for northwind-web')).toHaveValue(text);
+    // A worker starts waiting: the status strip pulses and lists it.
+    const id = await sessionId('NW-0004');
+    await fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Waiting' }) });
+    try {
+      const brief = page
+        .getByRole('complementary', { name: 'Project panel' })
+        .locator('section[aria-labelledby="brief-heading"]');
+      await expect(brief).toHaveClass(/nudge/, { timeout: 15_000 });
+      await expect(brief.getByText(/NW-0004/).first()).toBeVisible();
+      await expect(page).toHaveTitle(/^\(\d+\) Supercharge$/);
+    } finally {
+      await fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Idle' }) });
+    }
+  });
+
   test('new task dialog builds the CLI command (dashboard never spawns agents)', async ({
     signedIn: page,
   }) => {

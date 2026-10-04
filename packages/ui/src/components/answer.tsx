@@ -341,11 +341,14 @@ export function PromptCard({
   context,
   className,
   onAnswered,
+  hidePlan = false,
 }: {
   session: SessionView;
   context?: React.ReactNode;
   className?: string;
   onAnswered?: () => void;
+  /** The Plan tab shows the plan itself (to comment on), so the card only asks. */
+  hidePlan?: boolean;
 }) {
   const prompt = session.prompt!;
   const { icon, title } = KIND[prompt.kind];
@@ -408,6 +411,7 @@ export function PromptCard({
       )}
 
       {prompt.kind === 'plan' &&
+        !hidePlan &&
         (needs && !detail ? (
           <div className="space-y-2">
             <Skeleton className="h-5 w-1/2" />
@@ -682,7 +686,7 @@ export function TaskAsks({
     </Link>
   ) : undefined;
   return (
-    <div className="space-y-4">
+    <div id={`ask-${task.id}`} className="scroll-mt-4 space-y-4 rounded-xl">
       {session?.prompt && <PromptCard session={session} onAnswered={onAnswered} context={who} />}
       {open && (
         <QuestionCard

@@ -53,6 +53,16 @@ export interface MrState {
   error: string | null;
 }
 
+/** A note you left on a plan: the text you selected and what you want changed. */
+export interface PlanComment {
+  id: string;
+  quote: string;
+  text: string;
+  createdAt: string;
+  /** Set once it went to the worker (in a batch with the others). */
+  sentAt: string | null;
+}
+
 export interface TaskRecord {
   schema: 1;
   rev: number;
@@ -179,6 +189,7 @@ export interface Snapshot {
     theme: 'dark' | 'light' | 'system';
     density: 'comfortable' | 'compact';
     scale: 'small' | 'default' | 'large' | 'larger';
+    sound: boolean;
   };
 }
 

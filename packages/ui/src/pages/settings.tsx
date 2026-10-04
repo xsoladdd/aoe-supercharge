@@ -1,4 +1,4 @@
-import { ArrowsClockwiseIcon, BellRingingIcon, FloppyDiskIcon } from '@phosphor-icons/react';
+import { ArrowsClockwiseIcon, BellRingingIcon, FloppyDiskIcon, SpeakerHighIcon } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState } from 'react';
 import type { Health } from '@aoe-supercharge/core/shared';
 import { toast } from 'sonner';
@@ -30,6 +30,7 @@ import {
   type ScalePref,
   type ThemePref,
 } from '@/lib/theme';
+import { playNudge } from '@/lib/nudge';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/pages/overview';
 
@@ -334,11 +335,11 @@ const SCALES: { value: ScalePref; label: string }[] = [
   { value: 'larger', label: 'Larger' },
 ];
 
-/** Theme and interface size: applied at once, saved to config.toml like the sidebar's theme toggle. */
-function Appearance() {
+/** Theme, interface size and the nudge sound: applied at once, saved to config.toml. */
+function Appearance({ sound }: { sound: boolean }) {
   const theme = useThemePref();
   const scale = useScalePref();
-  const save = (patch: Record<string, string>) =>
+  const save = (patch: Record<string, string | boolean>) =>
     sendJson('PUT', '/api/config', { patch: { ui: patch } }).catch((e: Error) =>
       toast.error('Could not save the appearance', { description: e.message }),
     );
@@ -384,12 +385,29 @@ function Appearance() {
             }}
           />
         </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+          <div>
+            <label htmlFor="ui-sound" className="text-[0.9375rem] font-medium">
+              Sound when something needs you
+            </label>
+            <div className="text-sm text-muted-foreground">
+              Plays in this dashboard when a new item appears.
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <Button variant="ghost" size="sm" onClick={() => void playNudge()}>
+              <SpeakerHighIcon />
+              Play
+            </Button>
+            <Switch id="ui-sound" checked={sound} onCheckedChange={(v) => void save({ sound: v })} />
+          </div>
+        </div>
       </div>
     </section>
   );
 }
 
-export function SettingsPage({ health }: { health: Health }) {
+export function SettingsPage({ health, sound }: { health: Health; sound: boolean }) {
   const [data, setData] = useState<ConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -562,7 +580,7 @@ export function SettingsPage({ health }: { health: Health }) {
 
       {data && (
         <div className="grid gap-4 xl:grid-cols-2">
-          <Appearance />
+          <Appearance sound={sound} />
           {sections.map(({ key, fields }) => {
             const needsRestart = data.restartPrefixes.includes(key);
             return (

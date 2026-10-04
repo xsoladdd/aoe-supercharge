@@ -16,7 +16,7 @@ import { chatHref } from '@/lib/nav';
 import { useNow } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
-const KIND: Record<NeedsYouKind, { icon: Icon; label: string; color: string }> = {
+export const KIND: Record<NeedsYouKind, { icon: Icon; label: string; color: string }> = {
   question: { icon: QuestionIcon, label: 'Question', color: 'text-st-red' },
   approval: { icon: HandPalmIcon, label: 'Waiting in AoE', color: 'text-st-yellow' },
   plan_approval: { icon: ClipboardTextIcon, label: 'Plan to approve', color: 'text-st-yellow' },

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { Stage } from '../shared/stages.ts';
-import type { Actor, ProjectRecord, TaskRecord } from '../shared/types.ts';
+import type { Actor, PlanComment, ProjectRecord, TaskRecord } from '../shared/types.ts';
 import { formatTaskId } from '../shared/util.ts';
 import { appendLine, ensureDir, readJson, withLock, writeFileAtomic, writeJsonAtomic } from './fs.ts';
 import type { Paths } from './paths.ts';
@@ -179,6 +179,39 @@ export class Ledger {
   async writePlan(project: string, id: string, markdown: string): Promise<string> {
     await writeFileAtomic(this.planFile(project, id), markdown);
     return createHash('sha256').update(markdown).digest('hex');
+  }
+
+  commentsFile(project: string, id: string) {
+    return join(this.taskDir(project, id), 'comments.json');
+  }
+
+  async readComments(project: string, id: string): Promise<PlanComment[]> {
+    return (await readJson<PlanComment[]>(this.commentsFile(project, id)).catch(() => null)) ?? [];
+  }
+
+  async updateComments(
+    project: string,
+    id: string,
+    fn: (cur: PlanComment[]) => PlanComment[],
+  ): Promise<PlanComment[]> {
+    return withLock(this.taskDir(project, id), async () => {
+      const next = fn(await this.readComments(project, id));
+      await writeJsonAtomic(this.commentsFile(project, id), next);
+      return next;
+    });
+  }
+
+  /** Your scratch notes for a project (the control chat's Notes tab). */
+  notesFile(project: string) {
+    return join(this.projectDir(project), 'notes.md');
+  }
+
+  async readNotes(project: string): Promise<string> {
+    return readFile(this.notesFile(project), 'utf8').catch(() => '');
+  }
+
+  async writeNotes(project: string, text: string): Promise<void> {
+    await writeFileAtomic(this.notesFile(project), text);
   }
 }
 

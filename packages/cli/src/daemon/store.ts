@@ -28,7 +28,7 @@ export class Store {
   projects: ProjectRecord[] = [];
   tasks: TaskRecord[] = [];
   needsYou: NeedsYouItem[] = [];
-  ui: Snapshot['ui'] = { theme: 'dark', density: 'comfortable', scale: 'default' };
+  ui: Snapshot['ui'] = { theme: 'dark', density: 'comfortable', scale: 'default', sound: true };
   sessionsLoaded = false;
   ledgerLoaded = false;
 

@@ -15,6 +15,7 @@ import {
   type TaskRecord,
   EFFORT_LEVELS,
   MODEL_ALIASES,
+  type PlanComment,
 } from '@aoe-supercharge/core/shared';
 import type { AoeCliListEntry } from './aoe/schemas.ts';
 import { VERSION, type Ctx } from './context.ts';
@@ -561,6 +562,47 @@ export async function setSessionModel(
     );
   if (opts.model !== undefined) await sendToSession(ctx, { ...opts, message: `/model ${opts.model}` });
   if (opts.effort !== undefined) await sendToSession(ctx, { ...opts, message: `/effort ${opts.effort}` });
+}
+
+/** Your plan comments as one message the worker can act on, in the order you wrote them. */
+export function formatPlanComments(comments: PlanComment[]): string {
+  const lines = ['Comments on your plan:', ''];
+  comments.forEach((c, i) => {
+    const quote = c.quote.replace(/\s+/g, ' ').trim();
+    lines.push(
+      `${i + 1}. On "${quote.length > 300 ? `${quote.slice(0, 300)}…` : quote}"`,
+      `   ${c.text.trim()}`,
+      '',
+    );
+  });
+  lines.push('Revise the plan with these, then show it to me again.');
+  return lines.join('\n');
+}
+
+/**
+ * Send a task's unsent plan comments (or the given ones) to its worker in one message. When the
+ * worker is showing its plan for approval, they go in as that menu's "Tell Claude what to change".
+ */
+export async function sendPlanComments(
+  ctx: Ctx,
+  opts: { project: string; taskId: string; ids?: string[]; actor: 'cli' | 'ui' | 'control' },
+): Promise<PlanComment[]> {
+  const task = await ctx.ledger.getTask(opts.project, opts.taskId);
+  if (!task) throw new CliError(`Unknown task ${opts.taskId} in ${opts.project}.`, EXIT.usage);
+  const all = await ctx.ledger.readComments(opts.project, opts.taskId);
+  const pick = all.filter((c) => !c.sentAt && (!opts.ids || opts.ids.includes(c.id)));
+  if (!pick.length) throw new CliError('There are no unsent comments to send.', EXIT.usage);
+  const message = formatPlanComments(pick);
+  const menu = await menuOnScreen(ctx, task.aoeSessionId);
+  const change = menu && /plan/i.test(menu.question) ? menu.options.find((o) => o.feedback) : undefined;
+  const base = { sessionId: task.aoeSessionId, actor: opts.actor, project: task.project, taskId: task.id };
+  if (menu && change) await answerPrompt(ctx, { ...base, key: menu.key, option: change.n, text: message });
+  else await sendToSession(ctx, { ...base, message });
+  const at = new Date().toISOString();
+  const ids = new Set(pick.map((c) => c.id));
+  return ctx.ledger.updateComments(opts.project, opts.taskId, (cur) =>
+    cur.map((c) => (ids.has(c.id) ? { ...c, sentAt: at } : c)),
+  );
 }
 
 /** `--model` / `--effort` for a new session from config: session-only, unlike /model typed later. */

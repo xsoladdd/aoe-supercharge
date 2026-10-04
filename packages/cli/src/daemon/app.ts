@@ -13,6 +13,7 @@ import {
   patchConfig,
   safeEqual,
 } from '@aoe-supercharge/core/node';
+import type { PlanComment } from '@aoe-supercharge/core/shared';
 import { VERSION, type Ctx } from '../context.ts';
 import { buildProjectStatus } from '../status.ts';
 import { CliError } from '../util/errors.ts';
@@ -25,6 +26,7 @@ import {
   MenuOpenError,
   PromptChangedError,
   replyToTask,
+  sendPlanComments,
   sendToSession,
   setSessionModel,
   TerminalBusyCliError,
@@ -57,6 +59,7 @@ const MIME: Record<string, string> = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.mp3': 'audio/mpeg',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
   '.woff': 'font/woff',
@@ -238,6 +241,82 @@ export function createApp(deps: AppDeps) {
     const task = await ctx.ledger.getTask(project, id);
     if (!task) return c.json({ error: 'not_found', message: 'Unknown task' }, 404);
     return c.json({ task, plan: await ctx.ledger.readPlan(project, id) });
+  });
+
+  // Plan comments: select text in a plan, comment, then send them to the worker in one go.
+  app.get('/api/tasks/:project/:id/comments', async (c) => {
+    const { project, id } = c.req.param();
+    if (!(await ctx.ledger.getTask(project, id)))
+      return c.json({ error: 'not_found', message: 'Unknown task' }, 404);
+    return c.json({ comments: await ctx.ledger.readComments(project, id) });
+  });
+
+  app.post('/api/tasks/:project/:id/comments', async (c) => {
+    const { project, id } = c.req.param();
+    if (!(await ctx.ledger.getTask(project, id)))
+      return c.json({ error: 'not_found', message: 'Unknown task' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { quote?: unknown; text?: unknown };
+    const quote = typeof body.quote === 'string' ? body.quote.trim().slice(0, 4000) : '';
+    const text = typeof body.text === 'string' ? body.text.trim().slice(0, 8000) : '';
+    if (!quote || !text)
+      return c.json({ error: 'bad_request', message: 'Select some text and write a comment.' }, 400);
+    const comment: PlanComment = {
+      id: randomBytes(6).toString('hex'),
+      quote,
+      text,
+      createdAt: new Date().toISOString(),
+      sentAt: null,
+    };
+    const comments = await ctx.ledger.updateComments(project, id, (cur) => [...cur, comment]);
+    return c.json({ comment, comments });
+  });
+
+  app.delete('/api/tasks/:project/:id/comments/:cid', async (c) => {
+    const { project, id, cid } = c.req.param();
+    const comments = await ctx.ledger.updateComments(project, id, (cur) => cur.filter((x) => x.id !== cid));
+    return c.json({ comments });
+  });
+
+  app.post('/api/tasks/:project/:id/comments/send', async (c) => {
+    const { project, id } = c.req.param();
+    const body = (await c.req.json().catch(() => ({}))) as { ids?: unknown };
+    const ids = Array.isArray(body.ids)
+      ? body.ids.filter((x): x is string => typeof x === 'string')
+      : undefined;
+    try {
+      const comments = await sendPlanComments(ctx, { project, taskId: id, ids, actor: 'ui' });
+      return c.json({ ok: true, comments });
+    } catch (err) {
+      return sendError(c, err, 'comments_failed');
+    }
+  });
+
+  // Every active task's comments, for the control chat's side panel.
+  app.get('/api/projects/:name/comments', async (c) => {
+    const name = c.req.param('name');
+    const tasks = store.tasks.filter((t) => t.project === name && t.stage !== 'done');
+    const out = await Promise.all(
+      tasks.map(async (t) => ({ taskId: t.id, comments: await ctx.ledger.readComments(name, t.id) })),
+    );
+    return c.json({ tasks: out });
+  });
+
+  app.get('/api/projects/:name/notes', async (c) => {
+    const name = c.req.param('name');
+    if (!store.projects.some((p) => p.name === name))
+      return c.json({ error: 'not_found', message: 'Unknown project' }, 404);
+    return c.json({ text: await ctx.ledger.readNotes(name) });
+  });
+
+  app.put('/api/projects/:name/notes', async (c) => {
+    const name = c.req.param('name');
+    if (!store.projects.some((p) => p.name === name))
+      return c.json({ error: 'not_found', message: 'Unknown project' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { text?: unknown };
+    if (typeof body.text !== 'string' || body.text.length > 200_000)
+      return c.json({ error: 'bad_request', message: 'Notes must be text, up to 200k characters.' }, 400);
+    await ctx.ledger.writeNotes(name, body.text);
+    return c.json({ ok: true });
   });
 
   app.post('/api/tasks/:project/:id/reply', async (c) => {

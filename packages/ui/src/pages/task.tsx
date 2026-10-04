@@ -19,6 +19,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
 import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
+import { CommentablePlan, CommentList, useComments } from '@/components/plan-comments';
 import { CommandLine } from '@/components/copy';
 import { LiveStatus, MrBadge, StageBadge, StageStepper, STAGE_META } from '@/components/status';
 import {
@@ -115,36 +116,6 @@ function usePlan(task: TaskRecord) {
     };
   }, [task.project, task.id, task.plan?.sha256]);
   return { plan, error };
-}
-
-function SavedPlan({ task }: { task: TaskRecord }) {
-  const { plan, error } = usePlan(task);
-  if (error)
-    return (
-      <p role="alert" className="text-[0.9375rem] text-st-red">
-        Could not load the plan: {error}. Reload the page to retry.
-      </p>
-    );
-  if (plan === undefined)
-    return (
-      <div className="space-y-2">
-        <Skeleton className="h-6 w-1/2" />
-        <Skeleton className="h-4 w-3/4" />
-        <Skeleton className="h-4 w-2/3" />
-      </div>
-    );
-  if (!plan)
-    return (
-      <p className="text-[0.9375rem] text-muted-foreground">
-        No plan saved yet. The worker saves it with{' '}
-        <code className="font-mono text-[0.8125rem]">supercharge plan</code> once you approve it.
-      </p>
-    );
-  return (
-    <Suspense fallback={<Skeleton className="h-24 w-full" />}>
-      <ChatMarkdown text={plan} />
-    </Suspense>
-  );
 }
 
 /** A free-form message to the worker, confirmed before it is sent. */
@@ -380,20 +351,60 @@ function Overview({
 
 function PlanTab({ task, session }: { task: TaskRecord; session: SessionView | null }) {
   const pending = session?.prompt?.kind === 'plan';
+  const { comments, add, remove, send } = useComments(task.project, task.id);
+  const [pendingPlan, setPendingPlan] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (!pending) return setPendingPlan(undefined);
+    let live = true;
+    getJson<{ plan: string | null }>(`/api/sessions/${encodeURIComponent(session!.id)}/prompt`)
+      .then((r) => live && setPendingPlan(r.plan))
+      .catch(() => live && setPendingPlan(null));
+    return () => {
+      live = false;
+    };
+  }, [pending, session?.id, session?.prompt?.key]);
+  const saved = usePlan(task);
+  const text = pending ? pendingPlan : saved.plan;
   return (
-    <div className="mx-auto max-w-3xl space-y-6 px-5 py-6 lg:px-7">
-      {pending && <PromptCard session={session!} context="A new plan from the worker" />}
-      <section aria-labelledby="saved-plan">
-        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 id="saved-plan" className="text-base font-semibold">
-            {task.plan?.status === 'draft' ? 'Draft plan' : 'Saved plan'}
+    <div className="mx-auto max-w-3xl space-y-5 px-5 py-5 lg:px-7">
+      <section aria-labelledby="plan-heading" className="rounded-xl border border-border bg-card">
+        <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border px-5 py-2.5">
+          <h2 id="plan-heading" className="text-sm font-semibold text-muted-foreground">
+            {pending
+              ? 'Plan waiting for your approval'
+              : task.plan?.status === 'draft'
+                ? 'Draft plan'
+                : 'Saved plan'}
           </h2>
-          {task.plan && <span className="text-sm text-muted-foreground">Saved with supercharge plan</span>}
+          <span className="text-xs text-muted-foreground">Select text to comment on it</span>
         </div>
-        <div className="rounded-xl border border-border bg-card px-5 py-4">
-          <SavedPlan task={task} />
+        <div className="px-5 py-4">
+          {text === undefined ? (
+            <Skeleton className="h-32 w-full" />
+          ) : text ? (
+            <CommentablePlan markdown={text} comments={comments ?? []} onAdd={add} />
+          ) : (
+            <p className="text-[0.9375rem] text-muted-foreground">
+              No plan saved yet. The worker saves it with{' '}
+              <code className="font-mono text-[0.8125rem]">supercharge plan</code> once you approve it.
+            </p>
+          )}
         </div>
       </section>
+      {text && (
+        <section aria-labelledby="comments-heading" className="space-y-2">
+          <h2 id="comments-heading" className="text-sm font-semibold text-muted-foreground">
+            Your comments
+          </h2>
+          <CommentList comments={comments} onDelete={remove} onSend={send} target={task.id} />
+          {pending && (
+            <p className="text-xs text-muted-foreground">
+              While the plan waits for approval, comments go in as “Tell Claude what to change”.
+            </p>
+          )}
+        </section>
+      )}
+      {pending && <PromptCard session={session!} context="Answer when you are done commenting" hidePlan />}
     </div>
   );
 }

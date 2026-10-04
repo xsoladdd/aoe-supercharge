@@ -7,7 +7,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ChatResponse, Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
-import { ASK_MENU, PERMISSION_MENU, startFakeAoe, type FakeAoe } from '../../fake-aoe/src/server.ts';
+import {
+  ASK_MENU,
+  PERMISSION_MENU,
+  PLAN_MENU,
+  startFakeAoe,
+  type FakeAoe,
+} from '../../fake-aoe/src/server.ts';
 
 const ROOT = join(import.meta.dirname, '../../..');
 const CLI = join(ROOT, 'packages/cli/dist/supercharge.mjs');
@@ -728,6 +734,71 @@ describe('daemon: security, live state and the MR watcher', () => {
       (await fetch(`${base()}/api/uploads/${control}/..%2F..%2Fconfig.toml`, { headers: auth })).status,
     ).toBe(404);
     expect((await upload('empty.txt', new Uint8Array())).status).toBe(400);
+  });
+
+  it('plan comments: added, listed per project, sent in one batch (as plan feedback while it waits)', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const json = { ...auth, 'content-type': 'application/json' };
+    const snap = (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const task = snap.tasks[0]!;
+    const url = `${base()}/api/tasks/${task.project}/${task.id}/comments`;
+    const add = (quote: string, text: string) =>
+      fetch(url, { method: 'POST', headers: json, body: JSON.stringify({ quote, text }) });
+    expect((await add('', 'no quote')).status).toBe(400);
+    await add('Use the deck from Friday', 'Wait for Monday instead');
+    const second = (await (await add('Storybook', 'Skip the visual tests')).json()) as {
+      comment: { id: string };
+    };
+    const third = (await (await add('Throwaway', 'Delete me')).json()) as { comment: { id: string } };
+    await fetch(`${url}/${third.comment.id}`, { method: 'DELETE', headers: auth });
+    const project = (await (
+      await fetch(`${base()}/api/projects/${task.project}/comments`, { headers: auth })
+    ).json()) as {
+      tasks: { taskId: string; comments: { text: string }[] }[];
+    };
+    expect(project.tasks.find((t) => t.taskId === task.id)?.comments.map((c) => c.text)).toEqual([
+      'Wait for Monday instead',
+      'Skip the visual tests',
+    ]);
+    // The worker shows its plan for approval: the comments go in as "Tell Claude what to change".
+    await fetch(`${fake.url}/__fake/sessions/${task.aoeSessionId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Waiting', menu: PLAN_MENU }),
+    });
+    const before = fake.state.sent.length;
+    const sent = await fetch(`${url}/send`, { method: 'POST', headers: json, body: '{}' });
+    expect(sent.status).toBe(200);
+    const out = fake.state.sent.slice(before).map((m) => m.message);
+    expect(out[0]).toBe('3');
+    expect(out[1]).toContain('Comments on your plan:');
+    expect(out[1]).toContain('1. On "Use the deck from Friday"\n   Wait for Monday instead');
+    expect(out[1]).toContain('2. On "Storybook"\n   Skip the visual tests');
+    const after = ((await sent.json()) as { comments: { sentAt: string | null }[] }).comments;
+    expect(after.every((c) => c.sentAt)).toBe(true);
+    expect(second.comment.id).toBeTruthy();
+    // Nothing left to send.
+    expect((await fetch(`${url}/send`, { method: 'POST', headers: json, body: '{}' })).status).toBe(400);
+    await fetch(`${fake.url}/__fake/sessions/${task.aoeSessionId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Idle', menu: null }),
+    });
+  });
+
+  it('project notes are saved next to the ledger', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const url = `${base()}/api/projects/northwind/notes`;
+    expect(((await (await fetch(url, { headers: auth })).json()) as { text: string }).text).toBe('');
+    const put = await fetch(url, {
+      method: 'PUT',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ text: '# Ideas\n- compare NO-0001 with the deck' }),
+    });
+    expect(put.status).toBe(200);
+    expect(await readFile(join(home, '.local/share/supercharge/projects/northwind/notes.md'), 'utf8')).toBe(
+      '# Ideas\n- compare NO-0001 with the deck',
+    );
   });
 
   it('serves the project status in the control-chat format', async () => {

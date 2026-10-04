@@ -22,6 +22,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { sendJson } from '@/lib/api';
 import { HeaderSlotContext } from '@/lib/header-slot';
+import { useNeedsYouNudge } from '@/lib/nudge';
 import { useSearchParam } from '@/lib/nav';
 import { startLive, useLive, type Connection } from '@/lib/live';
 import { setThemePref, useResolvedTheme, useSyncScaleFrom, useSyncThemeFrom } from '@/lib/theme';
@@ -160,6 +161,7 @@ export function App() {
   }, []);
   useSyncThemeFrom(snap?.ui.theme);
   useSyncScaleFrom(snap?.ui.scale);
+  useNeedsYouNudge(snap?.needsYou, snap?.ui.sound ?? true);
   // Links from before the chat page (`?session=<id>`) still land on the chat.
   useEffect(() => {
     if (legacySession) navigate(`/chat/${encodeURIComponent(legacySession)}`, { replace: true });
@@ -275,7 +277,7 @@ export function App() {
                     <OverviewPage snap={snap} />
                   </Route>
                   <Route path="/settings">
-                    <SettingsPage health={snap.health} />
+                    <SettingsPage health={snap.health} sound={snap.ui.sound} />
                   </Route>
                   <Route path="/p/:project/t/:taskId/:tab?">
                     {taskParams && (
