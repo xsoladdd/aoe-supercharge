@@ -44,7 +44,7 @@ Observed live:
 - **AoE's own status detection** runs through hooks it installs in `~/.claude/settings.json` (`Notification`, `Stop`, `PreToolUse`, …). Supercharge must not touch these.
 - **Other useful commands:** `aoe send <id> <msg>` (revives dead sessions unless `--no-revive`), `aoe session color <id> red|amber|green|none`, `aoe session current -q`.
 - **Upgrades.** `aoe update [--check|--dry-run|-y]` installs **latest only**; there is no version pin.
-- **Isolation.** Profiles (`aoe profile create`) give isolated workspaces. There is no `AOE_HOME`-style variable; the app dir comes from `HOME`, so a sandbox runs AoE with a temporary `HOME` **[verify in Phase 4]**.
+- **Isolation.** Profiles (`aoe profile create`) give isolated workspaces. There is no `AOE_HOME`-style variable; the app dir comes from `HOME`, so a sandbox runs AoE with a temporary `HOME`. **Verified**: the live contract leaves the real AoE data, tmux server and Claude settings byte-identical.
 
 **From AoE source at tag `v1.17.2` (commit `ac1f582`); file and line references are in `docs/phase0/aoe-1.17.2-source-notes.md`:**
 
@@ -104,7 +104,7 @@ Recorded fixtures (redacted, allowlist-based, produced by `scripts/phase0-redact
 | curl 8.7.1 | resolves |
 | Chrome 153 | resolves |
 | Safari 26.5 | resolves |
-| Firefox | **not installed here.** Verified in CI with Playwright Firefox on macOS and Ubuntu (Phase 1 exit criterion). |
+| Firefox 155 (Playwright) | resolves (E2E suite, 2026-10-05) |
 
 No `/etc/hosts` edits are needed. On Linux, systemd's `nss-myhostname`/`resolved` map `*.localhost` to loopback, and Chrome and Firefox hardcode it anyway **[verify on Ubuntu CI]**.
 
@@ -658,7 +658,7 @@ Bound to **127.0.0.1 only**. Requests are rejected unless the `Host` header is `
    - Large numbers get slight negative tracking (-0.02em) [L].
 4. **Icons:** Phosphor (`@phosphor-icons/react`, MIT). One family, one weight ("regular") [T].
    - lucide isn't used. Icon imports in generated shadcn components are swapped to Phosphor.
-   - Whether shadcn's `iconLibrary` setting can emit Phosphor directly is **[verify]**.
+   - Verified: shadcn's `iconLibrary: "phosphor"` emits Phosphor imports directly.
 5. **Radius scale (shape lock):** badges are pills; buttons and inputs 8 px; cards 12 px; drawer and panels 16 px. This applies everywhere [T][L].
 6. **Depth comes from a surface ladder plus 1 px hairlines, not shadows.** Shadows (tinted) appear only on floating layers: drawer, dialog, popover, toast [L].
 7. **Cards only where elevation means hierarchy** [T].
@@ -830,8 +830,8 @@ Spacing is a 4 px grid.
 | git | `git --version` | brew | `apt install git` | `dnf install git` | `pacman -S git` |
 | tmux | `tmux -V` | brew | apt | dnf | pacman |
 | Node LTS (≥24) | `node -v` (respects nvm/fnm/volta) | `brew install node@24` | NodeSource 24.x **[verify]** | NodeSource **[verify]** | `nodejs-lts-krypton` **[verify]** |
-| Claude Code | `claude --version` | official installer **[verify]** | official installer | official installer | official installer |
-| AoE | `aoe --version` + compat | AoE's official install script/tarball **[verify]** | same | same | same |
+| Claude Code | `claude --version` | `curl -fsSL https://claude.ai/install.sh \| bash` (verified in the Claude Code docs) | same | same | same |
+| AoE | `aoe --version` + compat | `brew install aoe` | AoE's `scripts/install.sh` | same | same |
 | glab | `glab version` | `brew install glab` | GitLab .deb **[verify]** | `dnf install glab` **[verify]** | `pacman -S glab` **[verify]** |
 
 3. Print the plan (installed ✓ / to install, with the exact commands) and ask for confirmation unless `--yes`. `--dry-run` prints the plan only.
@@ -883,3 +883,70 @@ Each phase ends with green CI, an updated README, a summary of what changed and 
 
 ## 19. Out of scope for v1
 Windows; agents other than Claude Code; GitHub provider (`gh`); exposing the dashboard beyond localhost; automatic prompts to workers (for example on CI failure); managing AoE beyond ensuring `aoe serve` is running.
+
+---
+
+## 20. Implementation notes (v0.1.0, 2026-10-05)
+
+All four phases are built. The verification behind each claim below is listed in §20.4.
+
+### 20.1 Deviations from this spec
+
+| Spec said | Built | Why |
+|---|---|---|
+| pino + rotating-file-stream | A small JSON-lines logger with gzip rotation and token redaction (`packages/cli/src/util/logger.ts`) | One self-contained bundle with no worker-thread transports; log volume is tiny |
+| @tanstack/react-query | A ~90-line `useSyncExternalStore` store fed by SSE (`packages/ui/src/lib/live.ts`) | One stream, one snapshot; smaller bundle |
+| `GET /api/tasks/:id` | `GET /api/tasks/:project/:id` | Task ids are only unique per project |
+| Restart through `launchctl kickstart` / `systemctl restart` | The daemon exits with code 75. launchd `KeepAlive` or systemd `Restart=on-failure` brings it back; a foreground run has a tiny built-in supervisor | Same behaviour everywhere, and the Restart button also works in the foreground |
+| Status colours in §14.3 | Re-solved so that text stays at least 4.6:1 even on its own 14% tint (dark: blue `#61afff`, red `#fa8486`, violet `#c599ea`, …; light: blue `#095db7`, amber `#7d5800`, …) | The axe gate caught 3.9:1 on tinted pills |
+| "New task" button | Builds the exact `supercharge task new …` command to copy | The dashboard never spawns agents on its own (§8.2) |
+| — | `?session=<id>` deep links the session drawer; `?done=1` shows done tasks | Web Interface Guidelines audit: URL reflects state |
+| `license` in package.json | Left out | Choosing a license is the owner's call; needed before the first publish |
+
+### 20.2 New AoE facts found while building
+
+- **Hook consent.** A fresh AoE refuses to *launch* agents until `has_acknowledged_agent_hooks = true` is set in `<app_dir>/state.toml` (approved once in the TUI). `aoe add` still creates the session and exits non-zero.
+  - `init` and `task new` now keep the session and print the fix (`aoe session start <id>`).
+  - `doctor` checks the flag.
+- **`aoe add -c`** only accepts known agent names. The sandbox uses `--tool claude --cmd-override <stand-in agent>`.
+- **`aoe add -b`** fetches the base branch from `origin`.
+- **`aoe serve` picks up CLI-created sessions after a short delay.** The contract test waits for them; the daemon's reconcile handles it.
+- **App dir on macOS:** `$XDG_CONFIG_HOME/agent-of-empires` if it exists, else `~/.agent-of-empires`. AoE creates the XDG dir on first use when `XDG_CONFIG_HOME` is set.
+- **AoE 1.18.0 release binary** is named `aoe-<os>-<arch>`. 1.18 only recognises its own daemon when the binary is named `aoe`, so the upgrade path renames it.
+- **AoE 1.18.0 passes all 18 live contract checks.** `supercharge aoe upgrade` is ready to move from 1.17.2 to 1.18.0.
+
+### 20.3 Measured
+
+| Metric | Target | Result |
+|---|---|---|
+| Daemon idle RSS (worker) | < 100 MB | 71–81 MB |
+| Foreground supervisor RSS | — | about 41 MB (foreground only; absent under launchd/systemd) |
+| Idle CPU | — | 0.3–0.5% |
+| CLI cold start, `--version` | < 150 ms | 60–92 ms |
+| CLI cold start, `whoami` | < 150 ms | about 130 ms |
+
+### 20.4 Verification
+
+- **Vitest, 305 tests:**
+  - exhaustive stage machine,
+  - ledger with 20 concurrent writers,
+  - config round-trip that keeps comments,
+  - glab parsing and the ready rule,
+  - service file rendering (the plist passes `plutil -lint`),
+  - offline contract against the recorded fixtures,
+  - integration: the real CLI and daemon against fake AoE, covering auth, CSRF, the Host gate, SSE, and the MR watcher.
+- **Playwright, 46 tests across Chromium, Firefox and WebKit:**
+  - axe has no serious or critical findings in either theme,
+  - no em or en dashes in UI text,
+  - reduced motion,
+  - screenshots at 1440×900 and 1080×1920 in both themes.
+- **`web-design-guidelines` audit.** Findings were fixed, except Title Case, which conflicts with the sentence case chosen in §14.0.
+- **Live contract** against the real AoE 1.17.2 and 1.18.0 binaries: 18/18 each, sandboxed.
+- **`install.sh --dry-run`** under bash, zsh, and piped.
+
+### 20.5 Still open
+
+- Node 26 becomes LTS later in October 2026. Raise `engines` and CI after that.
+- Whether project-level or user-level skills win when `init --commit` creates both with the same names (§8.1): not exercised against a real Claude session yet.
+- A systemd `--user` test in a CI container (§17).
+- CI workflows are written and their YAML is validated, but they have not run on GitHub yet; nothing has been pushed.
