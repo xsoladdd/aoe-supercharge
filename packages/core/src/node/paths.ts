@@ -1,0 +1,56 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+export interface Paths {
+  home: string;
+  configDir: string;
+  configFile: string;
+  tokenFile: string;
+  dataDir: string;
+  projectsDir: string;
+  rolesDir: string;
+  stateDir: string;
+  logsDir: string;
+  logFile: string;
+  auditFile: string;
+  compatLocalFile: string;
+  daemonStateFile: string;
+  localFixturesDir: string;
+  claudeSkillsDir: string;
+  launchAgentsDir: string;
+  systemdUserDir: string;
+}
+
+/** XDG layout on both macOS and Linux (SPEC §6). `$XDG_*` and `$CLAUDE_CONFIG_DIR` are respected. */
+export function resolvePaths(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = env.HOME ?? homedir(),
+): Paths {
+  const configHome = env.XDG_CONFIG_HOME || join(home, '.config');
+  const dataHome = env.XDG_DATA_HOME || join(home, '.local', 'share');
+  const stateHome = env.XDG_STATE_HOME || join(home, '.local', 'state');
+  const configDir = join(configHome, 'supercharge');
+  const dataDir = join(dataHome, 'supercharge');
+  const stateDir = join(stateHome, 'supercharge');
+  const logsDir = join(stateDir, 'logs');
+  const claudeDir = env.CLAUDE_CONFIG_DIR || join(home, '.claude');
+  return {
+    home,
+    configDir,
+    configFile: join(configDir, 'config.toml'),
+    tokenFile: join(configDir, 'auth.token'),
+    dataDir,
+    projectsDir: join(dataDir, 'projects'),
+    rolesDir: join(dataDir, 'agent', 'claude-code', 'roles'),
+    stateDir,
+    logsDir,
+    logFile: join(logsDir, 'daemon.log'),
+    auditFile: join(stateDir, 'audit.jsonl'),
+    compatLocalFile: join(stateDir, 'compat.local.json'),
+    daemonStateFile: join(stateDir, 'daemon.json'),
+    localFixturesDir: join(stateDir, 'fixtures'),
+    claudeSkillsDir: join(claudeDir, 'skills'),
+    launchAgentsDir: join(home, 'Library', 'LaunchAgents'),
+    systemdUserDir: join(configHome, 'systemd', 'user'),
+  };
+}

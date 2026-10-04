@@ -1,0 +1,14 @@
+node_modules
+dist
+fixtures
+docs/design/references
+packages/ui/src/components/ui
+.claude
+*.md
+.e2e-tmp
+test-results
+playwright-report
+.playwright-mcp
+.aoe-bin
+packages/cli/test/__snapshots__
+package-lock.json
