@@ -670,6 +670,32 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(empty.status).toBe(400);
   });
 
+  it('switches a running session’s model and effort by typing /model and /effort (audited)', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const snap = (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const control = snap.projects[0]!.controlSessionId!;
+    const post = (body: unknown) =>
+      fetch(`${base()}/api/sessions/${control}/model`, {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    expect((await post({ model: 'sonnet' })).status).toBe(200);
+    expect(fake.state.sent.at(-1)).toMatchObject({ id: control, message: '/model sonnet' });
+    expect((await post({ effort: 'max' })).status).toBe(200);
+    expect(fake.state.sent.at(-1)).toMatchObject({ id: control, message: '/effort max' });
+    // Only the listed aliases: anything else never reaches the session.
+    const bad = await post({ model: 'sonnet; rm -rf ~' });
+    expect(bad.status).toBe(400);
+    expect(fake.state.sent.at(-1)!.message).toBe('/effort max');
+    const chat = (await (
+      await fetch(`${base()}/api/sessions/${control}/chat`, { headers: auth })
+    ).json()) as ChatResponse;
+    expect([chat.model, chat.effort]).toEqual(['claude-sonnet-5', 'max']);
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"action":"prompt_sent".*\/model sonnet/);
+  });
+
   it('serves the project status in the control-chat format', async () => {
     const r = await sc(['status', '--project', 'northwind', '--json']);
     const st = JSON.parse(r.stdout);

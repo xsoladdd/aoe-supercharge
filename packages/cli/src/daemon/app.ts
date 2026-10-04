@@ -25,6 +25,7 @@ import {
   PromptChangedError,
   replyToTask,
   sendToSession,
+  setSessionModel,
   TerminalBusyCliError,
   type QuestionAnswer,
 } from '../workflow.ts';
@@ -309,6 +310,30 @@ export function createApp(deps: AppDeps) {
       return c.json({ ok: true });
     } catch (err) {
       return sendError(c, err, 'send_failed');
+    }
+  });
+
+  // Switch a running session's model or effort (/model, /effort). The UI warns that Claude Code also
+  // saves it as the user's default before calling this.
+  app.post('/api/sessions/:id/model', async (c) => {
+    const id = c.req.param('id');
+    if (!store.sessions.some((s) => s.id === id))
+      return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { model?: unknown; effort?: unknown };
+    const task = store.tasks.find((t) => t.aoeSessionId === id) ?? null;
+    const project = task?.project ?? store.projects.find((p) => p.controlSessionId === id)?.name ?? null;
+    try {
+      await setSessionModel(ctx, {
+        sessionId: id,
+        model: typeof body.model === 'string' ? body.model : undefined,
+        effort: typeof body.effort === 'string' ? body.effort : undefined,
+        actor: 'ui',
+        project,
+        taskId: task?.id ?? null,
+      });
+      return c.json({ ok: true });
+    } catch (err) {
+      return sendError(c, err, 'model_failed');
     }
   });
 

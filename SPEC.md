@@ -928,6 +928,12 @@ All four phases are built. The verification behind each claim below is listed in
 - **Claude Code does not always write an AskUserQuestion call to the transcript before it is answered**, while ExitPlanMode is written while waiting. So the question on screen, its options and descriptions, and the other questions' headers (from the tab bar) are read from the pane. The full set is used when the transcript has it.
   - The daemon reads menus from the pane (`parseTerminalMenu`) for waiting sessions only. It takes the kind (plan, permission, question) from the pending tool call in the transcript. An answer is delivered only while a menu with the same key is still on screen.
 
+- **Model and effort (Claude Code 2.1.236).**
+  - New sessions take `--model <alias|id>` and `--effort <low|medium|high|xhigh|max>`, which apply to that session only. `agent.model` and `agent.effort` set them for new control chats and workers.
+  - A running session can only be changed by typing `/model <alias>` or `/effort <level>`, and AoE cannot change a session's launch flags (`PATCH /api/sessions/{id}` only renames it).
+  - Typed in the TUI, `/model` is saved to `userSettings` as the default for new sessions. So is `/effort` low to xhigh; `max` and `auto` are session-only. The dashboard confirms each change with that spelled out, and offers only aliases. Aliases stay under AoE's 16-byte literal-send limit, so AoE's trailing space keeps autocomplete from eating the Enter.
+  - Each assistant record carries `message.model` and a top-level `effort`. Commands leave `<local-command-stdout>Set model to …` / `Set effort level to …` echoes. The chat bar reads both.
+
 ### 20.3 Measured
 
 | Metric | Target | Result |

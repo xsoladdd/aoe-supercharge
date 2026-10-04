@@ -327,6 +327,45 @@ test.describe('project', () => {
     await expect(log.getByText('src/components/Header.tsx', { exact: true }).first()).toBeVisible();
   });
 
+  test('the chat bar shows the model and effort, and switches them after saying what it does', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    const id = await sessionId('northwind-web control');
+    await page.goto(`/chat/${id}`);
+    const trigger = page.getByRole('button', { name: /^Model and effort: Opus 5\.5/ });
+    await expect(trigger).toBeVisible();
+    // A model change is also saved as the Claude Code default, and the dialog says so; cancel sends nothing.
+    await trigger.click();
+    await page.getByRole('menuitem', { name: 'Sonnet' }).click();
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toContainText('saves it as your default for new Claude Code sessions');
+    const before = ((await fake('/__fake/state')) as { sent: unknown[] }).sent.length;
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    expect(((await fake('/__fake/state')) as { sent: unknown[] }).sent.length).toBe(before);
+    // An effort change goes through and shows once Claude Code confirms it.
+    const effort = ({ chromium: 'Low', firefox: 'Medium', webkit: 'Max' } as Record<string, string>)[
+      browserName
+    ]!;
+    await trigger.click();
+    await page.getByRole('menuitem', { name: effort }).click();
+    await page
+      .getByRole('alertdialog')
+      .getByRole('button', { name: /^Switch/ })
+      .click();
+    await expect
+      .poll(async () => {
+        const state = (await fake('/__fake/state')) as { sent: { id: string; message: string }[] };
+        return state.sent.filter((m) => m.id === id).at(-1)?.message;
+      })
+      .toBe(`/effort ${effort.toLowerCase()}`);
+    await expect(
+      page.getByRole('button', { name: `Model and effort: Opus 5.5, ${effort.toLowerCase()}` }),
+    ).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
   test('new task dialog builds the CLI command (dashboard never spawns agents)', async ({
     signedIn: page,
   }) => {

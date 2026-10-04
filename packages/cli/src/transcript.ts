@@ -26,6 +26,8 @@ type ToolBlock = Extract<ChatBlock, { kind: 'tool' }>;
 export class TranscriptParser {
   messages: ChatMessage[] = [];
   title: string | null = null;
+  model: string | null = null;
+  effort: string | null = null;
   private assistantById = new Map<string, ChatMessage>();
   private toolById = new Map<string, ToolBlock>();
 
@@ -40,12 +42,32 @@ export class TranscriptParser {
       this.title = rec.aiTitle;
       return;
     }
-    if (rec.isSidechain === true || rec.isMeta === true) return;
-    const message = rec.message as { id?: string; content?: unknown } | undefined;
+    if (rec.isSidechain === true) return;
+    const message = rec.message as { id?: string; content?: unknown; model?: unknown } | undefined;
+    this.trackSettings(rec, message);
+    if (rec.isMeta === true) return;
     const at = typeof rec.timestamp === 'string' ? rec.timestamp : new Date(0).toISOString();
     const uuid = typeof rec.uuid === 'string' ? rec.uuid : `${this.messages.length}`;
     if (rec.type === 'user' && message) this.user(message.content, uuid, at, rec.origin);
     if (rec.type === 'assistant' && message) this.assistant(message.content, message.id ?? uuid, at);
+  }
+
+  /** Each reply records its model and effort; /model and /effort leave their output as a command echo. */
+  private trackSettings(
+    rec: Record<string, unknown>,
+    message: { content?: unknown; model?: unknown } | undefined,
+  ) {
+    if (rec.type === 'assistant') {
+      if (typeof message?.model === 'string' && !message.model.startsWith('<')) this.model = message.model;
+      if (typeof rec.effort === 'string') this.effort = rec.effort;
+      return;
+    }
+    if (rec.type !== 'user' || typeof message?.content !== 'string') return;
+    const out = /<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/.exec(message.content)?.[1] ?? '';
+    const model = /(?:Set model to|Model set to)\s+`?([A-Za-z0-9._[\]-]+)`?/.exec(out)?.[1];
+    if (model) this.model = model;
+    const effort = /(?:Set effort level to|Effort level set to)\s+`?([a-z]+)`?/.exec(out)?.[1];
+    if (effort) this.effort = effort === 'auto' ? null : effort;
   }
 
   private user(content: unknown, id: string, at: string, origin: unknown) {
@@ -205,6 +227,8 @@ export class TranscriptStore {
         messages: [],
         truncated: 0,
         note: 'No conversation yet. Send a message to start one.',
+        model: null,
+        effort: null,
       };
     }
     const file = await this.findFile(claudeId, cwd);
@@ -216,6 +240,8 @@ export class TranscriptStore {
         messages: [],
         truncated: 0,
         note: 'No conversation yet. Send a message to start one.',
+        model: null,
+        effort: null,
       };
     }
     let c = this.cache.get(aoeId);
@@ -248,6 +274,8 @@ export class TranscriptStore {
       messages,
       truncated: all.length - messages.length,
       note: all.length ? null : 'No messages yet. Send one below.',
+      model: c.parser.model,
+      effort: c.parser.effort,
     };
   }
 }

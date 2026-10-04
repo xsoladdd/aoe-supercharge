@@ -85,6 +85,40 @@ describe('TranscriptParser: Claude Code JSONL → chat messages', () => {
     expect(second!.blocks).toEqual([{ kind: 'text', text: 'Done.' }]);
   });
 
+  it('tracks the model and effort from replies and from /model, /effort', () => {
+    const p = new TranscriptParser();
+    p.push(
+      assistant(
+        'msg_1',
+        { type: 'text', text: 'Hi' },
+        {
+          effort: 'high',
+          message: {
+            id: 'msg_1',
+            role: 'assistant',
+            model: 'claude-opus-5',
+            content: [{ type: 'text', text: 'Hi' }],
+          },
+        },
+      ),
+    );
+    expect([p.model, p.effort]).toEqual(['claude-opus-5', 'high']);
+    p.push(
+      user(
+        '<local-command-stdout>Set model to `claude-sonnet-5-5` and saved as your default for new sessions</local-command-stdout>',
+      ),
+    );
+    p.push(
+      user(
+        '<local-command-stdout>Set effort level to max (this session only): deepest reasoning</local-command-stdout>',
+      ),
+    );
+    expect([p.model, p.effort]).toEqual(['claude-sonnet-5-5', 'max']);
+    p.push(user('<local-command-stdout>Effort level set to auto</local-command-stdout>'));
+    expect(p.effort).toBeNull();
+    expect(p.messages.filter((m) => m.role === 'user')).toHaveLength(0);
+  });
+
   it('leaves a tool without a result as pending', () => {
     const p = new TranscriptParser();
     p.push(

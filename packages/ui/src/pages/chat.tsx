@@ -25,6 +25,7 @@ import { toast } from 'sonner';
 import { Link, useLocation, useSearch } from 'wouter';
 import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
 import { ChatMarkdown } from '@/components/chat/markdown';
+import { ModelMenu } from '@/components/chat/model-menu';
 import { shortPath, ToolCall } from '@/components/chat/tool-call';
 import { useChat } from '@/components/chat/use-chat';
 import { CommandLine, copyText } from '@/components/copy';
@@ -426,6 +427,8 @@ function ChatHeader({
   rcUrl,
   aoeOrigin,
   embedded,
+  model,
+  effort,
 }: {
   session: SessionView;
   title: string;
@@ -436,6 +439,9 @@ function ChatHeader({
   aoeOrigin: string | null;
   /** Inside the task page, which already shows the title. */
   embedded: boolean;
+  /** From the transcript: what the latest reply ran with. */
+  model: string | null;
+  effort: string | null;
 }) {
   const attach = `aoe session attach ${session.id}`;
   return (
@@ -446,6 +452,7 @@ function ChatHeader({
         </span>
       )}
       <LiveStatus status={session.status} unread={session.unread} className="max-sm:[&>span]:sr-only" />
+      <ModelMenu sessionId={session.id} model={model} effort={effort} disabled={!!session.prompt} />
       <nav aria-label="View" className="flex rounded-lg border border-border bg-background p-0.5">
         {(
           [
@@ -653,6 +660,8 @@ export function SessionChat({
         rcUrl={terminal.output?.rcUrl ?? null}
         aoeOrigin={snap.health.aoe.origin}
         embedded={embedded}
+        model={chat?.model ?? null}
+        effort={chat?.effort ?? null}
       />
 
       {view === 'terminal' ? (

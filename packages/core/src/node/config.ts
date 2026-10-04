@@ -60,6 +60,17 @@ export const ConfigSchema = z.strictObject({
         .enum(['plan', 'default', 'acceptEdits', 'auto'])
         .default('plan')
         .describe('Permission mode workers start in.'),
+      model: z
+        .string()
+        .regex(/^[A-Za-z0-9._-]*$/, 'An alias like opus or sonnet, or a full model id')
+        .default('')
+        .describe(
+          'Model for new sessions (claude --model): fable, opus, sonnet, haiku or a full id. Empty uses your Claude Code default.',
+        ),
+      effort: z
+        .enum(['default', 'low', 'medium', 'high', 'xhigh', 'max'])
+        .default('default')
+        .describe('Effort for new sessions (claude --effort). Applies to that session only.'),
     })
     .prefault({}),
   remoteControl: z

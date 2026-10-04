@@ -20,6 +20,12 @@ export interface ChatMessage {
   blocks: ChatBlock[];
 }
 
+/** Choices the dashboard offers for a running session (short enough for AoE to type as a command). */
+export const MODEL_ALIASES = ['fable', 'opus', 'sonnet', 'haiku', 'default'] as const;
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'auto'] as const;
+export type ModelAlias = (typeof MODEL_ALIASES)[number];
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
 export interface ChatResponse {
   /** ok: transcript found · empty: no conversation yet · unavailable: Claude's transcript can't be read. */
   state: 'ok' | 'empty' | 'unavailable';
@@ -29,6 +35,9 @@ export interface ChatResponse {
   /** Messages dropped from the start to keep the payload small. */
   truncated: number;
   note: string | null;
+  /** What the session last ran with: the model id and effort of its latest reply or /model, /effort. */
+  model: string | null;
+  effort: string | null;
 }
 
 const MAX_TEXT = 4000;
@@ -50,4 +59,12 @@ export function toolSummary(name: string, input: unknown): string {
     pick('description', 'prompt', 'subject') ??
     Object.values(i).find((v) => typeof v === 'string');
   return (typeof value === 'string' ? value : name).replace(/\s+/g, ' ').trim().slice(0, 200);
+}
+
+/** "claude-opus-5-5" → "Opus 5.5", "claude-haiku-4-5-20251001" → "Haiku 4.5"; anything else as is. */
+export function prettyModel(id: string): string {
+  const m = /^claude-([a-z]+)-([\d-]+?)(?:-\d{8})?(\[1m\])?$/.exec(id);
+  if (!m) return id;
+  const family = m[1]!.charAt(0).toUpperCase() + m[1]!.slice(1);
+  return `${family} ${m[2]!.split('-').join('.')}${m[3] ? ' (1M)' : ''}`;
 }

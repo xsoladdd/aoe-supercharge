@@ -78,6 +78,8 @@ const LABEL: Record<string, string> = {
   'agent.kind': 'Agent',
   'agent.extraArgs': 'Extra claude arguments',
   'agent.workerPermissionMode': 'Worker permission mode',
+  'agent.model': 'Model for new sessions',
+  'agent.effort': 'Effort for new sessions',
   'remoteControl.enabled': 'Remote Control for control chats',
   'remoteControl.nameTemplate': 'Session name',
   'tasks.branchPrefix': 'Branch prefix',

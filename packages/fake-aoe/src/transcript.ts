@@ -19,6 +19,9 @@ type Block =
 export class FakeTranscript {
   readonly file: string;
   private toolSeq = 0;
+  /** What replies record as their model and effort; /model and /effort change them. */
+  model = 'claude-opus-5-5';
+  effort = 'high';
   /** Tool calls without a result yet, oldest first. */
   readonly pending: string[] = [];
 
@@ -58,6 +61,19 @@ export class FakeTranscript {
     );
   }
 
+  /** A slash command's echo, as Claude Code records it (shown nowhere in the chat). */
+  command(name: string, args: string, stdout: string) {
+    this.write('user', {
+      message: {
+        role: 'user',
+        content: `<command-name>/${name}</command-name>\n<command-message>${name}</command-message>\n<command-args>${args}</command-args>`,
+      },
+    });
+    this.write('user', {
+      message: { role: 'user', content: `<local-command-stdout>${stdout}</local-command-stdout>` },
+    });
+  }
+
   user(text: string) {
     this.write('user', { message: { role: 'user', content: text }, origin: { kind: 'human' } });
   }
@@ -81,7 +97,8 @@ export class FakeTranscript {
         this.pending.push(content.id!);
       }
       this.write('assistant', {
-        message: { id, type: 'message', role: 'assistant', model: 'claude-fake', content: [content] },
+        message: { id, type: 'message', role: 'assistant', model: this.model, content: [content] },
+        effort: this.effort,
       });
     }
     return tools;
@@ -339,6 +356,19 @@ export class FakeTranscripts {
   /** The prompt lands at once; the reply follows a moment later. Statuses are left alone on purpose. */
   converse(aoeId: string, cwd: string, message: string, delayMs = 900) {
     const t = this.for(aoeId, cwd);
+    // /model and /effort answer at once, like Claude Code's local commands.
+    const slash = /^\/(model|effort)\s+(\S+)/.exec(message.trim());
+    if (slash) {
+      const [, name, arg] = slash;
+      if (name === 'model') {
+        t.model = arg === 'default' ? 'claude-opus-5-5' : `claude-${arg}-5`;
+        t.command('model', arg!, `Set model to \`${t.model}\` and saved as your default for new sessions`);
+      } else {
+        if (arg !== 'auto') t.effort = arg!;
+        t.command('effort', arg!, `Set effort level to ${arg} (saved as your default for new sessions)`);
+      }
+      return;
+    }
     t.user(message);
     setTimeout(() => {
       t.tool(

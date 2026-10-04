@@ -18,6 +18,7 @@ import { renderLaunchdPlist, renderSystemdUnit } from '../src/service/index.ts';
 import { removeManagedBlock, upsertManagedBlock } from '../src/skills.ts';
 import { parseRemote } from '../src/util/git.ts';
 import { redact } from '../src/util/logger.ts';
+import { modelArgs } from '../src/workflow.ts';
 
 const FIXTURES = join(import.meta.dirname, '../../../fixtures/aoe');
 
@@ -233,5 +234,15 @@ describe('aoe upgrade helpers', () => {
   it('maps platform to the release asset', () => {
     expect(releaseAsset('darwin', 'arm64')).toBe('aoe-darwin-arm64.tar.gz');
     expect(releaseAsset('linux', 'x64')).toBe('aoe-linux-amd64.tar.gz');
+  });
+});
+
+describe('model and effort for new sessions', () => {
+  it('adds --model / --effort only when set (session-only launch flags)', () => {
+    const c = defaultConfig();
+    expect(modelArgs(c)).toEqual([]);
+    c.agent.model = 'opus';
+    c.agent.effort = 'high';
+    expect(modelArgs(c)).toEqual(['--model', 'opus', '--effort', 'high']);
   });
 });

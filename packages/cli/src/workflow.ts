@@ -13,6 +13,8 @@ import {
   type ProjectRecord,
   type Stage,
   type TaskRecord,
+  EFFORT_LEVELS,
+  MODEL_ALIASES,
 } from '@aoe-supercharge/core/shared';
 import type { AoeCliListEntry } from './aoe/schemas.ts';
 import { VERSION, type Ctx } from './context.ts';
@@ -219,7 +221,12 @@ export async function initProject(
   if (!existing) {
     const before = new Set(sessions.map((s) => s.id));
     const title = `${project.name} control`;
-    const extraArgs = ['--append-system-prompt-file', promptFile, ...ctx.config.agent.extraArgs];
+    const extraArgs = [
+      '--append-system-prompt-file',
+      promptFile,
+      ...modelArgs(ctx.config),
+      ...ctx.config.agent.extraArgs,
+    ];
     if (ctx.config.remoteControl.enabled)
       extraArgs.push('--remote-control', remoteControlName(ctx.config, project.name));
     const r = await ctx.aoeCli.add({
@@ -338,6 +345,7 @@ export async function newTask(
     extraArgs: [
       '--append-system-prompt-file',
       promptFile,
+      ...modelArgs(ctx.config),
       '--permission-mode',
       ctx.config.agent.workerPermissionMode,
       ...ctx.config.agent.extraArgs,
@@ -522,6 +530,44 @@ export async function savePlan(
 // ── reply ─────────────────────────────────────────────────────────────────────
 
 /** Explicit, audited prompt to a worker (SPEC §8.4). Callers must have confirmed with the human first. */
+/**
+ * Switch a running session's model or effort by typing /model or /effort into it, the only way AoE
+ * offers. Claude Code also saves a typed /model (and /effort low to xhigh) as the user's default for new
+ * sessions; the dashboard says so before it calls this. Only short aliases are accepted: AoE types
+ * them as a command (with the trailing space that keeps autocomplete from eating the Enter).
+ */
+export async function setSessionModel(
+  ctx: Ctx,
+  opts: {
+    sessionId: string;
+    model?: string;
+    effort?: string;
+    actor: 'cli' | 'ui' | 'control';
+    project?: string | null;
+    taskId?: string | null;
+  },
+): Promise<void> {
+  if (opts.model === undefined && opts.effort === undefined)
+    throw new CliError('Pick a model or an effort level.', EXIT.usage);
+  if (opts.model !== undefined && !(MODEL_ALIASES as readonly string[]).includes(opts.model))
+    throw new CliError(`Unknown model "${opts.model}". Use one of: ${MODEL_ALIASES.join(', ')}.`, EXIT.usage);
+  if (opts.effort !== undefined && !(EFFORT_LEVELS as readonly string[]).includes(opts.effort))
+    throw new CliError(
+      `Unknown effort "${opts.effort}". Use one of: ${EFFORT_LEVELS.join(', ')}.`,
+      EXIT.usage,
+    );
+  if (opts.model !== undefined) await sendToSession(ctx, { ...opts, message: `/model ${opts.model}` });
+  if (opts.effort !== undefined) await sendToSession(ctx, { ...opts, message: `/effort ${opts.effort}` });
+}
+
+/** `--model` / `--effort` for a new session from config: session-only, unlike /model typed later. */
+export function modelArgs(config: Config): string[] {
+  const args: string[] = [];
+  if (config.agent.model) args.push('--model', config.agent.model);
+  if (config.agent.effort !== 'default') args.push('--effort', config.agent.effort);
+  return args;
+}
+
 /**
  * Send a message into an AoE session (SPEC §8.4): always audited, REST first with the CLI as
  * fallback. Callers make sure the human explicitly asked for it (a Send click, a confirmed reply).

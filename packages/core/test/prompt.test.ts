@@ -3,6 +3,7 @@ import { ASK_MENU, PERMISSION_MENU, PLAN_MENU } from '../../fake-aoe/src/server.
 import {
   computeNeedsYou,
   parseTerminalMenu,
+  prettyModel,
   promptDetail,
   promptKind,
   type SessionView,
@@ -140,5 +141,15 @@ describe('Needs you: waiting workers say what they are waiting on', () => {
     });
     expect(run(null)).toMatchObject({ kind: 'approval', detail: 'Approval or input waiting in AoE' });
     expect(promptDetail(null)).toBe('Approval or input waiting in AoE');
+  });
+});
+
+describe('prettyModel', () => {
+  it('names Claude models the way people say them', () => {
+    expect(prettyModel('claude-opus-5-5')).toBe('Opus 5.5');
+    expect(prettyModel('claude-opus-5')).toBe('Opus 5');
+    expect(prettyModel('claude-haiku-4-5-20251001')).toBe('Haiku 4.5');
+    expect(prettyModel('claude-sonnet-5-5[1m]')).toBe('Sonnet 5.5 (1M)');
+    expect(prettyModel('custom-model')).toBe('custom-model');
   });
 });
