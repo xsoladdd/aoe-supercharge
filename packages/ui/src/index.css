@@ -1,0 +1,349 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design tokens (SPEC §14.3). Dark is the default; light mirrors it. Surfaces are sampled from the
+ * Orax reference screenshots; status colours are all >= 4.6:1 on cards. Components only ever use
+ * these variables, never raw hex.
+ */
+@theme inline {
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, monospace;
+  --font-heading: var(--font-sans);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-subtle: var(--subtle);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-brand: var(--brand);
+
+  --color-st-blue: var(--st-blue);
+  --color-st-yellow: var(--st-yellow);
+  --color-st-red: var(--st-red);
+  --color-st-orange: var(--st-orange);
+  --color-st-green: var(--st-green);
+  --color-st-cyan: var(--st-cyan);
+  --color-st-violet: var(--st-violet);
+  --color-st-slate: var(--st-slate);
+  --color-st-muted: var(--st-muted);
+  --color-progress: var(--progress);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-chart-1: var(--st-blue);
+  --color-chart-2: var(--st-violet);
+  --color-chart-3: var(--st-green);
+  --color-chart-4: var(--st-yellow);
+  --color-chart-5: var(--st-red);
+
+  /* Shape lock (SPEC §14.0 rule 5): badges pill, controls 8px, cards 12px, panels 16px. */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+}
+
+:root {
+  /* Light */
+  --background: #eef0f2;
+  --surface: #f7f8fa;
+  --card: #fcfcfd;
+  --raised: #f0f1f4;
+  --foreground: #16171a;
+  --card-foreground: #16171a;
+  --popover: #fcfcfd;
+  --popover-foreground: #16171a;
+  --primary: #7c3aed;
+  --primary-foreground: #ffffff;
+  --secondary: #f0f1f4;
+  --secondary-foreground: #16171a;
+  --muted: #f0f1f4;
+  --muted-foreground: #5c5f66;
+  --subtle: #63666d;
+  --accent: #eceaf7;
+  --accent-foreground: #16171a;
+  --destructive: #c8282b;
+  --border: #e4e5e9;
+  --border-strong: #d5d7dd;
+  --input: #d5d7dd;
+  --ring: #7c3aed;
+  --brand: #732cec;
+
+  /* Status colours are solved to stay >= 4.6:1 even on their own 14% tint over any surface (axe-verified). */
+  --st-blue: #095db7;
+  --st-yellow: #7d5800;
+  --st-red: #b52427;
+  --st-orange: #9c4800;
+  --st-green: #106e40;
+  --st-cyan: #0a6879;
+  --st-violet: #732cec;
+  --st-slate: #5c5f66;
+  --st-muted: #5e6168;
+  --progress: #0a66c8;
+
+  --gradient-primary: linear-gradient(120deg, #d11db0 0%, #855cd9 48%, #ba29e7 100%);
+  --gradient-brand: linear-gradient(120deg, #d11db0 0%, #855cd9 48%, #ba29e7 100%);
+  --on-gradient: #ffffff;
+  --shadow-float: 0 12px 32px -12px rgb(22 23 26 / 0.18), 0 2px 6px rgb(22 23 26 / 0.06);
+
+  --radius: 12px;
+  --sidebar: #eef0f2;
+  --sidebar-foreground: #16171a;
+  --sidebar-primary: #7c3aed;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e4e5ec;
+  --sidebar-accent-foreground: #16171a;
+  --sidebar-border: #e4e5e9;
+  --sidebar-ring: #7c3aed;
+}
+
+.dark {
+  --background: #17191a;
+  --surface: #1f2125;
+  --card: #27292d;
+  --raised: #2e3034;
+  --foreground: #f4f4f5;
+  --card-foreground: #f4f4f5;
+  --popover: #27292d;
+  --popover-foreground: #f4f4f5;
+  --primary: #b780e5;
+  --primary-foreground: #17191a;
+  --secondary: #2a2c30;
+  --secondary-foreground: #f4f4f5;
+  --muted: #2a2c30;
+  --muted-foreground: #9d9fa1;
+  --subtle: #8f9193;
+  --accent: #2e3034;
+  --accent-foreground: #f4f4f5;
+  --destructive: #f85d5f;
+  --border: #2c2e33;
+  --border-strong: #3a3d43;
+  --input: #3a3d43;
+  --ring: #b780e5;
+  --brand: #c599ea;
+
+  --st-blue: #61afff;
+  --st-yellow: #f9cd03;
+  --st-red: #fa8486;
+  --st-orange: #f2973c;
+  --st-green: #34d27b;
+  --st-cyan: #38c6e0;
+  --st-violet: #c599ea;
+  --st-slate: #abadaf;
+  --st-muted: #a9abac;
+  --progress: #0787fd;
+
+  /* D2: deepened reference hues, white text >= 4.6:1 everywhere along the gradient. */
+  --gradient-primary: linear-gradient(120deg, #d11db0 0%, #855cd9 48%, #ba29e7 100%);
+  /* The pastel reference gradient survives on the brand mark only (no text on it). */
+  --gradient-brand: linear-gradient(120deg, #eb6fd4 0%, #a88ae4 48%, #d171ef 100%);
+  --on-gradient: #ffffff;
+  --shadow-float: 0 16px 40px -16px rgb(0 0 0 / 0.6), 0 2px 8px rgb(0 0 0 / 0.3);
+
+  --sidebar: #17191a;
+  --sidebar-foreground: #f4f4f5;
+  --sidebar-primary: #b780e5;
+  --sidebar-primary-foreground: #17191a;
+  --sidebar-accent: #2a2c30;
+  --sidebar-accent-foreground: #f4f4f5;
+  --sidebar-border: #232528;
+  --sidebar-ring: #b780e5;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans antialiased;
+    font-size: 16px;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+  body {
+    @apply bg-background text-foreground;
+    min-height: 100dvh;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .bg-gradient-primary {
+    background-image: var(--gradient-primary);
+  }
+  .bg-gradient-brand {
+    background-image: var(--gradient-brand);
+  }
+  .text-on-gradient {
+    color: var(--on-gradient);
+  }
+  .shadow-float {
+    box-shadow: var(--shadow-float);
+  }
+  /* Tinted status pill background: the status colour at ~14% (SPEC §14.2). */
+  .tint {
+    background-color: color-mix(in srgb, currentColor 14%, transparent);
+  }
+  /* One-shot highlight for state changes (SPEC §14.0 rule 12). */
+  .flash {
+    animation: sc-flash 600ms ease-out 1;
+  }
+}
+
+@keyframes sc-flash {
+  from {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 55%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 2px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Rendered plan.md (sanitised markdown, no raw HTML). */
+@layer components {
+  .prose-sc > * + * {
+    margin-top: 0.75em;
+  }
+  .prose-sc h1,
+  .prose-sc h2,
+  .prose-sc h3,
+  .prose-sc h4 {
+    font-weight: 600;
+    line-height: 1.3;
+    margin-top: 1.25em;
+  }
+  .prose-sc h1 {
+    font-size: 1.25rem;
+  }
+  .prose-sc h2 {
+    font-size: 1.125rem;
+  }
+  .prose-sc h3,
+  .prose-sc h4 {
+    font-size: 1rem;
+  }
+  .prose-sc > :first-child {
+    margin-top: 0;
+  }
+  .prose-sc ul,
+  .prose-sc ol {
+    padding-left: 1.25rem;
+  }
+  .prose-sc ul {
+    list-style: disc;
+  }
+  .prose-sc ol {
+    list-style: decimal;
+  }
+  .prose-sc li + li {
+    margin-top: 0.25em;
+  }
+  .prose-sc a {
+    color: var(--brand);
+    text-decoration: underline;
+  }
+  .prose-sc code {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    background: var(--raised);
+    border-radius: 4px;
+    padding: 0.1em 0.35em;
+  }
+  .prose-sc pre {
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    overflow-x: auto;
+  }
+  .prose-sc pre code {
+    background: none;
+    padding: 0;
+  }
+  .prose-sc blockquote {
+    border-left: 2px solid var(--border-strong);
+    padding-left: 0.875rem;
+    color: var(--muted-foreground);
+  }
+  .prose-sc table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+  }
+  .prose-sc th,
+  .prose-sc td {
+    border-bottom: 1px solid var(--border);
+    padding: 0.4rem 0.5rem;
+    text-align: left;
+  }
+  .prose-sc input[type='checkbox'] {
+    margin-right: 0.4rem;
+  }
+}
+
+/* Web Interface Guidelines baseline (audit, Phase 4). */
+@layer base {
+  :root {
+    color-scheme: light;
+    scroll-padding-top: 4.5rem; /* keep focused elements clear of the sticky header */
+  }
+  .dark {
+    color-scheme: dark;
+  }
+  html {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1,
+  h2,
+  h3 {
+    text-wrap: balance;
+  }
+}

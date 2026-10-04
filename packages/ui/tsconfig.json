@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@aoe-supercharge/core/shared": ["../core/src/shared/index.ts"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}
