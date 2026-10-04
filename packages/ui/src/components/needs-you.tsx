@@ -1,9 +1,11 @@
 import {
   ChatCircleDotsIcon,
+  ClipboardTextIcon,
   CheckCircleIcon,
   GitPullRequestIcon,
   HandPalmIcon,
   QuestionIcon,
+  ShieldCheckIcon,
   SmileyIcon,
   WarningOctagonIcon,
   type Icon,
@@ -17,6 +19,8 @@ import { cn } from '@/lib/utils';
 const KIND: Record<NeedsYouKind, { icon: Icon; label: string; color: string }> = {
   question: { icon: QuestionIcon, label: 'Question', color: 'text-st-red' },
   approval: { icon: HandPalmIcon, label: 'Waiting in AoE', color: 'text-st-yellow' },
+  plan_approval: { icon: ClipboardTextIcon, label: 'Plan to approve', color: 'text-st-yellow' },
+  permission: { icon: ShieldCheckIcon, label: 'Permission needed', color: 'text-st-yellow' },
   control_waiting: { icon: HandPalmIcon, label: 'Control chat waiting', color: 'text-st-yellow' },
   control_replied: { icon: ChatCircleDotsIcon, label: 'Control chat replied', color: 'text-st-violet' },
   session_error: { icon: WarningOctagonIcon, label: 'Session error', color: 'text-st-red' },
@@ -26,10 +30,10 @@ const KIND: Record<NeedsYouKind, { icon: Icon; label: string; color: string }> =
 };
 
 export function hrefFor(item: NeedsYouItem): string {
-  // Sessions that are waiting or replied open in their chat, where a waiting menu links to the terminal.
-  const chatKinds: NeedsYouKind[] = ['approval', 'control_waiting', 'control_replied'];
-  if (item.sessionId && chatKinds.includes(item.kind)) return chatHref(item.sessionId);
+  // Task items open the task page, whose first tab shows its question or menu with the answer.
   if (item.project && item.taskId) return `/p/${item.project}/t/${item.taskId}`;
+  if (item.sessionId && (item.kind === 'control_waiting' || item.kind === 'control_replied'))
+    return chatHref(item.sessionId);
   if (item.project) return `/p/${item.project}`;
   if (item.sessionId) return chatHref(item.sessionId);
   return '/';

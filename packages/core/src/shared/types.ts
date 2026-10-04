@@ -1,3 +1,4 @@
+import type { SessionPrompt } from './prompt.ts';
 import type { Stage } from './stages.ts';
 
 export type Actor = 'worker' | 'daemon' | 'user' | 'control';
@@ -12,6 +13,8 @@ export interface HistoryEntry {
 
 export interface OpenQuestion {
   text: string;
+  /** Suggested answers (`supercharge ask --option`); the user can still write their own. */
+  options?: string[];
   askedAt: string;
   answeredAt: string | null;
 }
@@ -104,11 +107,15 @@ export interface SessionView {
   lastError: string | null;
   createdAt: string | null;
   lastAccessedAt: string | null;
+  /** The menu Claude is showing while it waits on you (plan approval, permission), if any. */
+  prompt: SessionPrompt | null;
 }
 
 export type NeedsYouKind =
   | 'question'
   | 'approval'
+  | 'plan_approval'
+  | 'permission'
   | 'control_waiting'
   | 'control_replied'
   | 'session_error'

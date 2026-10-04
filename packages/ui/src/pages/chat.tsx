@@ -22,7 +22,8 @@ import {
 } from '@aoe-supercharge/core/shared';
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Link } from 'wouter';
+import { Link, useLocation, useSearch } from 'wouter';
+import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
 import { ChatMarkdown } from '@/components/chat/markdown';
 import { shortPath, ToolCall } from '@/components/chat/tool-call';
 import { useChat } from '@/components/chat/use-chat';
@@ -37,6 +38,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError, sendJson } from '@/lib/api';
 import { useSearchParam } from '@/lib/nav';
@@ -427,6 +429,7 @@ function ChatHeader({
   basePath,
   rcUrl,
   aoeOrigin,
+  embedded,
 }: {
   session: SessionView;
   title: string;
@@ -435,6 +438,8 @@ function ChatHeader({
   basePath: string;
   rcUrl: string | null;
   aoeOrigin: string | null;
+  /** Inside the task page, which already shows the title. */
+  embedded: boolean;
 }) {
   const context =
     role.kind === 'control' ? (
@@ -466,15 +471,21 @@ function ChatHeader({
   const attach = `aoe session attach ${session.id}`;
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-border px-4 py-3 lg:px-6">
-      <div className="min-w-0 flex-1">
-        <h1 className="truncate text-[17px] leading-snug font-semibold" title={title}>
-          {title}
-        </h1>
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+      {embedded ? (
+        <div className="min-w-0 flex-1">
           <LiveStatus status={session.status} unread={session.unread} />
-          <span className="min-w-0 truncate">{context}</span>
         </div>
-      </div>
+      ) : (
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-[17px] leading-snug font-semibold" title={title}>
+            {title}
+          </h1>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+            <LiveStatus status={session.status} unread={session.unread} />
+            <span className="min-w-0 truncate">{context}</span>
+          </div>
+        </div>
+      )}
       <nav aria-label="View" className="flex rounded-lg border border-border bg-background p-0.5">
         {(
           [
@@ -572,12 +583,34 @@ export function ChatPage({ snap, sessionId }: { snap: Snapshot; sessionId: strin
         </Link>
       </div>
     );
+  return <WorkerRedirect snap={snap} session={session} />;
+}
+
+/** A worker's chat lives on its task page (Chat tab); everything else stays here. */
+function WorkerRedirect({ snap, session }: { snap: Snapshot; session: SessionView }) {
+  const task = snap.tasks.find((t) => t.aoeSessionId === session.id);
+  const [, navigate] = useLocation();
+  const search = useSearch();
+  useEffect(() => {
+    if (task)
+      navigate(`/p/${task.project}/t/${task.id}/chat${search ? `?${search}` : ''}`, { replace: true });
+  }, [task, search, navigate]);
+  if (task) return null;
   return <SessionChat key={session.id} snap={snap} session={session} />;
 }
 
-function SessionChat({ snap, session }: { snap: Snapshot; session: SessionView }) {
+export function SessionChat({
+  snap,
+  session,
+  basePath = `/chat/${encodeURIComponent(session.id)}`,
+  embedded = false,
+}: {
+  snap: Snapshot;
+  session: SessionView;
+  basePath?: string;
+  embedded?: boolean;
+}) {
   const view = useSearchParam('view') === 'terminal' ? 'terminal' : 'chat';
-  const basePath = `/chat/${encodeURIComponent(session.id)}`;
   const role = useMemo(() => roleOf(snap, session.id), [snap, session.id]);
   const { chat, error, refresh } = useChat(session.id);
   const terminal = useSessionOutput(session.id, view === 'terminal' ? 2000 : 15_000);
@@ -622,6 +655,11 @@ function SessionChat({ snap, session }: { snap: Snapshot; session: SessionView }
     if (window.matchMedia('(pointer: fine)').matches) inputRef.current?.focus();
   }, []);
 
+  const onAnswered = () => {
+    stick.current = true;
+    refresh();
+    terminal.refresh();
+  };
   const onSent = (text: string) => {
     stick.current = true;
     if (view === 'chat') setPending((p) => [...p, { key: Date.now(), text, sentAt: Date.now() }]);
@@ -656,6 +694,7 @@ function SessionChat({ snap, session }: { snap: Snapshot; session: SessionView }
         basePath={basePath}
         rcUrl={terminal.output?.rcUrl ?? null}
         aoeOrigin={snap.health.aoe.origin}
+        embedded={embedded}
       />
 
       {view === 'terminal' ? (
@@ -727,7 +766,9 @@ function SessionChat({ snap, session }: { snap: Snapshot; session: SessionView }
                 <UserBubble key={p.key} text={p.text} note={running ? 'Queued. Claude is busy' : 'Sent'} />
               ))}
               {running && <Working />}
-              {session.status === 'waiting' && <WaitingCallout terminalHref={`${basePath}?view=terminal`} />}
+              {session.status === 'waiting' && !session.prompt && (
+                <WaitingCallout terminalHref={`${basePath}?view=terminal`} />
+              )}
               {session.status === 'error' && (
                 <div
                   role="alert"
@@ -770,16 +811,98 @@ function SessionChat({ snap, session }: { snap: Snapshot; session: SessionView }
         </div>
       )}
 
+      {role.kind === 'control' && <ChildAsks snap={snap} project={role.project!} />}
+
       <div className={cn(view === 'terminal' && 'pt-3')}>
-        <ChatComposer
-          sessionId={session.id}
-          label={`Message ${title}`}
-          value={draft}
-          onChange={setDraft}
-          onSent={onSent}
-          inputRef={inputRef}
-        />
+        {session.prompt ? (
+          // While a menu is open a typed message would pick its highlighted option, so answer it here instead.
+          <div className="mx-auto max-h-[62dvh] w-full max-w-3xl overflow-y-auto overscroll-contain px-4 pb-4">
+            <PromptCard session={session} onAnswered={onAnswered} />
+          </div>
+        ) : (
+          <ChatComposer
+            sessionId={session.id}
+            label={`Message ${title}`}
+            value={draft}
+            onChange={setDraft}
+            onSent={onSent}
+            inputRef={inputRef}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+/**
+ * In a control chat: the workers waiting on you (questions and menus), each answerable in a dialog,
+ * so the parent shows what its children need without you typing it out.
+ */
+function ChildAsks({ snap, project }: { snap: Snapshot; project: string }) {
+  const [open, setOpen] = useState<string | null>(null);
+  const asks = snap.tasks
+    .filter((t) => t.project === project && t.stage !== 'done')
+    .map((t) => ({ task: t, session: snap.sessions.find((s) => s.id === t.aoeSessionId) ?? null }))
+    .filter(({ task, session }) => hasAsk(task, session));
+  const current = asks.find((a) => a.task.id === open) ?? null;
+  if (!asks.length) return null;
+  return (
+    <section aria-labelledby="child-asks" className="mx-auto w-full max-w-3xl px-4 pb-2">
+      <div className="rounded-xl border border-st-yellow/45 bg-card">
+        <h2 id="child-asks" className="flex items-center gap-2 px-4 pt-3 text-sm font-semibold">
+          <HandPalmIcon weight="fill" className="size-4 text-st-yellow" />
+          {asks.length === 1 ? '1 worker needs you' : `${asks.length} workers need you`}
+        </h2>
+        <ul className="divide-y divide-border px-1 pb-1">
+          {asks.map(({ task, session }) => {
+            const what = session?.prompt
+              ? session.prompt.kind === 'plan'
+                ? 'Plan ready for approval'
+                : session.prompt.kind === 'permission'
+                  ? `Wants to use ${session.prompt.tool?.name ?? 'a tool'}`
+                  : session.prompt.question || 'Waiting on you'
+              : task.openQuestion!.text;
+            return (
+              <li key={task.id} className="flex items-center gap-3 px-3 py-2">
+                <span translate="no" className="shrink-0 font-mono text-[13px] text-muted-foreground">
+                  {task.id}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[15px]" title={what}>
+                  {what}
+                </span>
+                <Button size="sm" variant="secondary" onClick={() => setOpen(task.id)}>
+                  Answer
+                </Button>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+      <Dialog open={!!current} onOpenChange={(o) => !o && setOpen(null)}>
+        <DialogContent className="max-h-[90dvh] gap-4 overflow-y-auto sm:max-w-2xl">
+          {current && (
+            <>
+              <div>
+                <DialogTitle className="text-[17px]">
+                  <span translate="no" className="font-mono">
+                    {current.task.id}
+                  </span>{' '}
+                  {current.task.title}
+                </DialogTitle>
+                <DialogDescription>
+                  <Link
+                    href={`/p/${current.task.project}/t/${current.task.id}`}
+                    className="underline underline-offset-3"
+                  >
+                    Open the task
+                  </Link>
+                </DialogDescription>
+              </div>
+              <TaskAsks task={current.task} session={current.session} onAnswered={() => setOpen(null)} />
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </section>
   );
 }

@@ -13,6 +13,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** Command echoes and harness notes Claude Code records as user turns; they aren't things you typed. */
 const NOT_TYPED = /^\s*<(command-|local-command|system-reminder|bash-|task-notification|user-memory)/;
 const MAX_MESSAGES = 300;
+const FULL_INPUT = new Set(['ExitPlanMode', 'AskUserQuestion']);
 
 type ToolBlock = Extract<ChatBlock, { kind: 'tool' }>;
 
@@ -92,7 +93,8 @@ export class TranscriptParser {
           id: String(b.id),
           name: String(b.name ?? 'Tool'),
           summary: toolSummary(String(b.name ?? ''), b.input),
-          input: clip(JSON.stringify(b.input ?? {}, null, 2)),
+          // A plan or a question is shown in full when Claude asks for approval; other inputs are previews.
+          input: clip(JSON.stringify(b.input ?? {}, null, 2), FULL_INPUT.has(String(b.name)) ? 60_000 : 4000),
           result: null,
           isError: false,
         };
@@ -181,6 +183,15 @@ export class TranscriptStore {
         return f;
     }
     return null;
+  }
+
+  /** The tool call Claude is waiting on: the last call of the latest reply, if it has no result yet. */
+  async pendingTool(aoeId: string, cwd: string | null): Promise<ToolBlock | null> {
+    const chat = await this.read(aoeId, cwd);
+    const last = chat.messages.at(-1);
+    if (last?.role !== 'assistant') return null;
+    const tool = last.blocks.at(-1);
+    return tool?.kind === 'tool' && tool.result === null ? tool : null;
   }
 
   async read(aoeId: string, cwd: string | null): Promise<ChatResponse> {

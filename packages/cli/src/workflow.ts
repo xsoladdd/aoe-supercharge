@@ -18,6 +18,7 @@ import type { AoeCliListEntry } from './aoe/schemas.ts';
 import { VERSION, type Ctx } from './context.ts';
 import { GitLabProvider, type MrProvider } from './mr/gitlab.ts';
 import { installUserSkills, readTemplate, render, SKILL_NAMES, upsertManagedBlock } from './skills.ts';
+import { menuOnScreen } from './prompt.ts';
 import { CliError, EXIT } from './util/errors.ts';
 import { run } from './util/exec.ts';
 import { currentBranch, defaultBranch, mainCheckout, parseRemote, remoteUrl } from './util/git.ts';
@@ -473,15 +474,26 @@ export async function stageTask(
   });
 }
 
-export async function askQuestion(ctx: Ctx, opts: { cwd: string; question: string }): Promise<TaskRecord> {
+export async function askQuestion(
+  ctx: Ctx,
+  opts: { cwd: string; question: string; options?: string[] },
+): Promise<TaskRecord> {
   const who = await requireTask(ctx, opts.cwd);
   const task = who.record;
   const question = opts.question.trim();
+  const options = (opts.options ?? []).map((o) => o.trim()).filter(Boolean);
+  if (options.length > 6 || options.some((o) => o.length > 200))
+    throw new CliError('Give at most 6 options of up to 200 characters each.', EXIT.usage);
   const res = transition(task, 'blocked', who.actor, { planApproved: true, hasMr: true, question });
   if (!res.ok) throw rejection(task, 'blocked', res.reason, res.allowed);
   return ctx.ledger.updateTask(task.project, task.id, (t) => ({
     ...applyStage(t, 'blocked', who.actor, question),
-    openQuestion: { text: question, askedAt: new Date().toISOString(), answeredAt: null },
+    openQuestion: {
+      text: question,
+      ...(options.length ? { options } : {}),
+      askedAt: new Date().toISOString(),
+      answeredAt: null,
+    },
   }));
 }
 
@@ -524,6 +536,14 @@ export async function sendToSession(
 ): Promise<void> {
   const message = opts.message.trim();
   if (!message) throw new CliError('The message is empty.', EXIT.usage);
+  // AoE types the text and then presses Enter. With a menu open, that Enter picks its highlighted option
+  // (for a plan: "Yes, and use auto mode"), so a message must wait until the menu is answered.
+  const menu = await menuOnScreen(ctx, opts.sessionId);
+  if (menu)
+    throw new MenuOpenError(
+      `The session is showing a menu${menu.question ? ` ("${menu.question}")` : ''}, so a message now would pick its highlighted option.`,
+      'Answer the menu first, in the dashboard or the terminal, then send the message.',
+    );
   await appendAudit(ctx.paths, {
     actor: opts.actor,
     action: 'prompt_sent',
@@ -532,12 +552,75 @@ export async function sendToSession(
     sessionId: opts.sessionId,
     text: message,
   });
+  await deliver(ctx, opts.sessionId, message);
+}
+
+/** A message was refused because Claude is showing a menu. */
+export class MenuOpenError extends CliError {
+  constructor(message: string, hint: string) {
+    super(message, EXIT.usage, hint);
+  }
+}
+
+/** The menu someone tried to answer is no longer the one on screen. */
+export class PromptChangedError extends CliError {}
+
+/** REST first, the CLI as fallback (SPEC §8.4). */
+async function deliver(ctx: Ctx, sessionId: string, text: string) {
   try {
-    await ctx.aoe.send(opts.sessionId, message);
+    await ctx.aoe.send(sessionId, text);
   } catch (err) {
-    const r = await ctx.aoeCli.send(opts.sessionId, message);
+    const r = await ctx.aoeCli.send(sessionId, text);
     if (r.code !== 0) throw new CliError(`Could not deliver the message: ${(err as Error).message}`);
   }
+}
+
+/**
+ * Answer the menu a session is showing by typing the option's number, as you would in the terminal.
+ * Claude Code confirms a numbered option on the digit alone; AoE's Enter after it lands on the empty
+ * prompt. For an option that means telling Claude something, the digit focuses (or picks) it, the menu
+ * closes, and the text then goes in as a normal message. Only delivered while the same menu is on screen.
+ */
+export async function answerPrompt(
+  ctx: Ctx,
+  opts: {
+    sessionId: string;
+    key: string;
+    option: number;
+    text?: string;
+    actor: 'cli' | 'ui' | 'control';
+    project?: string | null;
+    taskId?: string | null;
+  },
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<void> {
+  const menu = await menuOnScreen(ctx, opts.sessionId);
+  if (!menu || menu.key !== opts.key)
+    throw new PromptChangedError(
+      'That menu is no longer on screen, so nothing was sent. Look at it again before answering.',
+    );
+  const option = menu.options.find((o) => o.n === opts.option);
+  if (!option) throw new CliError(`Option ${opts.option} is not in this menu.`, EXIT.usage);
+  const text = opts.text?.trim() ?? '';
+  if (text && !option.feedback) throw new CliError(`Option ${option.n} does not take a message.`, EXIT.usage);
+  await appendAudit(ctx.paths, {
+    actor: opts.actor,
+    action: 'prompt_answered',
+    project: opts.project ?? null,
+    taskId: opts.taskId ?? null,
+    sessionId: opts.sessionId,
+    text: `${option.n}. ${option.label}${menu.question ? ` (to: ${menu.question})` : ''}`,
+  });
+  await deliver(ctx, opts.sessionId, String(option.n));
+  if (!text) return;
+  for (let i = 0; ; i++) {
+    await wait(250);
+    const now = await menuOnScreen(ctx, opts.sessionId);
+    if (!now || now.key !== opts.key) break;
+    if (i >= 20)
+      throw new CliError('Claude did not close the menu, so your message was not sent. Check the terminal.');
+  }
+  await sendToSession(ctx, { ...opts, message: text });
 }
 
 export async function replyToTask(

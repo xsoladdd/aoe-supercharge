@@ -16,8 +16,9 @@ import {
 import { VERSION, type Ctx } from '../context.ts';
 import { buildProjectStatus } from '../status.ts';
 import { CliError } from '../util/errors.ts';
+import { PromptReader } from '../prompt.ts';
 import type { TranscriptStore } from '../transcript.ts';
-import { replyToTask, sendToSession } from '../workflow.ts';
+import { answerPrompt, MenuOpenError, PromptChangedError, replyToTask, sendToSession } from '../workflow.ts';
 import type { Store } from './store.ts';
 
 export interface AppDeps {
@@ -64,6 +65,14 @@ const CSP = [
   "form-action 'self'",
   "object-src 'none'",
 ].join('; ');
+
+/** A refused or failed send: 409 while a menu is open, 400 for usage errors, 502 when AoE failed. */
+function sendError(c: Context, err: unknown, code: string) {
+  const e = err as CliError;
+  if (err instanceof MenuOpenError)
+    return c.json({ error: 'menu_open', message: e.message, hint: e.hint }, 409);
+  return c.json({ error: code, message: e.message }, err instanceof CliError ? 400 : 502);
+}
 
 export function createApp(deps: AppDeps) {
   const { ctx, store, token } = deps;
@@ -231,10 +240,7 @@ export function createApp(deps: AppDeps) {
       const task = await replyToTask(ctx, { project, taskId: id, message: body.message ?? '', actor: 'ui' });
       return c.json({ ok: true, task });
     } catch (err) {
-      return c.json(
-        { error: 'reply_failed', message: (err as Error).message },
-        err instanceof CliError ? 400 : 502,
-      );
+      return sendError(c, err, 'reply_failed');
     }
   });
 
@@ -293,10 +299,59 @@ export function createApp(deps: AppDeps) {
       });
       return c.json({ ok: true });
     } catch (err) {
-      return c.json(
-        { error: 'send_failed', message: (err as Error).message },
-        err instanceof CliError ? 400 : 502,
-      );
+      return sendError(c, err, 'send_failed');
+    }
+  });
+
+  // What a waiting session's menu is asking, read fresh, plus the plan or questions it is about.
+  app.get('/api/sessions/:id/prompt', async (c) => {
+    const id = c.req.param('id');
+    const session = store.sessions.find((s) => s.id === id);
+    if (!session) return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    const prompt = await new PromptReader(ctx, deps.transcripts).read(id, session.projectPath);
+    let detail: unknown = null;
+    if (prompt?.kind === 'plan' || prompt?.kind === 'question') {
+      const tool = await deps.transcripts.pendingTool(id, session.projectPath).catch(() => null);
+      try {
+        detail = tool ? JSON.parse(tool.input) : null;
+      } catch {
+        detail = null; // clipped beyond the JSON's end
+      }
+    }
+    const input = detail as { plan?: unknown; questions?: unknown } | null;
+    return c.json({
+      prompt,
+      plan: typeof input?.plan === 'string' ? input.plan : null,
+      questions: Array.isArray(input?.questions) ? input.questions : null,
+    });
+  });
+
+  // Answer that menu: an explicit click in the dashboard, audited, only while the same menu is on screen.
+  app.post('/api/sessions/:id/answer', async (c) => {
+    const id = c.req.param('id');
+    const session = store.sessions.find((s) => s.id === id);
+    if (!session) return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { key?: string; option?: number; text?: string };
+    if (typeof body.key !== 'string' || !Number.isInteger(body.option))
+      return c.json({ error: 'bad_request', message: 'Pass the menu key and an option number.' }, 400);
+    const task = store.tasks.find((t) => t.aoeSessionId === id) ?? null;
+    const project = task?.project ?? store.projects.find((p) => p.controlSessionId === id)?.name ?? null;
+    try {
+      await answerPrompt(ctx, {
+        sessionId: id,
+        key: body.key,
+        option: body.option!,
+        text: body.text,
+        actor: 'ui',
+        project,
+        taskId: task?.id ?? null,
+      });
+      deps.onClientConnected(); // re-poll now so the answered menu clears quickly
+      return c.json({ ok: true });
+    } catch (err) {
+      if (err instanceof PromptChangedError)
+        return c.json({ error: 'prompt_changed', message: err.message }, 409);
+      return sendError(c, err, 'answer_failed');
     }
   });
 

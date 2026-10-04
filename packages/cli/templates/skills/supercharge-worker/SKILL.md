@@ -54,8 +54,11 @@ Add `--note "<short note>"` to any stage change when it helps the user.
 If you need a decision, missing information, or approval that only the user can give:
 
 ```bash
-supercharge ask "<one clear question, with the options you see>"
+supercharge ask "<one clear question>" --option "<first answer>" --option "<second answer>"
 ```
+
+- Give up to 6 `--option`s when the answer is a choice; the user picks one in the dashboard with a click (they can still write their own). Leave them out for open questions.
+- Ask with `supercharge ask`, not your built-in multiple-choice question tool: the dashboard can show and answer `supercharge ask`, while the built-in one can only be answered in the terminal.
 
 Then **stop and wait**. Do not keep working while blocked. When the answer arrives, return to the stage you were in (for example `supercharge stage implementing`).
 

@@ -237,6 +237,63 @@ export function seedWorkerChat(t: FakeTranscript, worktree: string) {
   });
 }
 
+/** A worker in plan mode whose plan waits for approval (ExitPlanMode with no result yet). */
+export function seedPlanApproval(t: FakeTranscript, worktree: string) {
+  t.title('Upgrade to Node 24');
+  t.user('Plan the Node 24 upgrade. Keep it to the runtime; no dependency bumps beyond what it needs.');
+  t.tool('Read', { file_path: `${worktree}/package.json` }, '  4\t"engines": { "node": ">=20" },');
+  t.tool(
+    'Grep',
+    { pattern: 'node:20', path: '.' },
+    'Dockerfile:1:FROM node:20-alpine\n.gitlab-ci.yml:3:image: node:20',
+  );
+  t.assistant(
+    text(
+      'Three places pin Node 20: `package.json` engines, the Dockerfile and the CI image. Here is the plan.',
+    ),
+    {
+      type: 'tool_use',
+      name: 'ExitPlanMode',
+      input: {
+        plan: [
+          '# Upgrade to Node 24',
+          '',
+          '## Changes',
+          '',
+          '1. `package.json`: set `engines.node` to `>=24`',
+          '2. `.nvmrc`: `24`',
+          '3. `Dockerfile`: `FROM node:24-alpine`',
+          '4. `.gitlab-ci.yml`: `image: node:24`',
+          '',
+          '```dockerfile',
+          'FROM node:24-alpine',
+          'WORKDIR /app',
+          '```',
+          '',
+          '## Verification',
+          '',
+          '- `npm ci && npm test` on Node 24',
+          '- CI pipeline green on the MR',
+          '',
+          '**Out of scope:** dependency upgrades not required by Node 24.',
+        ].join('\n'),
+        planFilePath: '~/.claude/plans/node-24-upgrade.md',
+      },
+    },
+  );
+}
+
+/** A worker about to run a command that needs permission (the call has no result yet). */
+export function seedPermissionWait(t: FakeTranscript) {
+  t.title('Rate limit the export endpoint');
+  t.user('Add the token bucket and load test it.');
+  t.assistant(text('The limiter is in. Load testing it at 200 requests a second.'), {
+    type: 'tool_use',
+    name: 'Bash',
+    input: { command: 'npm run load-test -- --rate 200', description: 'Load test the export endpoint' },
+  });
+}
+
 /** Lazily gives each fake session a transcript, and answers messages sent to it like a quick agent. */
 export class FakeTranscripts {
   private byId = new Map<string, FakeTranscript>();

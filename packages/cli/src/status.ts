@@ -36,6 +36,7 @@ export function buildProjectStatus(
         taskId: t.id,
         title: t.title,
         question: t.openQuestion!.text,
+        options: t.openQuestion!.options ?? [],
         since: t.openQuestion!.askedAt,
       }))
       .sort((a, b) => a.since.localeCompare(b.since)),

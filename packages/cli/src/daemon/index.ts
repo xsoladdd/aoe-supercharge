@@ -8,6 +8,7 @@ import { checkAoeCompat, createCtx, SHIPPED_COMPAT, VERSION } from '../context.t
 import { notify, Notifier } from '../notify.ts';
 import { mrProvider } from '../workflow.ts';
 import { createApp } from './app.ts';
+import { PromptReader } from '../prompt.ts';
 import { TranscriptStore } from '../transcript.ts';
 import { MrWatcher } from './mr-watcher.ts';
 import { Store } from './store.ts';
@@ -107,7 +108,13 @@ async function runWorker(): Promise<void> {
   store.ui = { theme: ctx.config.ui.theme, density: ctx.config.ui.density };
 
   const notifier = new Notifier(() => ctx.config);
-  const aoeWatcher = new AoeWatcher(ctx, store);
+  // AoE's Claude hooks write each session's live Claude id under /tmp/aoe-hooks-<uid>/<id>/session_id.
+  const transcripts = new TranscriptStore(
+    paths.claudeDir,
+    process.env.SUPERCHARGE_AOE_HOOKS_DIR || `/tmp/aoe-hooks-${process.getuid?.() ?? 0}`,
+    ctx.aoeCli,
+  );
+  const aoeWatcher = new AoeWatcher(ctx, store, new PromptReader(ctx, transcripts));
   const ledgerWatcher = new LedgerWatcher(ctx, store);
   const mrWatcher = new MrWatcher(ctx, store, () => mrProvider(ctx.config, ctx.env));
   const configWatcher = new ConfigWatcher(ctx, store, () => aoeWatcher.nudge());
@@ -141,12 +148,7 @@ async function runWorker(): Promise<void> {
     },
     onClientConnected: () => aoeWatcher.nudge(),
     testNotification: () => notify('Supercharge', 'Notifications are working.'),
-    // AoE's Claude hooks write each session's live Claude id under /tmp/aoe-hooks-<uid>/<id>/session_id.
-    transcripts: new TranscriptStore(
-      paths.claudeDir,
-      process.env.SUPERCHARGE_AOE_HOOKS_DIR || `/tmp/aoe-hooks-${process.getuid?.() ?? 0}`,
-      ctx.aoeCli,
-    ),
+    transcripts,
   });
 
   await ledgerWatcher.start();

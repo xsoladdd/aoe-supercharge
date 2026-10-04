@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ChatResponse, Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
-import { startFakeAoe, type FakeAoe } from '../../fake-aoe/src/server.ts';
+import { PERMISSION_MENU, startFakeAoe, type FakeAoe } from '../../fake-aoe/src/server.ts';
 
 const ROOT = join(import.meta.dirname, '../../..');
 const CLI = join(ROOT, 'packages/cli/dist/supercharge.mjs');
@@ -236,12 +236,18 @@ describe('workflow through the real CLI against fake AoE', () => {
   });
 
   it('ask blocks with the question; status --project (daemon down) shows it; returning answers it', async () => {
-    expect((await asWorker(['ask', 'Which copy deck is final?'])).code).toBe(0);
+    const ask = ['ask', 'Which copy deck is final?', '--option', 'Friday', '--option', 'Revised'];
+    expect((await asWorker(ask)).code).toBe(0);
     let t = await readTask('NO-0001');
     expect(t.stage).toBe('blocked');
+    expect(t.openQuestion?.options).toEqual(['Friday', 'Revised']);
     expect(t.blockedFrom).toBe('verifying');
     const st = JSON.parse((await sc(['status', '--project', 'northwind', '--json'])).stdout);
-    expect(st.blocked[0]).toMatchObject({ taskId: 'NO-0001', question: 'Which copy deck is final?' });
+    expect(st.blocked[0]).toMatchObject({
+      taskId: 'NO-0001',
+      question: 'Which copy deck is final?',
+      options: ['Friday', 'Revised'],
+    });
     expect(st.counts.blocked).toBe(1);
     expect((await asWorker(['stage', 'verifying'])).code).toBe(0);
     t = await readTask('NO-0001');
@@ -426,6 +432,66 @@ describe('daemon: security, live state and the MR watcher', () => {
       return s.needsYou.some((n) => n.kind === 'approval') ? s : null;
     });
     expect(snap.needsYou.find((n) => n.kind === 'approval')?.taskId).toBe('NO-0001');
+  });
+
+  it('reads a waiting menu, refuses stray messages, and answers it by number (audited)', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const post = (path: string, body: unknown) =>
+      fetch(`${base()}${path}`, {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const snapshot = async () =>
+      (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const id = (await snapshot()).tasks[0]!.aoeSessionId;
+    await fetch(`${fake.url}/__fake/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Waiting', menu: PERMISSION_MENU }),
+    });
+    const snap = await until(async () => {
+      const s = await snapshot();
+      return s.sessions.find((x) => x.id === id)?.prompt ? s : null;
+    });
+    const prompt = snap.sessions.find((x) => x.id === id)!.prompt!;
+    expect(prompt).toMatchObject({ question: 'Do you want to proceed?', answerable: true });
+    expect(prompt.options).toHaveLength(3);
+
+    // A typed message would land on the menu and pick its highlighted option, so it is refused.
+    const stray = await post(`/api/sessions/${id}/send`, { message: 'hello' });
+    expect(stray.status).toBe(409);
+    expect(((await stray.json()) as { error: string }).error).toBe('menu_open');
+    const reply = await sc(['reply', 'NO-0001', 'hello', '--yes']);
+    expect(reply.code).not.toBe(0);
+    expect(reply.stderr).toMatch(/showing a menu/);
+
+    const fresh = (await (await fetch(`${base()}/api/sessions/${id}/prompt`, { headers: auth })).json()) as {
+      prompt: { key: string };
+    };
+    expect(fresh.prompt.key).toBe(prompt.key);
+    expect((await post(`/api/sessions/${id}/answer`, { key: 'deadbeef', option: 1 })).status).toBe(409);
+
+    const sentBefore = fake.state.sent.length;
+    const ok = await post(`/api/sessions/${id}/answer`, {
+      key: prompt.key,
+      option: 3,
+      text: 'Run it at 50 requests a second instead.',
+    });
+    expect(ok.status).toBe(200);
+    // The digit first (it closes the menu), then the feedback as a normal prompt.
+    expect(fake.state.sent.slice(sentBefore).map((m) => m.message)).toEqual([
+      '3',
+      'Run it at 50 requests a second instead.',
+    ]);
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"action":"prompt_answered".*3\. No, and tell Claude what to do differently/);
+    await until(async () => !(await snapshot()).sessions.find((x) => x.id === id)?.prompt);
+    await fetch(`${fake.url}/__fake/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Idle' }),
+    });
   });
 
   it('reads a session conversation and sends a message into it (audited)', async () => {

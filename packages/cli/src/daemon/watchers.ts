@@ -17,6 +17,7 @@ import {
 import { AoeError } from '../aoe/client.ts';
 import type { AoeCliListEntry, AoeSession } from '../aoe/schemas.ts';
 import { SHIPPED_COMPAT, type Ctx } from '../context.ts';
+import type { PromptReader } from '../prompt.ts';
 import type { Store } from './store.ts';
 
 const nowIso = () => new Date().toISOString();
@@ -38,6 +39,7 @@ export class AoeWatcher {
   constructor(
     private ctx: Ctx,
     private store: Store,
+    private prompts: PromptReader | null = null,
   ) {}
 
   start() {
@@ -142,7 +144,19 @@ export class AoeWatcher {
       }
     }
 
-    this.store.setSessions(live.map((s) => this.toView(s)));
+    const views = live.map((s) => this.toView(s));
+    // A waiting session may be showing a menu (plan approval, permission); read it so the dashboard can answer.
+    if (this.prompts) {
+      const reader = this.prompts;
+      await Promise.all(
+        views
+          .filter((v) => v.status === 'waiting')
+          .map(async (v) => {
+            v.prompt = await reader.read(v.id, v.projectPath).catch(() => null);
+          }),
+      );
+    }
+    this.store.setSessions(views);
     for (const id of [...this.since.keys()]) if (!live.some((s) => s.id === id)) this.since.delete(id);
     this.setAoe({
       state: 'ok',
@@ -177,6 +191,7 @@ export class AoeWatcher {
       lastError: s.last_error ?? null,
       createdAt: s.created_at ?? null,
       lastAccessedAt: s.last_accessed_at ?? null,
+      prompt: null,
     };
   }
 

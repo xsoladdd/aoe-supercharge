@@ -72,6 +72,7 @@ const now = new Date('2026-10-05T12:00:00Z');
 function session(p: Partial<SessionView> & { id: string }): SessionView {
   return {
     title: p.id,
+    prompt: null,
     status: 'idle',
     rawStatus: 'Idle',
     statusSince: '2026-10-05T11:00:00Z',

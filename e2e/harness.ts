@@ -1,8 +1,13 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { makeSession, startFakeAoe, type FakeAoe } from '../packages/fake-aoe/src/server.ts';
-import { seedControlChat, seedWorkerChat } from '../packages/fake-aoe/src/transcript.ts';
+import { makeSession, PLAN_MENU, startFakeAoe, type FakeAoe } from '../packages/fake-aoe/src/server.ts';
+import {
+  seedControlChat,
+  seedPermissionWait,
+  seedPlanApproval,
+  seedWorkerChat,
+} from '../packages/fake-aoe/src/transcript.ts';
 
 /**
  * Demo / E2E world: a fake AoE, two real git repos, and a ledger built through the real CLI
@@ -224,6 +229,10 @@ export async function startDemo(opts: {
   await as('content', [
     'ask',
     "Is the client's copy deck from Friday final, or should I wait for the revised one?",
+    '--option',
+    "Use Friday's deck",
+    '--option',
+    'Wait for the revised deck',
   ]);
 
   await plan(
@@ -304,6 +313,14 @@ export async function startDemo(opts: {
   if (nwControl) seedControlChat(fake.transcripts!.for(nwControl.id, nwControl.project_path), nw);
   const a11y = fake.state.sessions.find((s) => s.id === tasks.a11y!.aoeSessionId);
   if (a11y) seedWorkerChat(fake.transcripts!.for(a11y.id, a11y.project_path), a11y.project_path);
+  // The Node 24 worker waits on plan approval: a menu in its pane, ExitPlanMode in its transcript.
+  const node24 = fake.state.sessions.find((s) => s.id === tasks.node24!.aoeSessionId);
+  if (node24) {
+    seedPlanApproval(fake.transcripts!.for(node24.id, node24.project_path), node24.project_path);
+    Object.assign(node24, { status: 'Waiting', menu: PLAN_MENU });
+  }
+  const ratelimit = fake.state.sessions.find((s) => s.id === tasks.ratelimit!.aoeSessionId);
+  if (ratelimit) seedPermissionWait(fake.transcripts!.for(ratelimit.id, ratelimit.project_path));
 
   const daemon = spawn(process.execPath, [CLI, 'daemon'], {
     env: { ...env, SUPERCHARGE_LOG_STDERR: opts.log ? '1' : '0', SUPERCHARGE_DEMO: '1' },

@@ -914,6 +914,13 @@ All four phases are built. The verification behind each claim below is listed in
 - **App dir on macOS:** `$XDG_CONFIG_HOME/agent-of-empires` if it exists, else `~/.agent-of-empires`. AoE creates the XDG dir on first use when `XDG_CONFIG_HOME` is set.
 - **AoE 1.18.0 release binary** is named `aoe-<os>-<arch>`. 1.18 only recognises its own daemon when the binary is named `aoe`, so the upgrade path renames it.
 - **AoE 1.18.0 passes all 18 live contract checks.** `supercharge aoe upgrade` is ready to move from 1.17.2 to 1.18.0.
+- **`POST /api/sessions/{id}/send` types the text literally, then presses Enter** (`src/tmux/session.rs`, `send_keys_with_delay`; bracketed paste from 16 bytes up). There is no way to send keys without the Enter. The live terminal websocket accepts raw input only from the client that owns the window size, so the dashboard does not use it.
+- **Answering Claude Code menus (Claude Code 2.1.236, read from its `Select` component and checked in a sandbox):**
+  - A digit confirms that option at once, with no Enter. AoE's Enter then lands on the empty prompt and does nothing.
+  - On a text-input option (the plan's "Tell Claude what to change") with no text, the digit only focuses the row. The Enter after it cancels the menu (`onSubmit` with empty text calls `onCancel`). Feedback is therefore sent as a second, normal message once the menu has closed.
+  - Free text sent while a menu is open would select the highlighted option (a plan's option 1 is "Yes, and use auto mode"). So `sendToSession` refuses with `menu_open` / 409 while the pane shows a menu, and the UI swaps the composer for the answer card.
+  - AskUserQuestion moves to its next question (and a Submit tab) on each digit, so a trailing Enter would answer the next question. It is shown, but answered in the terminal.
+  - The daemon reads menus from the pane (`parseTerminalMenu`) for waiting sessions only. It takes the kind (plan, permission, question) from the pending tool call in the transcript. An answer is delivered only while a menu with the same key is still on screen.
 
 ### 20.3 Measured
 

@@ -35,6 +35,8 @@ export async function notify(
 const TOGGLE: Record<NeedsYouKind, keyof Config['notifications']> = {
   question: 'blocked',
   approval: 'aoeWaiting',
+  plan_approval: 'aoeWaiting',
+  permission: 'aoeWaiting',
   control_waiting: 'controlWaiting',
   control_replied: 'controlWaiting',
   session_error: 'error',
@@ -46,6 +48,8 @@ const TOGGLE: Record<NeedsYouKind, keyof Config['notifications']> = {
 const TITLE: Record<NeedsYouKind, string> = {
   question: 'Question from a worker',
   approval: 'Approval waiting in AoE',
+  plan_approval: 'Plan ready for approval',
+  permission: 'Permission needed',
   control_waiting: 'Control chat waiting',
   control_replied: 'Control chat replied',
   session_error: 'Session error',

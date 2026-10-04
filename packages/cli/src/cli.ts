@@ -54,6 +54,9 @@ function openUrl(url: string) {
   spawn(cmd, [url], { stdio: 'ignore', detached: true }).unref();
 }
 
+/** Commander accumulator for repeatable options. */
+const collect = (value: string, previous: string[]) => [...previous, value];
+
 export function buildProgram(): Command {
   const program = new Command('supercharge')
     .description(
@@ -417,8 +420,9 @@ export function buildProgram(): Command {
   program
     .command('ask <question>')
     .description('block this task on a question for the user')
-    .action(async (question: string) => {
-      const t = await askQuestion(await ctx(), { cwd: cwd(), question });
+    .option('-o, --option <answer>', 'a suggested answer the user can pick (repeat for more)', collect, [])
+    .action(async (question: string, o: { option: string[] }) => {
+      const t = await askQuestion(await ctx(), { cwd: cwd(), question, options: o.option });
       out(`${sym.ok} ${t.id} is blocked on your question. Stop now and wait for the answer.`);
     });
 

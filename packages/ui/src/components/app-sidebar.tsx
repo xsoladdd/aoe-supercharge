@@ -149,13 +149,13 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                               >
                                 <ChatTeardropTextIcon className="size-4" />
                                 <span className="truncate">Control chat</span>
-                                <span className="ml-auto">
+                                <div className="ml-auto flex shrink-0">
                                   <LiveStatus
                                     status={control?.status ?? 'missing'}
                                     labelled={false}
                                     unread={control?.unread}
                                   />
-                                </span>
+                                </div>
                               </Link>
                             </SidebarMenuSubButton>
                           </SidebarMenuSubItem>
@@ -170,7 +170,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                                   <SidebarMenuSubButton
                                     asChild
                                     size="md"
-                                    isActive={location === taskHref}
+                                    isActive={location === taskHref || location.startsWith(`${taskHref}/`)}
                                     className="h-9"
                                   >
                                     <Link href={taskHref}>
@@ -189,9 +189,10 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                                       </span>
                                       <span className="truncate">{t.title}</span>
                                       {s && (s.status === 'waiting' || s.status === 'error') && (
-                                        <span className="ml-auto">
+                                        // A div, not a span: the sidebar truncates a row's last span, which clipped this icon.
+                                        <div className="ml-auto flex shrink-0">
                                           <LiveStatus status={s.status} labelled={false} />
-                                        </span>
+                                        </div>
                                       )}
                                     </Link>
                                   </SidebarMenuSubButton>

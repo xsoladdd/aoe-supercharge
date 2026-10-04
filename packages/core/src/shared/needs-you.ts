@@ -1,4 +1,14 @@
+import type { SessionPrompt } from './prompt.ts';
 import type { NeedsYouItem, ProjectRecord, SessionView, TaskRecord } from './types.ts';
+
+/** One line on what a waiting worker's menu asks. */
+export function promptDetail(prompt: SessionPrompt | null): string {
+  if (!prompt) return 'Approval or input waiting in AoE';
+  if (prompt.kind === 'plan') return 'Plan ready for your approval';
+  if (prompt.kind === 'permission' && prompt.tool)
+    return `Wants to use ${prompt.tool.name}${prompt.tool.summary ? `: ${prompt.tool.summary}` : ''}`;
+  return prompt.question || 'Claude is asking you something';
+}
 
 export interface NeedsYouInput {
   tasks: TaskRecord[];
@@ -89,14 +99,21 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
 
     if (s.status === 'waiting') {
       if (now.getTime() - Date.parse(since) < debounceMs) continue;
+      const kind = isControl
+        ? 'control_waiting'
+        : s.prompt?.kind === 'plan'
+          ? 'plan_approval'
+          : s.prompt?.kind === 'permission'
+            ? 'permission'
+            : 'approval';
       items.push({
-        id: `${isControl ? 'control_waiting' : 'approval'}:${s.id}`,
-        kind: isControl ? 'control_waiting' : 'approval',
+        id: `${kind}:${s.id}`,
+        kind,
         project: projectName,
         taskId: task?.id ?? null,
         sessionId: s.id,
         title: isControl ? `${project ? project.name : s.title} control chat` : label,
-        detail: isControl ? 'Control chat is waiting for you' : 'Approval or input waiting in AoE',
+        detail: isControl ? 'Control chat is waiting for you' : promptDetail(s.prompt),
         since,
       });
     } else if (s.status === 'error') {

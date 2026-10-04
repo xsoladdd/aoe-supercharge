@@ -1,3 +1,4 @@
+import { PERMISSION_MENU } from '../packages/fake-aoe/src/server.ts';
 import { axe, expect, fake, test } from './fixtures.ts';
 
 /** The fake AoE id of the session whose title starts with `prefix`. */
@@ -83,29 +84,110 @@ test.describe('project', () => {
     await expect(workers.getByText('DNS cutover runbook')).toBeVisible();
   });
 
-  test('task drawer by direct URL: plan, history, attach command', async ({ signedIn: page }) => {
-    await page.goto('/p/northwind-web/t/NW-0001');
+  test('task page: overview by default, then plan and chat tabs', async ({ signedIn: page }) => {
+    await page.goto('/p/northwind-web');
+    await page
+      .getByRole('list', { name: 'Workers' })
+      .getByRole('link', { name: /NW-0001/ })
+      .click();
+    await expect(page).toHaveURL(/\/p\/northwind-web\/t\/NW-0001$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Build page templates' })).toBeVisible();
+    const tabs = page.getByRole('navigation', { name: 'Task' });
+    await expect(tabs.getByRole('link', { name: /Overview/ })).toHaveAttribute('aria-current', 'page');
+    await expect(page.getByText('Header, listing and detail templates')).toBeVisible();
+    await expect(page.getByText('Watching MR', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(/aoe session attach/)).toBeVisible();
+    await axe(page, 'task overview');
+    await tabs.getByRole('link', { name: 'Plan' }).click();
+    await expect(page).toHaveURL(/\/t\/NW-0001\/plan$/);
+    await expect(page.getByRole('heading', { name: 'Plan: page templates' })).toBeVisible();
+    await expect(page.getByText('Storybook stories and visual tests')).toBeVisible();
+    await tabs.getByRole('link', { name: 'Chat' }).click();
+    await expect(page).toHaveURL(/\/t\/NW-0001\/chat$/);
+    await expect(page.getByLabel(/^Message /)).toBeVisible();
+  });
+
+  test('the sidebar shows a waiting worker’s icon whole', async ({ signedIn: page }) => {
+    await page.goto('/p/northwind-web');
+    const row = page.locator('[data-sidebar="menu-sub-button"]', { hasText: 'Build page templates' });
+    const icon = row.locator('[aria-label="Waiting on you"] svg');
+    const [r, i] = [await row.boundingBox(), await icon.boundingBox()];
+    expect(i!.width).toBeGreaterThanOrEqual(15);
+    expect(i!.x + i!.width).toBeLessThanOrEqual(r!.x + r!.width);
+  });
+
+  test('a plan waiting for approval shows with the plan and its options', async ({ signedIn: page }) => {
+    const needs = page.locator('section[aria-labelledby="needs-you-heading"]');
+    await needs.getByRole('link', { name: /Plan to approve/ }).click();
+    await expect(page).toHaveURL(/\/p\/apollo-api\/t\/AA-0002$/);
+    const card = page.locator('section', {
+      has: page.getByRole('heading', { name: 'Plan ready for your approval' }),
+    });
+    await expect(card.getByRole('heading', { name: 'Upgrade to Node 24' })).toBeVisible();
+    const options = card.getByRole('radiogroup');
+    await expect(options.getByText('Yes, manually approve edits')).toBeVisible();
+    await expect(options.getByText('Tell Claude what to change')).toBeVisible();
+    await options.getByText('Tell Claude what to change').click();
+    await expect(card.getByLabel(/What should Claude do instead/)).toBeVisible();
+    await axe(page, 'plan approval');
+    // The chat shows the same card in place of the message box.
+    await page.getByRole('navigation', { name: 'Task' }).getByRole('link', { name: 'Chat' }).click();
+    await expect(page.getByRole('heading', { name: 'Plan ready for your approval' })).toBeVisible();
+    await expect(page.getByLabel(/^Message /)).toHaveCount(0);
+  });
+
+  test('a permission prompt is answered from the chat by its number', async ({ signedIn: page }) => {
+    const id = await sessionId('AA-0001');
+    await fake(`/__fake/sessions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'Waiting', menu: PERMISSION_MENU }),
+    });
+    try {
+      await page.goto('/p/apollo-api/t/AA-0001/chat');
+      const card = page.locator('section', {
+        has: page.getByRole('heading', { name: 'Claude needs permission' }),
+      });
+      await expect(card.getByText('npm run load-test -- --rate 200')).toBeVisible({ timeout: 15_000 });
+      await card.getByRole('radiogroup').getByText('Yes', { exact: true }).click();
+      await card.getByRole('button', { name: 'Send answer' }).click();
+      await expect(page.getByText('Answer sent')).toBeVisible();
+      const state = (await fake('/__fake/state')) as { sent: { id: string; message: string }[] };
+      expect(state.sent.filter((m) => m.id === id).at(-1)?.message).toBe('1');
+      await expect(card).toHaveCount(0, { timeout: 15_000 });
+      await expect(page.getByLabel(/^Message /)).toBeVisible();
+    } finally {
+      await fake(`/__fake/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'Running', menu: null }),
+      });
+    }
+  });
+
+  test('a control chat lists what its workers need, answerable in a dialog', async ({ signedIn: page }) => {
+    await page.goto(`/chat/${await sessionId('northwind-web control')}`);
+    const asks = page.locator('section[aria-labelledby="child-asks"]');
+    await expect(asks.getByText('NW-0002')).toBeVisible();
+    await asks
+      .getByRole('listitem')
+      .filter({ hasText: 'NW-0002' })
+      .getByRole('button', { name: 'Answer' })
+      .click();
     const dialog = page.getByRole('dialog');
-    await expect(dialog.getByRole('heading', { name: 'Build page templates' })).toBeVisible();
-    await expect(dialog.getByRole('heading', { name: 'Plan: page templates' })).toBeVisible();
-    await expect(dialog.getByText('Storybook stories and visual tests')).toBeVisible();
-    await expect(dialog.getByText('Watching MR', { exact: true }).first()).toBeVisible();
-    await expect(dialog.getByText(/aoe session attach/)).toBeVisible();
-    await page.waitForTimeout(800);
-    await expect(page).toHaveURL(/\/t\/NW-0001$/);
-    await axe(page, 'task drawer');
+    await expect(dialog.getByText("Is the client's copy deck from Friday final")).toBeVisible();
+    await expect(dialog.getByRole('radiogroup').getByText("Use Friday's deck")).toBeVisible();
+    await expect(dialog.getByRole('radiogroup').getByText('Write my own answer')).toBeVisible();
+    await axe(page, 'child question dialog');
     await page.keyboard.press('Escape');
-    await expect(page).toHaveURL(/\/p\/northwind-web$/);
+    await expect(dialog).toHaveCount(0);
   });
 
   test('reply is confirmed explicitly and reaches the worker', async ({ signedIn: page, browserName }) => {
     // NW-0005 has no open question, so replying leaves the shared Needs-you state alone for other engines.
     // (NW-0003 stays untouched: its seeded chat is asserted below.)
     await page.goto('/p/northwind-web/t/NW-0005');
-    const dialog = page.getByRole('dialog');
     const message = `Prioritise the header first (${browserName}).`;
-    await dialog.getByLabel('Message to the worker').fill(message);
-    await dialog.getByRole('button', { name: 'Send reply' }).click();
+    await page.getByLabel('Message to the worker').fill(message);
+    await page.getByRole('button', { name: 'Send reply' }).click();
     const confirm = page.getByRole('alertdialog');
     await expect(confirm.getByText('Send this to NW-0005?')).toBeVisible();
     await confirm.getByRole('button', { name: 'Send reply' }).click();
@@ -174,10 +256,10 @@ test.describe('project', () => {
   });
 
   test('a working worker shows progress, failures and a running call', async ({ signedIn: page }) => {
-    await page.goto('/p/northwind-web/t/NW-0003');
-    await page.getByRole('dialog').getByRole('link', { name: 'Open chat' }).click();
-    await expect(page).toHaveURL(/\/chat\/[0-9a-f]{16}$/);
-    await expect(page.getByText('Worker for NW-0003')).toBeVisible();
+    // A worker's /chat/<id> link lands on its task page's Chat tab.
+    await page.goto(`/chat/${await sessionId('NW-0003')}`);
+    await expect(page).toHaveURL(/\/p\/northwind-web\/t\/NW-0003\/chat$/);
+    await expect(page.getByRole('heading', { level: 1, name: /Accessibility audit/ })).toBeVisible();
     await expect(page.getByRole('status').filter({ hasText: 'Claude is working' })).toBeVisible();
     const log = page.getByRole('log', { name: /^Conversation with/ });
     await expect(log.getByRole('img', { name: 'Failed' })).toBeVisible();
@@ -278,7 +360,8 @@ test.describe('design gate (SPEC §14.4)', () => {
         for (const [name, path] of [
           ['overview', '/'],
           ['project', '/p/northwind-web'],
-          ['drawer', '/p/northwind-web/t/NW-0001'],
+          ['task', '/p/northwind-web/t/NW-0001'],
+          ['plan-approval', '/p/apollo-api/t/AA-0002'],
           ['settings', '/settings'],
           ['chat', chat],
         ] as const) {
@@ -287,7 +370,7 @@ test.describe('design gate (SPEC §14.4)', () => {
           await page.waitForTimeout(500);
           await page.screenshot({
             path: info.outputPath(`${name}-${theme}-${w}x${h}.png`),
-            fullPage: path !== '/p/northwind-web/t/NW-0001' && path !== chat,
+            fullPage: path !== chat,
           });
         }
       }
@@ -300,9 +383,7 @@ test.describe('design gate (SPEC §14.4)', () => {
     const { signIn } = await import('./fixtures.ts');
     await signIn(page);
     await page.goto('/p/northwind-web/t/NW-0001');
-    await expect(
-      page.getByRole('dialog').getByRole('heading', { name: 'Build page templates' }),
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Build page templates' })).toBeVisible();
     await ctx.close();
   });
 });

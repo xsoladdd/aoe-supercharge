@@ -26,7 +26,37 @@ export interface FakeSession {
   idle_entered_at: string | null;
   profile: string;
   parent_session_id: string | null;
+  /** Fake only: a Claude Code menu drawn at the bottom of the pane (see PLAN_MENU). Never sent over REST. */
+  menu?: string | null;
 }
+
+/** Claude Code 2.1's plan approval, as it appears in the pane. */
+export const PLAN_MENU = [
+  '────────────────────────────────────────────────────────────────────────────────',
+  ' Claude has written up a plan and is ready to execute. Would you like to',
+  ' proceed?',
+  '',
+  ' ❯ 1. Yes, and use auto mode',
+  '   2. Yes, manually approve edits',
+  '   3. Tell Claude what to change',
+  '      shift+tab to approve with this feedback',
+  '',
+  ' ctrl+g to edit in VS Code · ~/.claude/plans/node-24-upgrade.md',
+].join('\n');
+
+/** A Bash permission prompt. */
+export const PERMISSION_MENU = [
+  '────────────────────────────────────────────────────────────────────────────────',
+  ' Bash command',
+  '',
+  '   npm run load-test -- --rate 200',
+  '   Load test the export endpoint',
+  '',
+  ' Do you want to proceed?',
+  ' ❯ 1. Yes',
+  "   2. Yes, and don't ask again for npm run load-test commands in this project",
+  '   3. No, and tell Claude what to do differently (esc)',
+].join('\n');
 
 export interface FakeState {
   version: string;
@@ -62,7 +92,7 @@ export function makeSession(p: Partial<FakeSession> & { title: string; project_p
 
 /** REST shape: AoE 1.17.2 omits the parent link from SessionResponse. */
 function toRest(s: FakeSession) {
-  const { parent_session_id: _p, ...rest } = s;
+  const { parent_session_id: _p, menu: _m, ...rest } = s;
   return {
     ...rest,
     artifact_dir: `/tmp/fake-aoe/${s.id}`,
@@ -126,7 +156,13 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
   const app = new Hono();
   const converse = (id: string, message: string) => {
     const s = state.sessions.find((x) => x.id === id);
-    if (s && transcripts) transcripts.converse(s.id, s.project_path, message);
+    if (!s) return;
+    // A digit picks an option of an open menu (Claude Code confirms on the digit alone).
+    if (s.menu && /^\d$/.test(message.trim())) {
+      s.menu = null;
+      return;
+    }
+    if (transcripts) transcripts.converse(s.id, s.project_path, message);
   };
 
   // ── test/shim control plane (no auth; loopback only) ──
@@ -213,7 +249,7 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
       ...state.sent
         .filter((m) => m.id === s.id)
         .flatMap((m) => [`❯ ${m.message}`, '', '⏺ Got it. Working on that now.', '']),
-      '❯ ',
+      ...(s.menu ? [s.menu] : ['❯ ']),
     ];
     return c.json({
       id: s.id,

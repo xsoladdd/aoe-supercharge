@@ -7,7 +7,6 @@ import { HealthBanners } from '@/components/banners';
 import { BrandMark } from '@/components/brand';
 import { CommandLine } from '@/components/copy';
 import { NeedsYouStrip } from '@/components/needs-you';
-import { TaskDrawer } from '@/components/task-drawer';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -29,6 +28,7 @@ import { cn } from '@/lib/utils';
 import { OverviewPage } from '@/pages/overview';
 import { ProjectPage } from '@/pages/project';
 import { SettingsPage } from '@/pages/settings';
+import { TaskPage, type TaskTab } from '@/pages/task';
 import type { Snapshot } from '@aoe-supercharge/core/shared';
 
 // Markdown and syntax highlighting only load when a chat opens.
@@ -41,7 +41,11 @@ function crumbsFor(location: string, snap: Snapshot): Crumb[] {
   if (parts[0] === 'settings') return [{ label: 'Settings' }];
   if (parts[0] === 'p' && parts[1]) {
     const c: Crumb[] = [{ label: parts[1], href: `/p/${parts[1]}` }];
-    if (parts[2] === 't' && parts[3]) c.push({ label: parts[3], mono: true });
+    if (parts[2] === 't' && parts[3]) {
+      const tab = parts[4] === 'chat' ? 'Chat' : parts[4] === 'plan' ? 'Plan' : null;
+      c.push({ label: parts[3], href: `/p/${parts[1]}/t/${parts[3]}`, mono: true });
+      if (tab) c.push({ label: tab });
+    }
     return c;
   }
   if (parts[0] === 'chat' && parts[1]) {
@@ -138,8 +142,14 @@ export function App() {
   const live = useLive();
   const snap = live.snapshot;
   const [location, navigate] = useLocation();
-  const [, taskParams] = useRoute<{ project: string; taskId: string }>('/p/:project/t/:taskId');
-  const [isChat, chatParams] = useRoute<{ sessionId: string }>('/chat/:sessionId');
+  const [isSessionChat, chatParams] = useRoute<{ sessionId: string }>('/chat/:sessionId');
+  const [, taskParams] = useRoute<{ project: string; taskId: string; tab?: string }>(
+    '/p/:project/t/:taskId/:tab?',
+  );
+  const taskTab: TaskTab =
+    taskParams?.tab === 'chat' || taskParams?.tab === 'plan' ? taskParams.tab : 'overview';
+  // Chats fill the window and scroll inside themselves, with the composer pinned under them.
+  const isChat = isSessionChat || (!!taskParams && taskTab === 'chat');
   const legacySession = useSearchParam('session');
   const resolved = useResolvedTheme();
 
@@ -155,10 +165,6 @@ export function App() {
   if (live.connection === 'signed_out') return <SignedOut />;
   if (!snap) return live.connection === 'error' ? <Unreachable error={live.error} /> : <LoadingShell />;
 
-  const task = taskParams
-    ? (snap.tasks.find((t) => t.project === taskParams.project && t.id === taskParams.taskId) ?? null)
-    : null;
-  const taskSession = task ? (snap.sessions.find((s) => s.id === task.aoeSessionId) ?? null) : null;
   const crumbs = crumbsFor(location, snap);
 
   const toggleTheme = () => {
@@ -240,7 +246,7 @@ export function App() {
               tabIndex={-1}
               className={cn(
                 'outline-none',
-                isChat ? 'flex min-h-0 flex-1 flex-col' : 'px-5 pt-4 pb-10 lg:px-7',
+                isChat ? 'flex min-h-0 flex-1 flex-col' : taskParams ? 'pb-10' : 'px-5 pt-4 pb-10 lg:px-7',
               )}
             >
               <Switch>
@@ -264,6 +270,16 @@ export function App() {
                 <Route path="/settings">
                   <SettingsPage health={snap.health} />
                 </Route>
+                <Route path="/p/:project/t/:taskId/:tab?">
+                  {taskParams && (
+                    <TaskPage
+                      snap={snap}
+                      project={taskParams.project}
+                      taskId={taskParams.taskId}
+                      tab={taskTab}
+                    />
+                  )}
+                </Route>
                 {/* Not a nested router: links inside the project page stay absolute (a nest prefixed them twice). */}
                 <Route path="/p/:project/*?">
                   {(params: { project: string }) => (
@@ -283,13 +299,6 @@ export function App() {
             </main>
           </SidebarInset>
 
-          <TaskDrawer
-            task={task}
-            session={taskSession}
-            aoeOrigin={snap.health.aoe.origin}
-            open={!!task}
-            onOpenChange={(o) => !o && taskParams && navigate(`/p/${taskParams.project}`)}
-          />
           <Toaster position="bottom-right" />
         </SidebarProvider>
       </TooltipProvider>

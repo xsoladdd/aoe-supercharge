@@ -5,3 +5,4 @@ export * from './mr-rules.ts';
 export * from './needs-you.ts';
 export * from './util.ts';
 export * from './chat.ts';
+export * from './prompt.ts';

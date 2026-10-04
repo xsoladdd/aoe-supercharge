@@ -186,7 +186,13 @@ export interface AuditEntry {
   at?: string;
   actor: Actor | 'cli' | 'ui';
   action:
-    'prompt_sent' | 'config_changed' | 'daemon_restart' | 'task_created' | 'project_init' | 'aoe_upgrade';
+    | 'prompt_sent'
+    | 'prompt_answered'
+    | 'config_changed'
+    | 'daemon_restart'
+    | 'task_created'
+    | 'project_init'
+    | 'aoe_upgrade';
   project?: string | null;
   taskId?: string | null;
   sessionId?: string | null;
