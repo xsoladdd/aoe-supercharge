@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { serve, type ServerType } from '@hono/node-server';
 import { Hono } from 'hono';
+import { FakeTranscripts, type TranscriptDirs } from './transcript.ts';
 
 /**
  * Fake `aoe serve` for tests and demos. Mirrors the AoE 1.17.2 behaviour Supercharge relies on
@@ -116,11 +117,17 @@ export interface FakeAoe {
   url: string;
   port: number;
   state: FakeState;
+  /** Present when started with `transcripts`: Claude Code transcripts for the chat view. */
+  transcripts: FakeTranscripts | null;
   stop: () => Promise<void>;
 }
 
-export function createFakeApp(state: FakeState) {
+export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | null = null) {
   const app = new Hono();
+  const converse = (id: string, message: string) => {
+    const s = state.sessions.find((x) => x.id === id);
+    if (s && transcripts) transcripts.converse(s.id, s.project_path, message);
+  };
 
   // ── test/shim control plane (no auth; loopback only) ──
   app.get('/__fake/state', (c) => c.json(state));
@@ -145,8 +152,16 @@ export function createFakeApp(state: FakeState) {
   app.post('/__fake/send', async (c) => {
     const { id, message } = (await c.req.json()) as { id: string; message: string };
     state.sent.push({ id, message, at: new Date().toISOString() });
+    converse(id, message);
     return c.json({ sent: true });
   });
+  // `aoe session show --json`: Claude's session id for an AoE session.
+  app.get('/__fake/agent/:id', (c) =>
+    c.json({
+      id: c.req.param('id'),
+      agent_session_id: transcripts?.get(c.req.param('id'))?.claudeId ?? null,
+    }),
+  );
   app.post('/__fake/version', async (c) => {
     state.version = ((await c.req.json()) as { version: string }).version;
     return c.json({ ok: true });
@@ -182,6 +197,7 @@ export function createFakeApp(state: FakeState) {
       return c.json({ error: 'not_found', message: 'No such session' }, 404);
     const { message } = (await c.req.json()) as { message: string };
     state.sent.push({ id, message, at: new Date().toISOString() });
+    converse(id, message);
     return c.json({ sent: true });
   });
   app.get('/api/sessions/:id/output', (c) => {
@@ -217,7 +233,13 @@ export function createFakeApp(state: FakeState) {
 }
 
 export async function startFakeAoe(
-  opts: { port?: number; token?: string; version?: string; sessions?: FakeSession[] } = {},
+  opts: {
+    port?: number;
+    token?: string;
+    version?: string;
+    sessions?: FakeSession[];
+    transcripts?: TranscriptDirs;
+  } = {},
 ): Promise<FakeAoe> {
   const state: FakeState = {
     version: opts.version ?? '1.17.2',
@@ -225,7 +247,8 @@ export async function startFakeAoe(
     sessions: opts.sessions ?? [],
     sent: [],
   };
-  const app = createFakeApp(state);
+  const transcripts = opts.transcripts ? new FakeTranscripts(opts.transcripts) : null;
+  const app = createFakeApp(state, transcripts);
   let server: ServerType;
   const port = await new Promise<number>((resolve, reject) => {
     server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: opts.port ?? 0 }, (info) =>
@@ -237,6 +260,7 @@ export async function startFakeAoe(
     url: `http://127.0.0.1:${port}`,
     port,
     state,
+    transcripts,
     stop: () => new Promise((r) => server.close(() => r())),
   };
 }

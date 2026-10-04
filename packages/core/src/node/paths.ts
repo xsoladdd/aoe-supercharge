@@ -16,6 +16,7 @@ export interface Paths {
   compatLocalFile: string;
   daemonStateFile: string;
   localFixturesDir: string;
+  claudeDir: string;
   claudeSkillsDir: string;
   launchAgentsDir: string;
   systemdUserDir: string;
@@ -49,6 +50,7 @@ export function resolvePaths(
     compatLocalFile: join(stateDir, 'compat.local.json'),
     daemonStateFile: join(stateDir, 'daemon.json'),
     localFixturesDir: join(stateDir, 'fixtures'),
+    claudeDir,
     claudeSkillsDir: join(claudeDir, 'skills'),
     launchAgentsDir: join(home, 'Library', 'LaunchAgents'),
     systemdUserDir: join(configHome, 'systemd', 'user'),

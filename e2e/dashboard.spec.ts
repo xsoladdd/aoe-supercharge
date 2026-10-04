@@ -1,5 +1,11 @@
 import { axe, expect, fake, test } from './fixtures.ts';
 
+/** The fake AoE id of the session whose title starts with `prefix`. */
+async function sessionId(prefix: string): Promise<string> {
+  const state = (await fake('/__fake/state')) as { sessions: { id: string; title: string }[] };
+  return state.sessions.find((s) => s.title.startsWith(prefix))!.id;
+}
+
 test.describe('auth', () => {
   test('without the cookie the dashboard shows the sign-in instructions', async ({ page }) => {
     await page.goto('/');
@@ -31,16 +37,26 @@ test.describe('overview', () => {
     await axe(page, 'overview');
   });
 
-  test('opening an unmanaged session shows its live conversation', async ({ signedIn: page }) => {
+  test('opening an unmanaged session opens its chat, with the terminal one click away', async ({
+    signedIn: page,
+  }) => {
     await page.getByRole('link', { name: /flaky e2e triage/ }).click();
-    await expect(page).toHaveURL(/\?session=[0-9a-f]{16}/);
-    const dialog = page.getByRole('dialog');
-    await expect(dialog.getByText('fix/flaky-e2e')).toBeVisible();
-    await expect(dialog.getByRole('log', { name: 'Session conversation' })).toContainText(
+    await expect(page).toHaveURL(/\/chat\/[0-9a-f]{16}$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'flaky e2e triage' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Start the conversation' })).toBeVisible();
+    await page.getByRole('link', { name: 'Terminal' }).click();
+    await expect(page).toHaveURL(/\?view=terminal$/);
+    await expect(page.getByRole('log', { name: 'Session conversation' })).toContainText(
       'Claude Code (fake agent)',
     );
-    await dialog.getByText('Attach in a terminal instead').click();
-    await expect(dialog.getByText(/aoe session attach [0-9a-f]{16}/)).toBeVisible();
+    await page.getByText('Attach in a terminal instead').click();
+    await expect(page.getByText(/aoe session attach [0-9a-f]{16}/)).toBeVisible();
+  });
+
+  test('old ?session= links still land on the chat', async ({ signedIn: page }) => {
+    const id = await sessionId('flaky e2e triage');
+    await page.goto(`/?session=${id}`);
+    await expect(page).toHaveURL(new RegExp(`/chat/${id}$`));
   });
 });
 
@@ -83,16 +99,17 @@ test.describe('project', () => {
   });
 
   test('reply is confirmed explicitly and reaches the worker', async ({ signedIn: page, browserName }) => {
-    // NW-0003 has no open question, so replying leaves the shared Needs-you state alone for other engines.
-    await page.goto('/p/northwind-web/t/NW-0003');
+    // NW-0005 has no open question, so replying leaves the shared Needs-you state alone for other engines.
+    // (NW-0003 stays untouched: its seeded chat is asserted below.)
+    await page.goto('/p/northwind-web/t/NW-0005');
     const dialog = page.getByRole('dialog');
     const message = `Prioritise the header first (${browserName}).`;
     await dialog.getByLabel('Message to the worker').fill(message);
     await dialog.getByRole('button', { name: 'Send reply' }).click();
     const confirm = page.getByRole('alertdialog');
-    await expect(confirm.getByText('Send this to NW-0003?')).toBeVisible();
+    await expect(confirm.getByText('Send this to NW-0005?')).toBeVisible();
     await confirm.getByRole('button', { name: 'Send reply' }).click();
-    await expect(page.getByText('Sent to NW-0003')).toBeVisible();
+    await expect(page.getByText('Sent to NW-0005')).toBeVisible();
     const state = (await fake('/__fake/state')) as { sent: { message: string }[] };
     expect(state.sent.some((s) => s.message === message)).toBe(true);
   });
@@ -100,15 +117,15 @@ test.describe('project', () => {
   test('live updates arrive over SSE without reloading', async ({ signedIn: page }) => {
     await page.goto('/p/northwind-web');
     const state = (await fake('/__fake/state')) as { sessions: { id: string; title: string }[] };
-    const a11y = state.sessions.find((s) => s.title.startsWith('NW-0003'))!;
-    await fake(`/__fake/sessions/${a11y.id}`, {
+    const qa = state.sessions.find((s) => s.title.startsWith('NW-0005'))!;
+    await fake(`/__fake/sessions/${qa.id}`, {
       method: 'PATCH',
       body: JSON.stringify({ status: 'Error', last_error: 'claude exited unexpectedly' }),
     });
     const needs = page.locator('section[aria-labelledby="needs-you-heading"]');
     await expect(needs.getByText('Session error')).toBeVisible({ timeout: 15_000 });
     await expect(needs.getByText('claude exited unexpectedly')).toBeVisible();
-    await fake(`/__fake/sessions/${a11y.id}`, {
+    await fake(`/__fake/sessions/${qa.id}`, {
       method: 'PATCH',
       body: JSON.stringify({ status: 'Running', last_error: null }),
     });
@@ -124,25 +141,49 @@ test.describe('project', () => {
       .getByRole('link', { name: /Control chat/ })
       .first()
       .click();
-    await expect(page).toHaveURL(/\/p\/[a-z-]+\?session=[0-9a-f]{16}$/);
-    const dialog = page.getByRole('dialog');
-    await expect(dialog.getByRole('heading', { name: /control$/ })).toBeVisible();
-    await expect(dialog.getByRole('link', { name: 'Open on claude.ai' })).toBeVisible();
+    await expect(page).toHaveURL(/\/chat\/[0-9a-f]{16}$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'apollo-api control' })).toBeVisible();
+    await expect(page.getByText('Control chat for apollo-api')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open on claude.ai' })).toBeVisible();
     const message = `What is blocked right now? (${browserName})`;
-    const box = dialog.getByLabel(/^Message /);
+    const box = page.getByLabel(/^Message /);
     await box.fill(message);
     await box.press('Enter');
-    await expect(dialog.getByRole('log', { name: 'Session conversation' })).toContainText(`❯ ${message}`);
+    const log = page.getByRole('log', { name: /^Conversation with/ });
+    await expect(log.getByText(message, { exact: true }).first()).toBeVisible();
     await expect(box).toHaveValue('');
+    // The fake agent answers through the transcript, rendered as markdown (a blockquote of the prompt).
+    await expect(log.locator('blockquote', { hasText: message })).toBeVisible({ timeout: 15_000 });
     await axe(page, 'control chat');
   });
 
-  test('Open chat on the control card opens the same chat', async ({ signedIn: page }) => {
+  test('the chat renders markdown, tables, code and folded tool calls', async ({ signedIn: page }) => {
     await page.goto('/p/northwind-web');
     await page.getByRole('link', { name: 'Open chat' }).click();
-    await expect(
-      page.getByRole('dialog').getByRole('heading', { name: 'northwind-web control' }),
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Northwind launch plan' })).toBeVisible();
+    const log = page.getByRole('log', { name: /^Conversation with/ });
+    await expect(log.getByRole('heading', { name: 'Launch plan' })).toBeVisible();
+    await expect(log.getByRole('cell', { name: 'DNS cutover runbook' })).toBeVisible();
+    await expect(log.locator('code.hljs .hljs-string').first()).toBeVisible();
+    await expect(log.getByRole('button', { name: 'Copy' }).first()).toBeVisible();
+    await expect(log.locator('strong', { hasText: 'NW-0002' })).toBeVisible();
+    // Six task calls in a row fold into one row; opening it shows each call.
+    await log.getByText('6 tool calls').click();
+    await expect(log.getByTitle('supercharge task new "DNS cutover runbook"')).toBeVisible();
+    await axe(page, 'chat');
+  });
+
+  test('a working worker shows progress, failures and a running call', async ({ signedIn: page }) => {
+    await page.goto('/p/northwind-web/t/NW-0003');
+    await page.getByRole('dialog').getByRole('link', { name: 'Open chat' }).click();
+    await expect(page).toHaveURL(/\/chat\/[0-9a-f]{16}$/);
+    await expect(page.getByText('Worker for NW-0003')).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Claude is working' })).toBeVisible();
+    const log = page.getByRole('log', { name: /^Conversation with/ });
+    await expect(log.getByRole('img', { name: 'Failed' })).toBeVisible();
+    await expect(log.getByRole('img', { name: 'Running' })).toBeVisible();
+    // Paths inside the worktree read relative to it.
+    await expect(log.getByText('src/components/Header.tsx', { exact: true }).first()).toBeVisible();
   });
 
   test('new task dialog builds the CLI command (dashboard never spawns agents)', async ({
@@ -209,7 +250,8 @@ test.describe('design gate (SPEC §14.4)', () => {
   });
 
   test('no em or en dashes in visible UI text', async ({ signedIn: page }) => {
-    for (const path of ['/', '/p/northwind-web', '/p/northwind-web/t/NW-0004', '/settings']) {
+    const chat = `/chat/${await sessionId('northwind-web control')}`;
+    for (const path of ['/', '/p/northwind-web', '/p/northwind-web/t/NW-0004', '/settings', chat]) {
       await page.goto(path);
       await page.waitForTimeout(400);
       const text = await page.locator('body').innerText();
@@ -222,6 +264,7 @@ test.describe('design gate (SPEC §14.4)', () => {
     browserName,
   }, info) => {
     test.skip(browserName !== 'chromium', 'one engine is enough for the review set');
+    const chat = `/chat/${await sessionId('northwind-web control')}`;
     for (const [w, h] of [
       [1440, 900],
       [1080, 1920],
@@ -237,13 +280,14 @@ test.describe('design gate (SPEC §14.4)', () => {
           ['project', '/p/northwind-web'],
           ['drawer', '/p/northwind-web/t/NW-0001'],
           ['settings', '/settings'],
+          ['chat', chat],
         ] as const) {
           await page.goto(path);
           await page.evaluate((t) => document.documentElement.classList.toggle('dark', t === 'dark'), theme);
           await page.waitForTimeout(500);
           await page.screenshot({
             path: info.outputPath(`${name}-${theme}-${w}x${h}.png`),
-            fullPage: path !== '/p/northwind-web/t/NW-0001',
+            fullPage: path !== '/p/northwind-web/t/NW-0001' && path !== chat,
           });
         }
       }

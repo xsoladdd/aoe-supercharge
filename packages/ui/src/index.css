@@ -347,3 +347,160 @@
     text-wrap: balance;
   }
 }
+
+/*
+ * Claude's replies in the chat view (sanitised markdown). Code blocks get their frame from
+ * <CodeBlock>; token colours reuse the AA-solved status tokens so both themes stay readable.
+ */
+@layer components {
+  .chat-md > * + * {
+    margin-top: 0.85em;
+  }
+  .chat-md > :first-child {
+    margin-top: 0;
+  }
+  .chat-md h1,
+  .chat-md h2,
+  .chat-md h3,
+  .chat-md h4 {
+    font-weight: 600;
+    line-height: 1.35;
+    margin-top: 1.4em;
+    margin-bottom: -0.25em;
+  }
+  .chat-md h1 {
+    font-size: 1.375rem;
+  }
+  .chat-md h2 {
+    font-size: 1.2rem;
+  }
+  .chat-md h3 {
+    font-size: 1.05rem;
+  }
+  .chat-md h4 {
+    font-size: 1rem;
+  }
+  .chat-md strong {
+    font-weight: 600;
+  }
+  .chat-md ul,
+  .chat-md ol {
+    padding-left: 1.4rem;
+  }
+  .chat-md ul {
+    list-style: disc;
+  }
+  .chat-md ol {
+    list-style: decimal;
+  }
+  .chat-md li {
+    padding-left: 0.2rem;
+  }
+  .chat-md li + li,
+  .chat-md li > ul,
+  .chat-md li > ol {
+    margin-top: 0.3em;
+  }
+  .chat-md li::marker {
+    color: var(--muted-foreground);
+  }
+  .chat-md a {
+    color: var(--brand);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .chat-md :not(pre) > code {
+    font-family: var(--font-mono);
+    font-size: 0.85em;
+    background: var(--raised);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.08em 0.35em;
+    overflow-wrap: anywhere;
+  }
+  .chat-md blockquote {
+    border-left: 3px solid var(--border-strong);
+    padding-left: 0.9rem;
+    color: var(--muted-foreground);
+  }
+  .chat-md hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+    margin: 1.5em 0;
+  }
+  .chat-md table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9375rem;
+  }
+  .chat-md th {
+    background: var(--raised);
+    font-weight: 600;
+  }
+  .chat-md th,
+  .chat-md td {
+    border: 1px solid var(--border);
+    padding: 0.45rem 0.65rem;
+    text-align: left;
+    vertical-align: top;
+  }
+  .chat-md input[type='checkbox'] {
+    margin-right: 0.4rem;
+  }
+
+  .hljs-comment,
+  .hljs-quote {
+    color: var(--muted-foreground);
+    font-style: italic;
+  }
+  .hljs-keyword,
+  .hljs-selector-tag,
+  .hljs-built_in,
+  .hljs-doctag {
+    color: var(--st-violet);
+  }
+  .hljs-string,
+  .hljs-regexp,
+  .hljs-addition,
+  .hljs-template-tag {
+    color: var(--st-green);
+  }
+  .hljs-number,
+  .hljs-literal,
+  .hljs-symbol,
+  .hljs-bullet {
+    color: var(--st-orange);
+  }
+  .hljs-title,
+  .hljs-section,
+  .hljs-name {
+    color: var(--st-blue);
+  }
+  .hljs-attr,
+  .hljs-attribute,
+  .hljs-property,
+  .hljs-variable,
+  .hljs-template-variable,
+  .hljs-params {
+    color: var(--st-cyan);
+  }
+  .hljs-type,
+  .hljs-title.class_,
+  .hljs-selector-class,
+  .hljs-selector-id {
+    color: var(--st-yellow);
+  }
+  .hljs-meta,
+  .hljs-punctuation {
+    color: var(--st-slate);
+  }
+  .hljs-deletion {
+    color: var(--st-red);
+  }
+  .hljs-emphasis {
+    font-style: italic;
+  }
+  .hljs-strong {
+    font-weight: 600;
+  }
+}

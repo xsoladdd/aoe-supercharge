@@ -8,6 +8,7 @@ import { checkAoeCompat, createCtx, SHIPPED_COMPAT, VERSION } from '../context.t
 import { notify, Notifier } from '../notify.ts';
 import { mrProvider } from '../workflow.ts';
 import { createApp } from './app.ts';
+import { TranscriptStore } from '../transcript.ts';
 import { MrWatcher } from './mr-watcher.ts';
 import { Store } from './store.ts';
 import { AoeWatcher, ConfigWatcher, LedgerWatcher } from './watchers.ts';
@@ -140,6 +141,12 @@ async function runWorker(): Promise<void> {
     },
     onClientConnected: () => aoeWatcher.nudge(),
     testNotification: () => notify('Supercharge', 'Notifications are working.'),
+    // AoE's Claude hooks write each session's live Claude id under /tmp/aoe-hooks-<uid>/<id>/session_id.
+    transcripts: new TranscriptStore(
+      paths.claudeDir,
+      process.env.SUPERCHARGE_AOE_HOOKS_DIR || `/tmp/aoe-hooks-${process.getuid?.() ?? 0}`,
+      ctx.aoeCli,
+    ),
   });
 
   await ledgerWatcher.start();

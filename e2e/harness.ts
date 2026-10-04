@@ -2,6 +2,7 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeSession, startFakeAoe, type FakeAoe } from '../packages/fake-aoe/src/server.ts';
+import { seedControlChat, seedWorkerChat } from '../packages/fake-aoe/src/transcript.ts';
 
 /**
  * Demo / E2E world: a fake AoE, two real git repos, and a ledger built through the real CLI
@@ -91,7 +92,11 @@ export async function startDemo(opts: {
   mkdirSync(opts.dir, { recursive: true });
   const glabDir = join(opts.dir, 'glab');
   mkdirSync(glabDir, { recursive: true });
-  const fake = await startFakeAoe({ port: opts.aoePort });
+  const hooksDir = join(opts.dir, 'aoe-hooks');
+  const fake = await startFakeAoe({
+    port: opts.aoePort,
+    transcripts: { claudeDir: join(opts.dir, '.claude'), hooksDir },
+  });
   const { AOE_INSTANCE_ID: _a, SUPERCHARGE_SERVICE: _b, SUPERCHARGE_SUPERVISED: _c, ...base } = process.env;
   const env: NodeJS.ProcessEnv = {
     ...base,
@@ -100,6 +105,7 @@ export async function startDemo(opts: {
     XDG_DATA_HOME: join(opts.dir, '.local/share'),
     XDG_STATE_HOME: join(opts.dir, '.local/state'),
     CLAUDE_CONFIG_DIR: join(opts.dir, '.claude'),
+    SUPERCHARGE_AOE_HOOKS_DIR: hooksDir,
     PATH: `${SHIMS}:${process.env.PATH}`,
     FAKE_AOE_URL: fake.url,
     FAKE_GLAB_DIR: glabDir,
@@ -292,6 +298,12 @@ export async function startDemo(opts: {
       c.id,
       c.title.startsWith('northwind') ? { status: 'Idle', unread: true } : { status: 'Running' },
     );
+
+  // Conversations for the chat view: the northwind control chat and the a11y worker.
+  const nwControl = controls.find((c) => c.title.startsWith('northwind'));
+  if (nwControl) seedControlChat(fake.transcripts!.for(nwControl.id, nwControl.project_path), nw);
+  const a11y = fake.state.sessions.find((s) => s.id === tasks.a11y!.aoeSessionId);
+  if (a11y) seedWorkerChat(fake.transcripts!.for(a11y.id, a11y.project_path), a11y.project_path);
 
   const daemon = spawn(process.execPath, [CLI, 'daemon'], {
     env: { ...env, SUPERCHARGE_LOG_STDERR: opts.log ? '1' : '0', SUPERCHARGE_DEMO: '1' },

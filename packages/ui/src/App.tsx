@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo } from 'react';
+import { Fragment, lazy, Suspense, useEffect } from 'react';
 import { IconContext } from '@phosphor-icons/react';
 import { Link, Route, Switch, useLocation, useRoute } from 'wouter';
 import { toast } from 'sonner';
@@ -7,7 +7,7 @@ import { HealthBanners } from '@/components/banners';
 import { BrandMark } from '@/components/brand';
 import { CommandLine } from '@/components/copy';
 import { NeedsYouStrip } from '@/components/needs-you';
-import { SessionDrawer, TaskDrawer } from '@/components/task-drawer';
+import { TaskDrawer } from '@/components/task-drawer';
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -29,6 +29,36 @@ import { cn } from '@/lib/utils';
 import { OverviewPage } from '@/pages/overview';
 import { ProjectPage } from '@/pages/project';
 import { SettingsPage } from '@/pages/settings';
+import type { Snapshot } from '@aoe-supercharge/core/shared';
+
+// Markdown and syntax highlighting only load when a chat opens.
+const ChatPage = lazy(() => import('@/pages/chat').then((m) => ({ default: m.ChatPage })));
+
+type Crumb = { label: string; href?: string; mono?: boolean };
+
+function crumbsFor(location: string, snap: Snapshot): Crumb[] {
+  const parts = location.split('/').filter(Boolean).map(decodeURIComponent);
+  if (parts[0] === 'settings') return [{ label: 'Settings' }];
+  if (parts[0] === 'p' && parts[1]) {
+    const c: Crumb[] = [{ label: parts[1], href: `/p/${parts[1]}` }];
+    if (parts[2] === 't' && parts[3]) c.push({ label: parts[3], mono: true });
+    return c;
+  }
+  if (parts[0] === 'chat' && parts[1]) {
+    const id = parts[1];
+    const project = snap.projects.find((p) => p.controlSessionId === id);
+    if (project) return [{ label: project.name, href: `/p/${project.name}` }, { label: 'Control chat' }];
+    const task = snap.tasks.find((t) => t.aoeSessionId === id);
+    if (task)
+      return [
+        { label: task.project, href: `/p/${task.project}` },
+        { label: task.id, href: `/p/${task.project}/t/${task.id}`, mono: true },
+        { label: 'Chat' },
+      ];
+    return [{ label: snap.sessions.find((s) => s.id === id)?.title ?? id }];
+  }
+  return [];
+}
 
 function CenterCard({ children }: { children: React.ReactNode }) {
   return (
@@ -109,26 +139,18 @@ export function App() {
   const snap = live.snapshot;
   const [location, navigate] = useLocation();
   const [, taskParams] = useRoute<{ project: string; taskId: string }>('/p/:project/t/:taskId');
-  const openSession = useSearchParam('session');
-  const setOpenSession = (id: string | null) =>
-    navigate(id ? `${location}?session=${encodeURIComponent(id)}` : location);
+  const [isChat, chatParams] = useRoute<{ sessionId: string }>('/chat/:sessionId');
+  const legacySession = useSearchParam('session');
   const resolved = useResolvedTheme();
 
   useEffect(() => {
     void startLive();
   }, []);
   useSyncThemeFrom(snap?.ui.theme);
-
-  const crumbs = useMemo(() => {
-    const parts = location.split('/').filter(Boolean);
-    if (parts[0] === 'settings') return [{ label: 'Settings' }];
-    if (parts[0] === 'p' && parts[1]) {
-      const c: { label: string; href?: string }[] = [{ label: parts[1], href: `/p/${parts[1]}` }];
-      if (parts[2] === 't' && parts[3]) c.push({ label: parts[3] });
-      return c;
-    }
-    return [];
-  }, [location]);
+  // Links from before the chat page (`?session=<id>`) still land on the chat.
+  useEffect(() => {
+    if (legacySession) navigate(`/chat/${encodeURIComponent(legacySession)}`, { replace: true });
+  }, [legacySession, navigate]);
 
   if (live.connection === 'signed_out') return <SignedOut />;
   if (!snap) return live.connection === 'error' ? <Unreachable error={live.error} /> : <LoadingShell />;
@@ -137,7 +159,7 @@ export function App() {
     ? (snap.tasks.find((t) => t.project === taskParams.project && t.id === taskParams.taskId) ?? null)
     : null;
   const taskSession = task ? (snap.sessions.find((s) => s.id === task.aoeSessionId) ?? null) : null;
-  const session = openSession ? (snap.sessions.find((s) => s.id === openSession) ?? null) : null;
+  const crumbs = crumbsFor(location, snap);
 
   const toggleTheme = () => {
     const next = resolved === 'dark' ? 'light' : 'dark';
@@ -161,7 +183,10 @@ export function App() {
         </a>
         <SidebarProvider style={{ '--sidebar-width': '18.5rem' } as React.CSSProperties}>
           <AppSidebar snap={snap} onToggleTheme={toggleTheme} />
-          <SidebarInset className="min-w-0 bg-surface">
+          <SidebarInset
+            // The chat scrolls inside itself, with the composer pinned under it.
+            className={cn('min-w-0 bg-surface', isChat && 'h-dvh overflow-hidden md:h-[calc(100dvh-1rem)]')}
+          >
             <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 rounded-t-xl border-b border-border bg-surface/95 px-4 backdrop-blur lg:px-6">
               <SidebarTrigger className="size-9" />
               <Separator orientation="vertical" className="h-5" />
@@ -177,17 +202,17 @@ export function App() {
                     )}
                   </BreadcrumbItem>
                   {crumbs.map((c, i) => (
-                    <Fragment key={c.label}>
+                    <Fragment key={`${i}-${c.label}`}>
                       <BreadcrumbSeparator />
                       <BreadcrumbItem>
                         {c.href && i < crumbs.length - 1 ? (
                           <BreadcrumbLink asChild>
-                            <Link href={c.href}>{c.label}</Link>
+                            <Link href={c.href} className={c.mono ? 'font-mono' : undefined}>
+                              {c.label}
+                            </Link>
                           </BreadcrumbLink>
                         ) : (
-                          <BreadcrumbPage
-                            className={c.label.includes('-') && i === 1 ? 'font-mono' : undefined}
-                          >
+                          <BreadcrumbPage className={c.mono ? 'font-mono' : undefined}>
                             {c.label}
                           </BreadcrumbPage>
                         )}
@@ -208,17 +233,39 @@ export function App() {
             </header>
 
             <HealthBanners health={snap.health} connection={live.connection} />
-            <NeedsYouStrip items={snap.needsYou} />
+            {!isChat && <NeedsYouStrip items={snap.needsYou} />}
 
-            <main id="main" tabIndex={-1} className="px-5 pt-4 pb-10 outline-none lg:px-7">
+            <main
+              id="main"
+              tabIndex={-1}
+              className={cn(
+                'outline-none',
+                isChat ? 'flex min-h-0 flex-1 flex-col' : 'px-5 pt-4 pb-10 lg:px-7',
+              )}
+            >
               <Switch>
+                <Route path="/chat/:sessionId">
+                  <Suspense
+                    fallback={
+                      <div className="mx-auto w-full max-w-3xl space-y-3 px-4 pt-6" aria-busy="true">
+                        <Skeleton className="h-6 w-56" />
+                        <Skeleton className="h-4 w-3/4" />
+                      </div>
+                    }
+                  >
+                    {chatParams && (
+                      <ChatPage snap={snap} sessionId={decodeURIComponent(chatParams.sessionId)} />
+                    )}
+                  </Suspense>
+                </Route>
                 <Route path="/">
                   <OverviewPage snap={snap} />
                 </Route>
                 <Route path="/settings">
                   <SettingsPage health={snap.health} />
                 </Route>
-                <Route path="/p/:project" nest>
+                {/* Not a nested router: links inside the project page stay absolute (a nest prefixed them twice). */}
+                <Route path="/p/:project/*?">
                   {(params: { project: string }) => (
                     <ProjectPage snap={snap} name={params.project} changed={live.changed} />
                   )}
@@ -242,12 +289,6 @@ export function App() {
             aoeOrigin={snap.health.aoe.origin}
             open={!!task}
             onOpenChange={(o) => !o && taskParams && navigate(`/p/${taskParams.project}`)}
-          />
-          <SessionDrawer
-            session={session}
-            aoeOrigin={snap.health.aoe.origin}
-            open={!!session}
-            onOpenChange={(o) => !o && setOpenSession(null)}
           />
           <Toaster position="bottom-right" />
         </SidebarProvider>

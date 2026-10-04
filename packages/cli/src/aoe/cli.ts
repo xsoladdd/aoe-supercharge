@@ -68,6 +68,18 @@ export class AoeCli {
     return AoeCliListSchema.parse(JSON.parse(r.stdout || '[]'));
   }
 
+  /** Claude's own session id for an AoE session (null until AoE has seen one). */
+  async agentSessionId(id: string): Promise<string | null> {
+    const r = await this.exec(['session', 'show', id, '--json', '-p', this.profile], 10_000);
+    if (r.code !== 0) return null;
+    try {
+      const v = (JSON.parse(r.stdout) as { agent_session_id?: unknown }).agent_session_id;
+      return typeof v === 'string' ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
   async add(o: AddSessionOptions): Promise<RunResult> {
     const args = ['add', o.path, '-t', o.title, '--tool', o.tool, '-p', this.profile];
     if (o.group) args.push('-g', o.group);

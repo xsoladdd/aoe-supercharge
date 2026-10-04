@@ -10,6 +10,7 @@ import {
 } from '@phosphor-icons/react';
 import { relativeTime, type NeedsYouItem, type NeedsYouKind } from '@aoe-supercharge/core/shared';
 import { Link } from 'wouter';
+import { chatHref } from '@/lib/nav';
 import { useNow } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
@@ -25,9 +26,12 @@ const KIND: Record<NeedsYouKind, { icon: Icon; label: string; color: string }> =
 };
 
 export function hrefFor(item: NeedsYouItem): string {
+  // Sessions that are waiting or replied open in their chat, where a waiting menu links to the terminal.
+  const chatKinds: NeedsYouKind[] = ['approval', 'control_waiting', 'control_replied'];
+  if (item.sessionId && chatKinds.includes(item.kind)) return chatHref(item.sessionId);
   if (item.project && item.taskId) return `/p/${item.project}/t/${item.taskId}`;
   if (item.project) return `/p/${item.project}`;
-  if (item.sessionId) return `/?session=${encodeURIComponent(item.sessionId)}`;
+  if (item.sessionId) return chatHref(item.sessionId);
   return '/';
 }
 

@@ -1,9 +1,13 @@
-import { useLocation, useSearch } from 'wouter';
+import { useSearch } from 'wouter';
 
-/** Drawers are deep-linkable: `?session=<id>` opens the session drawer on any page. */
+/** Every session's chat lives at `/chat/<id>`; `?view=terminal` shows its raw terminal. */
+export function chatHref(id: string, view?: 'terminal'): string {
+  return `/chat/${encodeURIComponent(id)}${view ? `?view=${view}` : ''}`;
+}
+
+/** Kept as a hook so call sites read the same as before the chat page existed. */
 export function useSessionHref(): (id: string) => string {
-  const [location] = useLocation();
-  return (id: string) => `${location}?session=${encodeURIComponent(id)}`;
+  return chatHref;
 }
 
 export function useSearchParam(name: string): string | null {

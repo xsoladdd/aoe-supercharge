@@ -31,6 +31,7 @@ import {
   SidebarRail,
 } from '@/components/ui/sidebar';
 import { projectViews, sessionMap, unmanagedGroups } from '@/lib/derive';
+import { chatHref } from '@/lib/nav';
 import { useResolvedTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
@@ -135,14 +136,16 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                       <CollapsibleContent>
                         <SidebarMenuSub>
                           <SidebarMenuSubItem>
-                            <SidebarMenuSubButton asChild size="md" className="h-9">
-                              {/* Opens the chat drawer for the control session on the project page. */}
+                            <SidebarMenuSubButton
+                              asChild
+                              size="md"
+                              className="h-9"
+                              isActive={
+                                !!project.controlSessionId && location === chatHref(project.controlSessionId)
+                              }
+                            >
                               <Link
-                                href={
-                                  project.controlSessionId
-                                    ? `${href}?session=${encodeURIComponent(project.controlSessionId)}`
-                                    : href
-                                }
+                                href={project.controlSessionId ? chatHref(project.controlSessionId) : href}
                               >
                                 <ChatTeardropTextIcon className="size-4" />
                                 <span className="truncate">Control chat</span>

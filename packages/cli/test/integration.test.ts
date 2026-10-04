@@ -6,7 +6,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
+import type { ChatResponse, Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
 import { startFakeAoe, type FakeAoe } from '../../fake-aoe/src/server.ts';
 
 const ROOT = join(import.meta.dirname, '../../..');
@@ -72,8 +72,10 @@ const readTask = async (id: string) => JSON.parse(await readFile(taskFile(id), '
 beforeAll(async () => {
   if (!existsSync(CLI))
     execFileSync('npm', ['run', 'build', '-w', 'aoe-supercharge'], { cwd: ROOT, stdio: 'ignore' });
-  fake = await startFakeAoe();
   home = await mkdtemp(join(tmpdir(), 'sc-int-'));
+  fake = await startFakeAoe({
+    transcripts: { claudeDir: join(home, '.claude'), hooksDir: join(home, 'aoe-hooks') },
+  });
   repo = join(home, 'code', 'northwind');
   glabDir = join(home, 'glab');
   await mkdir(repo, { recursive: true });
@@ -101,6 +103,7 @@ beforeAll(async () => {
     XDG_DATA_HOME: join(home, '.local/share'),
     XDG_STATE_HOME: join(home, '.local/state'),
     CLAUDE_CONFIG_DIR: join(home, '.claude'),
+    SUPERCHARGE_AOE_HOOKS_DIR: join(home, 'aoe-hooks'),
     PATH: `${SHIMS}:${process.env.PATH}`,
     FAKE_AOE_URL: fake.url,
     FAKE_GLAB_DIR: glabDir,
@@ -449,6 +452,28 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect((await fetch(`${base()}/api/sessions/ffffffffffffffff/output`, { headers: auth })).status).toBe(
       404,
     );
+    // The chat view reads the same conversation from Claude Code's transcript.
+    const chat = await until(async () => {
+      const c = (await (
+        await fetch(`${base()}/api/sessions/${control}/chat`, { headers: auth })
+      ).json()) as ChatResponse;
+      return c.messages.some((m) => m.role === 'assistant') ? c : null;
+    });
+    expect(chat.state).toBe('ok');
+    expect(chat.messages).toContainEqual(
+      expect.objectContaining({
+        role: 'user',
+        blocks: [{ kind: 'text', text: 'Create one task for the README.' }],
+      }),
+    );
+    const same = await fetch(
+      `${base()}/api/sessions/${control}/chat?version=${encodeURIComponent(chat.version)}`,
+      {
+        headers: auth,
+      },
+    );
+    expect(await same.json()).toEqual({ unchanged: true, version: chat.version });
+    expect((await fetch(`${base()}/api/sessions/ffffffffffffffff/chat`, { headers: auth })).status).toBe(404);
     const empty = await fetch(`${base()}/api/sessions/${control}/send`, {
       method: 'POST',
       headers: { ...auth, 'content-type': 'application/json' },

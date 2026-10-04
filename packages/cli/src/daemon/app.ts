@@ -16,6 +16,7 @@ import {
 import { VERSION, type Ctx } from '../context.ts';
 import { buildProjectStatus } from '../status.ts';
 import { CliError } from '../util/errors.ts';
+import type { TranscriptStore } from '../transcript.ts';
 import { replyToTask, sendToSession } from '../workflow.ts';
 import type { Store } from './store.ts';
 
@@ -30,6 +31,7 @@ export interface AppDeps {
   requestRestart: () => void;
   onClientConnected: () => void;
   testNotification: () => Promise<boolean>;
+  transcripts: TranscriptStore;
 }
 
 export const SESSION_COOKIE = 'sc_session';
@@ -248,6 +250,28 @@ export function createApp(deps: AppDeps) {
       return c.json({ content: out.content.replace(/\s+$/, ''), rcUrl });
     } catch (err) {
       return c.json({ error: 'aoe_error', message: (err as Error).message }, 502);
+    }
+  });
+
+  // The session's conversation parsed from Claude Code's transcript, for the chat view.
+  app.get('/api/sessions/:id/chat', async (c) => {
+    const id = c.req.param('id');
+    const session = store.sessions.find((s) => s.id === id);
+    if (!session) return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    try {
+      const chat = await deps.transcripts.read(id, session.projectPath);
+      if (c.req.query('version') === chat.version) return c.json({ unchanged: true, version: chat.version });
+      return c.json(chat);
+    } catch (err) {
+      ctx.logger.warn('transcript read failed', { session: id, err: (err as Error).message });
+      return c.json({
+        state: 'unavailable',
+        version: 'error',
+        title: null,
+        messages: [],
+        truncated: 0,
+        note: 'Could not read this conversation. The Terminal view still works.',
+      });
     }
   });
 
