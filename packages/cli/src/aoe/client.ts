@@ -3,6 +3,7 @@ import type { AoeCli } from './cli.ts';
 import {
   AoeAboutSchema,
   AoeDeleteResponseSchema,
+  AoeOutputSchema,
   AoeSendResponseSchema,
   AoeSessionsResponseSchema,
   type AoeSession,
@@ -117,6 +118,15 @@ export class AoeClient {
       message,
       revive: true,
     });
+  }
+
+  /** Recent pane text of a session (plain text, no ANSI). */
+  async output(id: string, lines: number) {
+    return this.request(
+      'GET',
+      `/api/sessions/${encodeURIComponent(id)}/output?lines=${lines}&format=text`,
+      AoeOutputSchema,
+    );
   }
 
   async deleteSession(id: string, opts: { deleteWorktree: boolean; deleteBranch: boolean }) {

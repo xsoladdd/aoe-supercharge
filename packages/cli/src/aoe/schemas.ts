@@ -66,6 +66,14 @@ export const AoeStatusCountsSchema = z.looseObject({
 
 export const AoeSendResponseSchema = z.looseObject({ sent: z.boolean() });
 
+/** GET /api/sessions/{id}/output?lines=&format=text (verified against AoE 1.17.2). */
+export const AoeOutputSchema = z.looseObject({
+  id: z.string(),
+  lines: z.number().optional(),
+  format: z.string().optional(),
+  content: z.string(),
+});
+
 export const AoeDeleteResponseSchema = z.looseObject({
   status: z.string(),
   messages: z.array(z.string()).optional(),

@@ -136,7 +136,14 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                         <SidebarMenuSub>
                           <SidebarMenuSubItem>
                             <SidebarMenuSubButton asChild size="md" className="h-9">
-                              <Link href={href}>
+                              {/* Opens the chat drawer for the control session on the project page. */}
+                              <Link
+                                href={
+                                  project.controlSessionId
+                                    ? `${href}?session=${encodeURIComponent(project.controlSessionId)}`
+                                    : href
+                                }
+                              >
                                 <ChatTeardropTextIcon className="size-4" />
                                 <span className="truncate">Control chat</span>
                                 <span className="ml-auto">

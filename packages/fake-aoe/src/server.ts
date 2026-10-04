@@ -184,6 +184,28 @@ export function createFakeApp(state: FakeState) {
     state.sent.push({ id, message, at: new Date().toISOString() });
     return c.json({ sent: true });
   });
+  app.get('/api/sessions/:id/output', (c) => {
+    const s = state.sessions.find((x) => x.id === c.req.param('id'));
+    if (!s) return c.json({ error: 'not_found', message: 'No such session' }, 404);
+    const lines = [
+      ' ▐▛███▛█   Claude Code (fake agent)',
+      `  ${s.title}`,
+      ...(s.title.endsWith(' control')
+        ? ['  /remote-control is active · Continue at https://claude.ai/code/session_FAKE0123']
+        : []),
+      '',
+      ...state.sent
+        .filter((m) => m.id === s.id)
+        .flatMap((m) => [`❯ ${m.message}`, '', '⏺ Got it. Working on that now.', '']),
+      '❯ ',
+    ];
+    return c.json({
+      id: s.id,
+      lines: Number(c.req.query('lines') ?? 50),
+      format: 'text',
+      content: lines.join('\n'),
+    });
+  });
   app.delete('/api/sessions/:id', (c) => {
     const before = state.sessions.length;
     state.sessions = state.sessions.filter((s) => s.id !== c.req.param('id'));

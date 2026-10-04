@@ -31,12 +31,16 @@ test.describe('overview', () => {
     await axe(page, 'overview');
   });
 
-  test('opening an unmanaged session shows its attach command', async ({ signedIn: page }) => {
+  test('opening an unmanaged session shows its live conversation', async ({ signedIn: page }) => {
     await page.getByRole('link', { name: /flaky e2e triage/ }).click();
     await expect(page).toHaveURL(/\?session=[0-9a-f]{16}/);
     const dialog = page.getByRole('dialog');
-    await expect(dialog.getByText(/aoe session attach [0-9a-f]{16}/)).toBeVisible();
     await expect(dialog.getByText('fix/flaky-e2e')).toBeVisible();
+    await expect(dialog.getByRole('log', { name: 'Session conversation' })).toContainText(
+      'Claude Code (fake agent)',
+    );
+    await dialog.getByText('Attach in a terminal instead').click();
+    await expect(dialog.getByText(/aoe session attach [0-9a-f]{16}/)).toBeVisible();
   });
 });
 
@@ -109,6 +113,36 @@ test.describe('project', () => {
       body: JSON.stringify({ status: 'Running', last_error: null }),
     });
     await expect(needs.getByText('Session error')).toHaveCount(0, { timeout: 15_000 });
+  });
+
+  test('Control chat in the sidebar opens a chat you can type into', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    await page.goto('/p/apollo-api');
+    await page
+      .getByRole('link', { name: /Control chat/ })
+      .first()
+      .click();
+    await expect(page).toHaveURL(/\/p\/[a-z-]+\?session=[0-9a-f]{16}$/);
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('heading', { name: /control$/ })).toBeVisible();
+    await expect(dialog.getByRole('link', { name: 'Open on claude.ai' })).toBeVisible();
+    const message = `What is blocked right now? (${browserName})`;
+    const box = dialog.getByLabel(/^Message /);
+    await box.fill(message);
+    await box.press('Enter');
+    await expect(dialog.getByRole('log', { name: 'Session conversation' })).toContainText(`❯ ${message}`);
+    await expect(box).toHaveValue('');
+    await axe(page, 'control chat');
+  });
+
+  test('Open chat on the control card opens the same chat', async ({ signedIn: page }) => {
+    await page.goto('/p/northwind-web');
+    await page.getByRole('link', { name: 'Open chat' }).click();
+    await expect(
+      page.getByRole('dialog').getByRole('heading', { name: 'northwind-web control' }),
+    ).toBeVisible();
   });
 
   test('new task dialog builds the CLI command (dashboard never spawns agents)', async ({

@@ -16,7 +16,7 @@ import {
 import { VERSION, type Ctx } from '../context.ts';
 import { buildProjectStatus } from '../status.ts';
 import { CliError } from '../util/errors.ts';
-import { replyToTask } from '../workflow.ts';
+import { replyToTask, sendToSession } from '../workflow.ts';
 import type { Store } from './store.ts';
 
 export interface AppDeps {
@@ -231,6 +231,46 @@ export function createApp(deps: AppDeps) {
     } catch (err) {
       return c.json(
         { error: 'reply_failed', message: (err as Error).message },
+        err instanceof CliError ? 400 : 502,
+      );
+    }
+  });
+
+  // Live conversation of any known AoE session (control chats, workers, others). Text only, no ANSI.
+  app.get('/api/sessions/:id/output', async (c) => {
+    const id = c.req.param('id');
+    if (!store.sessions.some((s) => s.id === id))
+      return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    const lines = Math.min(Math.max(Number(c.req.query('lines')) || 300, 20), 2000);
+    try {
+      const out = await ctx.aoe.output(id, lines);
+      const rcUrl = out.content.match(/https:\/\/claude\.ai\/code\/session_[A-Za-z0-9_-]+/)?.[0] ?? null;
+      return c.json({ content: out.content.replace(/\s+$/, ''), rcUrl });
+    } catch (err) {
+      return c.json({ error: 'aoe_error', message: (err as Error).message }, 502);
+    }
+  });
+
+  // Typing into a session from the dashboard: an explicit Send, always audited.
+  app.post('/api/sessions/:id/send', async (c) => {
+    const id = c.req.param('id');
+    const session = store.sessions.find((s) => s.id === id);
+    if (!session) return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { message?: string };
+    const task = store.tasks.find((t) => t.aoeSessionId === id) ?? null;
+    const project = task?.project ?? store.projects.find((p) => p.controlSessionId === id)?.name ?? null;
+    try {
+      await sendToSession(ctx, {
+        sessionId: id,
+        message: body.message ?? '',
+        actor: 'ui',
+        project,
+        taskId: task?.id ?? null,
+      });
+      return c.json({ ok: true });
+    } catch (err) {
+      return c.json(
+        { error: 'send_failed', message: (err as Error).message },
         err instanceof CliError ? 400 : 502,
       );
     }

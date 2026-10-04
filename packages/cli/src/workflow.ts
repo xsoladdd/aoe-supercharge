@@ -508,6 +508,38 @@ export async function savePlan(
 // ── reply ─────────────────────────────────────────────────────────────────────
 
 /** Explicit, audited prompt to a worker (SPEC §8.4). Callers must have confirmed with the human first. */
+/**
+ * Send a message into an AoE session (SPEC §8.4): always audited, REST first with the CLI as
+ * fallback. Callers make sure the human explicitly asked for it (a Send click, a confirmed reply).
+ */
+export async function sendToSession(
+  ctx: Ctx,
+  opts: {
+    sessionId: string;
+    message: string;
+    actor: 'cli' | 'ui' | 'control';
+    project?: string | null;
+    taskId?: string | null;
+  },
+): Promise<void> {
+  const message = opts.message.trim();
+  if (!message) throw new CliError('The message is empty.', EXIT.usage);
+  await appendAudit(ctx.paths, {
+    actor: opts.actor,
+    action: 'prompt_sent',
+    project: opts.project ?? null,
+    taskId: opts.taskId ?? null,
+    sessionId: opts.sessionId,
+    text: message,
+  });
+  try {
+    await ctx.aoe.send(opts.sessionId, message);
+  } catch (err) {
+    const r = await ctx.aoeCli.send(opts.sessionId, message);
+    if (r.code !== 0) throw new CliError(`Could not deliver the message: ${(err as Error).message}`);
+  }
+}
+
 export async function replyToTask(
   ctx: Ctx,
   opts: { project: string; taskId: string; message: string; actor: 'cli' | 'ui' | 'control' },
@@ -516,20 +548,13 @@ export async function replyToTask(
   if (!message) throw new CliError('The reply is empty.', EXIT.usage);
   const task = await ctx.ledger.getTask(opts.project, opts.taskId);
   if (!task) throw new CliError(`Unknown task ${opts.taskId} in ${opts.project}.`, EXIT.usage);
-  await appendAudit(ctx.paths, {
-    actor: opts.actor === 'control' ? 'control' : opts.actor,
-    action: 'prompt_sent',
+  await sendToSession(ctx, {
+    sessionId: task.aoeSessionId,
+    message,
+    actor: opts.actor,
     project: task.project,
     taskId: task.id,
-    sessionId: task.aoeSessionId,
-    text: message,
   });
-  try {
-    await ctx.aoe.send(task.aoeSessionId, message);
-  } catch (err) {
-    const r = await ctx.aoeCli.send(task.aoeSessionId, message);
-    if (r.code !== 0) throw new CliError(`Could not deliver the reply: ${(err as Error).message}`);
-  }
   if (task.openQuestion && !task.openQuestion.answeredAt) {
     return ctx.ledger.updateTask(task.project, task.id, (t) => ({
       ...t,

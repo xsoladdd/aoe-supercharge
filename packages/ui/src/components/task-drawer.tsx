@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { ago, STAGE_LABEL, type SessionView, type TaskRecord } from '@aoe-supercharge/core/shared';
 import { toast } from 'sonner';
 import { CommandLine } from '@/components/copy';
+import { Composer, Conversation, RemoteControlLink, useSessionOutput } from '@/components/session-chat';
 import { LiveStatus, MrBadge, StageBadge, StageStepper, STAGE_META } from '@/components/status';
 import {
   AlertDialog,
@@ -226,6 +227,10 @@ export function TaskDrawer({
               </section>
             )}
 
+            <Section title="Live session">
+              <TaskConversation sessionId={task.aoeSessionId} />
+            </Section>
+
             <Section title="Merge request">
               <MrBadge mr={task.mr} />
               {task.mr?.error && (
@@ -308,69 +313,77 @@ export function SessionDrawer({
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
-  const now = useNow();
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent className="w-full gap-0 overflow-y-auto overscroll-contain rounded-l-xl p-0 sm:max-w-[34rem]">
-        {session && (
-          <>
-            <SheetHeader className="gap-2 px-6 pt-6 pb-5">
-              <span translate="no" className="font-mono text-[13px] text-muted-foreground">
-                {session.id}
-              </span>
-              <SheetTitle className="text-[22px] leading-snug font-semibold">{session.title}</SheetTitle>
-              <SheetDescription asChild>
-                <div>
-                  <LiveStatus status={session.status} unread={session.unread} />
-                </div>
-              </SheetDescription>
-            </SheetHeader>
-            <Section title="Details">
-              <dl className="grid grid-cols-[8rem_minmax(0,1fr)] gap-x-3 gap-y-2 text-[15px]">
-                <dt className="text-muted-foreground">Status since</dt>
-                <dd>{ago(session.statusSince, now)}</dd>
-                {session.branch && (
-                  <>
-                    <dt className="text-muted-foreground">Branch</dt>
-                    <dd className="font-mono text-[14px] break-all">{session.branch}</dd>
-                  </>
-                )}
-                {session.projectPath && (
-                  <>
-                    <dt className="text-muted-foreground">Path</dt>
-                    <dd className="font-mono text-[13px] break-all">{session.projectPath}</dd>
-                  </>
-                )}
-                {session.group && (
-                  <>
-                    <dt className="text-muted-foreground">Group</dt>
-                    <dd>{session.group}</dd>
-                  </>
-                )}
-                {session.lastError && (
-                  <>
-                    <dt className="text-muted-foreground">Last error</dt>
-                    <dd className="text-st-red">{session.lastError}</dd>
-                  </>
-                )}
-              </dl>
-            </Section>
-            <Section title="Open">
-              <div className="space-y-2">
-                <CommandLine command={`aoe session attach ${session.id}`} />
-                {aoeOrigin && (
-                  <Button variant="outline" asChild>
-                    <a href={aoeOrigin} target="_blank" rel="noreferrer">
-                      <ArrowSquareOutIcon />
-                      Open in AoE
-                    </a>
-                  </Button>
-                )}
-              </div>
-            </Section>
-          </>
-        )}
+      <SheetContent className="flex w-full flex-col gap-0 overscroll-contain rounded-l-xl p-0 sm:max-w-[52rem]">
+        {session && <SessionChat session={session} aoeOrigin={aoeOrigin} />}
       </SheetContent>
     </Sheet>
+  );
+}
+
+/** Talk to a session from the dashboard: its live conversation plus a message box. */
+function SessionChat({ session, aoeOrigin }: { session: SessionView; aoeOrigin: string | null }) {
+  const now = useNow();
+  const { output, error, refresh } = useSessionOutput(session.id);
+  return (
+    <>
+      <SheetHeader className="gap-1.5 border-b border-border px-6 pt-6 pb-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pr-8">
+          <SheetTitle className="text-[20px] leading-snug font-semibold break-words">
+            {session.title}
+          </SheetTitle>
+          <LiveStatus status={session.status} unread={session.unread} />
+        </div>
+        <SheetDescription asChild>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
+            <span translate="no" className="font-mono text-[13px]">
+              {session.id}
+            </span>
+            {session.branch && (
+              <span translate="no" className="font-mono text-[13px] break-all">
+                {session.branch}
+              </span>
+            )}
+            <span>Status since {ago(session.statusSince, now)}</span>
+          </div>
+        </SheetDescription>
+        {session.lastError && <p className="text-sm text-st-red">{session.lastError}</p>}
+        <div className="mt-2 flex flex-wrap gap-2">
+          <RemoteControlLink url={output?.rcUrl ?? null} />
+          {aoeOrigin && (
+            <Button variant="outline" size="sm" asChild>
+              <a href={aoeOrigin} target="_blank" rel="noreferrer">
+                <ArrowSquareOutIcon />
+                Open in AoE
+              </a>
+            </Button>
+          )}
+        </div>
+      </SheetHeader>
+      <div className="min-h-0 flex-1 px-6 py-4">
+        <Conversation content={output?.content ?? null} error={error} className="h-full" />
+      </div>
+      <div className="space-y-3 border-t border-border px-6 py-4">
+        <Composer sessionId={session.id} label={`Message ${session.title}`} onSent={refresh} autoFocus />
+        <details className="text-sm text-muted-foreground">
+          <summary className="cursor-pointer select-none hover:text-foreground">
+            Attach in a terminal instead
+          </summary>
+          <CommandLine command={`aoe session attach ${session.id}`} className="mt-2" />
+        </details>
+      </div>
+    </>
+  );
+}
+
+/** The worker's live session inside the task drawer. */
+function TaskConversation({ sessionId }: { sessionId: string }) {
+  const { output, error } = useSessionOutput(sessionId);
+  return (
+    <div className="space-y-2">
+      <Conversation content={output?.content ?? null} error={error} className="h-80" />
+      <RemoteControlLink url={output?.rcUrl ?? null} />
+    </div>
   );
 }

@@ -425,6 +425,38 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(snap.needsYou.find((n) => n.kind === 'approval')?.taskId).toBe('NO-0001');
   });
 
+  it('reads a session conversation and sends a message into it (audited)', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const snap = (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const control = snap.projects[0]!.controlSessionId!;
+    const send = await fetch(`${base()}/api/sessions/${control}/send`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'Create one task for the README.' }),
+    });
+    expect(send.status).toBe(200);
+    expect(fake.state.sent.at(-1)).toMatchObject({ id: control, message: 'Create one task for the README.' });
+    const out = (await (
+      await fetch(`${base()}/api/sessions/${control}/output`, { headers: auth })
+    ).json()) as {
+      content: string;
+      rcUrl: string | null;
+    };
+    expect(out.content).toMatch(/❯ Create one task for the README\./);
+    expect(out.rcUrl).toMatch(/^https:\/\/claude\.ai\/code\/session_/);
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"actor":"ui","action":"prompt_sent".*Create one task for the README/);
+    expect((await fetch(`${base()}/api/sessions/ffffffffffffffff/output`, { headers: auth })).status).toBe(
+      404,
+    );
+    const empty = await fetch(`${base()}/api/sessions/${control}/send`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ message: '   ' }),
+    });
+    expect(empty.status).toBe(400);
+  });
+
   it('serves the project status in the control-chat format', async () => {
     const r = await sc(['status', '--project', 'northwind', '--json']);
     const st = JSON.parse(r.stdout);

@@ -1,8 +1,9 @@
-import { BroadcastIcon, ChatTeardropTextIcon } from '@phosphor-icons/react';
+import { BroadcastIcon, ChatCircleTextIcon, ChatTeardropTextIcon } from '@phosphor-icons/react';
 import { relativeTime, STAGE_LABEL, type Stage } from '@aoe-supercharge/core/shared';
 import { Link } from 'wouter';
 import { useSessionHref } from '@/lib/nav';
 import { LiveStatus, STAGE_META } from '@/components/status';
+import { Button } from '@/components/ui/button';
 import type { ProjectView } from '@/lib/derive';
 import { useNow } from '@/lib/theme';
 import { cn } from '@/lib/utils';
@@ -70,6 +71,14 @@ export function ControlBox({ view, remoteControl }: { view: ProjectView; remoteC
             <BroadcastIcon weight="bold" className="size-4" aria-hidden />
             Remote Control {remoteControl ? 'on' : 'off'}
           </span>
+          {project.controlSessionId && (
+            <Button variant="secondary" asChild>
+              <Link href={sessionHref(project.controlSessionId)}>
+                <ChatCircleTextIcon weight="bold" />
+                Open chat
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 
