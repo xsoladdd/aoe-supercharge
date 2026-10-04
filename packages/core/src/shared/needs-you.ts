@@ -105,9 +105,11 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
           ? 'plan_approval'
           : s.prompt?.kind === 'permission'
             ? 'permission'
-            : 'approval';
+            : s.prompt?.kind === 'question'
+              ? 'question'
+              : 'approval';
       items.push({
-        id: `${kind}:${s.id}`,
+        id: `${kind === 'question' ? 'ask' : kind}:${s.id}`,
         kind,
         project: projectName,
         taskId: task?.id ?? null,

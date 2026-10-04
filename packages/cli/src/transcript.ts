@@ -11,7 +11,8 @@ import type { AoeCli } from './aoe/cli.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** Command echoes and harness notes Claude Code records as user turns; they aren't things you typed. */
-const NOT_TYPED = /^\s*<(command-|local-command|system-reminder|bash-|task-notification|user-memory)/;
+const NOT_TYPED =
+  /^\s*(<(command-|local-command|system-reminder|bash-|task-notification|user-memory)|\[Request interrupted by user)/;
 const MAX_MESSAGES = 300;
 const FULL_INPUT = new Set(['ExitPlanMode', 'AskUserQuestion']);
 

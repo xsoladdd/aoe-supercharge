@@ -19,6 +19,8 @@ type Block =
 export class FakeTranscript {
   readonly file: string;
   private toolSeq = 0;
+  /** Tool calls without a result yet, oldest first. */
+  readonly pending: string[] = [];
 
   constructor(
     dirs: TranscriptDirs,
@@ -74,7 +76,10 @@ export class FakeTranscript {
                 `toolu_fake${String(++this.toolSeq).padStart(4, '0')}${randomBytes(4).toString('hex')}`,
             }
           : b;
-      if (content.type === 'tool_use') tools.push(content.id!);
+      if (content.type === 'tool_use') {
+        tools.push(content.id!);
+        this.pending.push(content.id!);
+      }
       this.write('assistant', {
         message: { id, type: 'message', role: 'assistant', model: 'claude-fake', content: [content] },
       });
@@ -83,10 +88,29 @@ export class FakeTranscript {
   }
 
   result(toolUseId: string, content: string, isError = false) {
+    const i = this.pending.indexOf(toolUseId);
+    if (i >= 0) this.pending.splice(i, 1);
     this.write('user', {
       message: {
         role: 'user',
         content: [{ type: 'tool_result', tool_use_id: toolUseId, content, is_error: isError }],
+      },
+    });
+  }
+
+  /** Escape on a menu: Claude Code rejects the call it was asking about and stops. */
+  rejectPending() {
+    const id = this.pending.at(-1);
+    if (!id) return;
+    this.result(
+      id,
+      "The user doesn't want to proceed with this tool use. The tool use was rejected. STOP what you are doing and wait for the user to tell you how to proceed.",
+      true,
+    );
+    this.write('user', {
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: '[Request interrupted by user for tool use]' }],
       },
     });
   }

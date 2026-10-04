@@ -18,7 +18,9 @@ import type { AoeCliListEntry } from './aoe/schemas.ts';
 import { VERSION, type Ctx } from './context.ts';
 import { GitLabProvider, type MrProvider } from './mr/gitlab.ts';
 import { installUserSkills, readTemplate, render, SKILL_NAMES, upsertManagedBlock } from './skills.ts';
+import { TerminalBusyError } from './aoe/client.ts';
 import { menuOnScreen } from './prompt.ts';
+import type { TranscriptStore } from './transcript.ts';
 import { CliError, EXIT } from './util/errors.ts';
 import { run } from './util/exec.ts';
 import { currentBranch, defaultBranch, mainCheckout, parseRemote, remoteUrl } from './util/git.ts';
@@ -554,6 +556,87 @@ export async function sendToSession(
   });
   await deliver(ctx, opts.sessionId, message);
 }
+
+export interface QuestionAnswer {
+  question: string;
+  /** Labels of the options picked (one for single choice). */
+  picked: string[];
+  /** Free text ("Type something"). */
+  other?: string;
+}
+
+/** The answers as one message Claude can read, in the order it asked. */
+export function formatAnswers(answers: QuestionAnswer[], note?: string): string {
+  const lines = ['My answers to your questions:', ''];
+  answers.forEach((a, i) => {
+    const parts = [...a.picked, ...(a.other?.trim() ? [a.other.trim()] : [])];
+    lines.push(
+      `${i + 1}. ${a.question}`,
+      `   Answer: ${parts.length ? parts.join('; ') : '(no answer)'}`,
+      '',
+    );
+  });
+  if (note?.trim()) lines.push(note.trim());
+  return lines.join('\n').trim();
+}
+
+/**
+ * Answer Claude's own multiple-choice tool (AskUserQuestion). Its tabs move on with every key, so
+ * typing answers into it with AoE's always-on Enter is unsafe. Instead: press Escape through AoE's live
+ * terminal (no Enter), which closes the menu and stops Claude, then send the answers as a message.
+ */
+export async function answerQuestions(
+  ctx: Ctx,
+  transcripts: TranscriptStore,
+  opts: {
+    sessionId: string;
+    cwd: string | null;
+    /** The AskUserQuestion call id, or the on-screen menu key when Claude has not written the call yet. */
+    toolId: string;
+    answers: QuestionAnswer[];
+    /** Anything else for Claude, e.g. about the questions the screen did not show. */
+    note?: string;
+    actor: 'cli' | 'ui' | 'control';
+    project?: string | null;
+    taskId?: string | null;
+  },
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<void> {
+  const pending = await transcripts.pendingTool(opts.sessionId, opts.cwd).catch(() => null);
+  const inTranscript = pending?.name === 'AskUserQuestion' && pending.id === opts.toolId;
+  const onScreen = !inTranscript && (await menuOnScreen(ctx, opts.sessionId))?.key === opts.toolId;
+  if (!inTranscript && !onScreen)
+    throw new PromptChangedError('Those questions are no longer waiting, so nothing was sent.');
+  if (!opts.answers.length) throw new CliError('Answer at least one question.', EXIT.usage);
+  const message = formatAnswers(opts.answers, opts.note);
+  await appendAudit(ctx.paths, {
+    actor: opts.actor,
+    action: 'prompt_answered',
+    project: opts.project ?? null,
+    taskId: opts.taskId ?? null,
+    sessionId: opts.sessionId,
+    text: message,
+  });
+  try {
+    await ctx.aoe.pressKeys(opts.sessionId, ['\x1b']);
+  } catch (err) {
+    if (err instanceof TerminalBusyError) throw new TerminalBusyCliError(err.message);
+    throw new CliError(`Could not close Claude's question: ${(err as Error).message}`);
+  }
+  for (let i = 0; ; i++) {
+    await wait(250);
+    const still = await transcripts.pendingTool(opts.sessionId, opts.cwd).catch(() => null);
+    if (still?.id !== opts.toolId && !(await menuOnScreen(ctx, opts.sessionId))) break;
+    if (i >= 24)
+      throw new CliError(
+        'Claude did not close its question, so your answers were not sent. Check the terminal.',
+      );
+  }
+  await sendToSession(ctx, { ...opts, message });
+}
+
+/** Someone is viewing the session in AoE and holds its typing lock. */
+export class TerminalBusyCliError extends CliError {}
 
 /** A message was refused because Claude is showing a menu. */
 export class MenuOpenError extends CliError {

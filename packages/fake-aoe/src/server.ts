@@ -1,6 +1,9 @@
 import { randomBytes } from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
+import type { Duplex } from 'node:stream';
 import { serve, type ServerType } from '@hono/node-server';
 import { Hono } from 'hono';
+import { WebSocketServer } from 'ws';
 import { FakeTranscripts, type TranscriptDirs } from './transcript.ts';
 
 /**
@@ -44,6 +47,27 @@ export const PLAN_MENU = [
   ' ctrl+g to edit in VS Code · ~/.claude/plans/node-24-upgrade.md',
 ].join('\n');
 
+/** AskUserQuestion with tabs and a multi-select question, as Claude Code 2.1 draws it. */
+export const ASK_MENU = [
+  '────────────────────────────────────────────────────────────────────────────────',
+  '←  ☐ Browsers  ☐ Devices  ✔ Submit  →',
+  '',
+  'Which browsers should the QA pass cover?',
+  '',
+  '❯ 1. [ ] Chrome',
+  '  Latest stable on macOS and Windows.',
+  '  2. [ ] Safari',
+  '  Including Safari on iOS 26.',
+  '  3. [ ] Firefox',
+  '  Latest stable only.',
+  '  4. [ ] Type something',
+  '     Next',
+  '────────────────────────────────────────────────────────────────────────────────',
+  '  5. Chat about this',
+  '',
+  'Enter to select · Tab/Arrow keys to navigate · Esc to cancel',
+].join('\n');
+
 /** A Bash permission prompt. */
 export const PERMISSION_MENU = [
   '────────────────────────────────────────────────────────────────────────────────',
@@ -63,6 +87,10 @@ export interface FakeState {
   token: string;
   sessions: FakeSession[];
   sent: { id: string; message: string; at: string }[];
+  /** Raw keys typed through the live-terminal websocket, as hex. */
+  keys: { id: string; hex: string; at: string }[];
+  /** Fake only: who holds each session's typing lock (someone viewing it in AoE). */
+  viewers: Record<string, boolean>;
 }
 
 export function newId(): string {
@@ -198,6 +226,17 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
       agent_session_id: transcripts?.get(c.req.param('id'))?.claudeId ?? null,
     }),
   );
+  // Arm an AskUserQuestion: the call in the transcript, the menu on screen, the session waiting.
+  app.post('/__fake/sessions/:id/ask', async (c) => {
+    const s = state.sessions.find((x) => x.id === c.req.param('id'));
+    if (!s || !transcripts) return c.json({ error: 'not_found' }, 404);
+    const { questions } = (await c.req.json()) as { questions: unknown[] };
+    transcripts
+      .for(s.id, s.project_path)
+      .assistant({ type: 'tool_use', name: 'AskUserQuestion', input: { questions } });
+    Object.assign(s, { status: 'Waiting', menu: ASK_MENU });
+    return c.json({ ok: true });
+  });
   app.post('/__fake/version', async (c) => {
     state.version = ((await c.req.json()) as { version: string }).version;
     return c.json({ ok: true });
@@ -282,6 +321,8 @@ export async function startFakeAoe(
     token: opts.token ?? randomBytes(32).toString('hex'),
     sessions: opts.sessions ?? [],
     sent: [],
+    keys: [],
+    viewers: {},
   };
   const transcripts = opts.transcripts ? new FakeTranscripts(opts.transcripts) : null;
   const app = createFakeApp(state, transcripts);
@@ -292,6 +333,7 @@ export async function startFakeAoe(
     );
     server.on('error', reject);
   });
+  attachLiveTerminal(server!, state, transcripts);
   return {
     url: `http://127.0.0.1:${port}`,
     port,
@@ -299,4 +341,41 @@ export async function startFakeAoe(
     transcripts,
     stop: () => new Promise((r) => server.close(() => r())),
   };
+}
+
+/**
+ * AoE's live-terminal websocket, reduced to what Supercharge uses (src/server/live_ws.rs): bearer auth,
+ * `claim_if_vacant` answered with `size_owner`, binary frames as raw pane input. Escape on a menu
+ * closes it and rejects the call it was about, like Claude Code does.
+ */
+function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: FakeTranscripts | null) {
+  const wss = new WebSocketServer({ noServer: true });
+  server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const m = /^\/sessions\/([^/]+)\/live-ws$/.exec(new URL(req.url ?? '', 'http://x').pathname);
+    const s = m ? state.sessions.find((x) => x.id === m[1]) : undefined;
+    if (!s || req.headers.authorization !== `Bearer ${state.token}`) {
+      socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      let owner = false;
+      ws.on('message', (data, isBinary) => {
+        if (!isBinary) {
+          const msg = JSON.parse(String(data)) as { type?: string };
+          if (msg.type === 'claim_if_vacant') {
+            owner = !state.viewers[s.id];
+            ws.send(JSON.stringify({ type: 'size_owner', is_owner: owner }));
+          }
+          return;
+        }
+        if (!owner) return;
+        const bytes = Buffer.from(data as Buffer);
+        state.keys.push({ id: s.id, hex: bytes.toString('hex'), at: new Date().toISOString() });
+        if (bytes.length === 1 && bytes[0] === 0x1b && s.menu) {
+          s.menu = null;
+          transcripts?.get(s.id)?.rejectPending();
+        }
+      });
+    });
+  });
 }

@@ -34,12 +34,14 @@ export class PromptReader {
       : null;
     const kind = promptKind(pending?.name ?? null, menu);
     return {
-      key: menu.key,
+      // AskUserQuestion is answered as a whole (all its tabs), so it is keyed by its tool call.
+      key: kind === 'question' && pending ? pending.id : menu.key,
       kind,
       question: menu.question,
       options: menu.options,
       tool: pending ? { name: pending.name, summary: pending.summary } : null,
-      answerable: kind !== 'question',
+      answerable: true,
+      ...(kind === 'question' ? { tabs: menu.tabs, multi: menu.multi } : {}),
     };
   }
 }

@@ -919,7 +919,13 @@ All four phases are built. The verification behind each claim below is listed in
   - A digit confirms that option at once, with no Enter. AoE's Enter then lands on the empty prompt and does nothing.
   - On a text-input option (the plan's "Tell Claude what to change") with no text, the digit only focuses the row. The Enter after it cancels the menu (`onSubmit` with empty text calls `onCancel`). Feedback is therefore sent as a second, normal message once the menu has closed.
   - Free text sent while a menu is open would select the highlighted option (a plan's option 1 is "Yes, and use auto mode"). So `sendToSession` refuses with `menu_open` / 409 while the pane shows a menu, and the UI swaps the composer for the answer card.
-  - AskUserQuestion moves to its next question (and a Submit tab) on each digit, so a trailing Enter would answer the next question. It is shown, but answered in the terminal.
+  - AskUserQuestion moves to its next question (and a Submit tab) on each digit, and in multi-select the Enter toggles the highlighted row. So it is not driven by digits. Instead Supercharge presses **Escape**, which closes it (`onCancel`) and stops Claude, then sends the answers as a message.
+- **Escape needs AoE's live-terminal websocket** (`/sessions/{id}/live-ws`, bearer auth). Sent through REST `send`, Escape and the trailing Enter merge into one key that Claude Code ignores (checked on its trust dialog).
+  - Over the websocket, `{"type":"claim_if_vacant"}` returns `size_owner`.
+  - Binary frames are raw pane input. Supercharge sends no `resize`, so the window keeps its size, and closing the socket releases the lock.
+  - If someone is viewing the session in AoE, the claim fails, and Supercharge says so (`terminal_busy`).
+  - Verified in a sandboxed AoE 1.17.2: a lone `1b`, then a separate `32`, with an unchanged 80×24 window. A lone Escape cancels Claude Code menus.
+- **Claude Code does not always write an AskUserQuestion call to the transcript before it is answered**, while ExitPlanMode is written while waiting. So the question on screen, its options and descriptions, and the other questions' headers (from the tab bar) are read from the pane. The full set is used when the transcript has it.
   - The daemon reads menus from the pane (`parseTerminalMenu`) for waiting sessions only. It takes the kind (plan, permission, question) from the pending tool call in the transcript. An answer is delivered only while a menu with the same key is still on screen.
 
 ### 20.3 Measured

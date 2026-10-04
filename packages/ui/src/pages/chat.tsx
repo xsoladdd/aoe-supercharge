@@ -38,7 +38,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError, sendJson } from '@/lib/api';
 import { useSearchParam } from '@/lib/nav';
@@ -649,7 +648,7 @@ export function SessionChat({
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [turns, pending, running, view]);
+  }, [turns, pending, running, view, snap.tasks, snap.sessions]);
 
   useEffect(() => {
     if (window.matchMedia('(pointer: fine)').matches) inputRef.current?.focus();
@@ -766,6 +765,7 @@ export function SessionChat({
                 <UserBubble key={p.key} text={p.text} note={running ? 'Queued. Claude is busy' : 'Sent'} />
               ))}
               {running && <Working />}
+              {role.kind === 'control' && <WorkerAsks snap={snap} project={role.project!} />}
               {session.status === 'waiting' && !session.prompt && (
                 <WaitingCallout terminalHref={`${basePath}?view=terminal`} />
               )}
@@ -811,8 +811,6 @@ export function SessionChat({
         </div>
       )}
 
-      {role.kind === 'control' && <ChildAsks snap={snap} project={role.project!} />}
-
       <div className={cn(view === 'terminal' && 'pt-3')}>
         {session.prompt ? (
           // While a menu is open a typed message would pick its highlighted option, so answer it here instead.
@@ -835,74 +833,24 @@ export function SessionChat({
 }
 
 /**
- * In a control chat: the workers waiting on you (questions and menus), each answerable in a dialog,
- * so the parent shows what its children need without you typing it out.
+ * In a control chat, what its workers are waiting on you for, as answer cards at the end of the
+ * conversation: the parent is where you manage its children, so their questions are asked here.
  */
-function ChildAsks({ snap, project }: { snap: Snapshot; project: string }) {
-  const [open, setOpen] = useState<string | null>(null);
+function WorkerAsks({ snap, project }: { snap: Snapshot; project: string }) {
   const asks = snap.tasks
     .filter((t) => t.project === project && t.stage !== 'done')
     .map((t) => ({ task: t, session: snap.sessions.find((s) => s.id === t.aoeSessionId) ?? null }))
     .filter(({ task, session }) => hasAsk(task, session));
-  const current = asks.find((a) => a.task.id === open) ?? null;
   if (!asks.length) return null;
   return (
-    <section aria-labelledby="child-asks" className="mx-auto w-full max-w-3xl px-4 pb-2">
-      <div className="rounded-xl border border-st-yellow/45 bg-card">
-        <h2 id="child-asks" className="flex items-center gap-2 px-4 pt-3 text-sm font-semibold">
-          <HandPalmIcon weight="fill" className="size-4 text-st-yellow" />
-          {asks.length === 1 ? '1 worker needs you' : `${asks.length} workers need you`}
-        </h2>
-        <ul className="divide-y divide-border px-1 pb-1">
-          {asks.map(({ task, session }) => {
-            const what = session?.prompt
-              ? session.prompt.kind === 'plan'
-                ? 'Plan ready for approval'
-                : session.prompt.kind === 'permission'
-                  ? `Wants to use ${session.prompt.tool?.name ?? 'a tool'}`
-                  : session.prompt.question || 'Waiting on you'
-              : task.openQuestion!.text;
-            return (
-              <li key={task.id} className="flex items-center gap-3 px-3 py-2">
-                <span translate="no" className="shrink-0 font-mono text-[13px] text-muted-foreground">
-                  {task.id}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-[15px]" title={what}>
-                  {what}
-                </span>
-                <Button size="sm" variant="secondary" onClick={() => setOpen(task.id)}>
-                  Answer
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-      <Dialog open={!!current} onOpenChange={(o) => !o && setOpen(null)}>
-        <DialogContent className="max-h-[90dvh] gap-4 overflow-y-auto sm:max-w-2xl">
-          {current && (
-            <>
-              <div>
-                <DialogTitle className="text-[17px]">
-                  <span translate="no" className="font-mono">
-                    {current.task.id}
-                  </span>{' '}
-                  {current.task.title}
-                </DialogTitle>
-                <DialogDescription>
-                  <Link
-                    href={`/p/${current.task.project}/t/${current.task.id}`}
-                    className="underline underline-offset-3"
-                  >
-                    Open the task
-                  </Link>
-                </DialogDescription>
-              </div>
-              <TaskAsks task={current.task} session={current.session} onAnswered={() => setOpen(null)} />
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
+    <section aria-labelledby="worker-asks" className="space-y-4">
+      <h2 id="worker-asks" className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
+        <HandPalmIcon weight="fill" className="size-4 text-st-yellow" />
+        {asks.length === 1 ? 'A worker is asking you' : `${asks.length} workers are asking you`}
+      </h2>
+      {asks.map(({ task, session }) => (
+        <TaskAsks key={task.id} task={task} session={session} showTask />
+      ))}
     </section>
   );
 }

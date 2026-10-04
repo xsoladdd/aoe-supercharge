@@ -163,22 +163,78 @@ test.describe('project', () => {
     }
   });
 
-  test('a control chat lists what its workers need, answerable in a dialog', async ({ signedIn: page }) => {
+  test('a control chat asks you its workers’ questions, inline', async ({ signedIn: page }) => {
     await page.goto(`/chat/${await sessionId('northwind-web control')}`);
-    const asks = page.locator('section[aria-labelledby="child-asks"]');
-    await expect(asks.getByText('NW-0002')).toBeVisible();
-    await asks
-      .getByRole('listitem')
-      .filter({ hasText: 'NW-0002' })
-      .getByRole('button', { name: 'Answer' })
-      .click();
-    const dialog = page.getByRole('dialog');
-    await expect(dialog.getByText("Is the client's copy deck from Friday final")).toBeVisible();
-    await expect(dialog.getByRole('radiogroup').getByText("Use Friday's deck")).toBeVisible();
-    await expect(dialog.getByRole('radiogroup').getByText('Write my own answer')).toBeVisible();
-    await axe(page, 'child question dialog');
-    await page.keyboard.press('Escape');
-    await expect(dialog).toHaveCount(0);
+    const asks = page.locator('section[aria-labelledby="worker-asks"]');
+    await expect(
+      asks.getByRole('heading', { name: /worker is asking you|workers are asking you/ }),
+    ).toBeVisible();
+    await expect(asks.getByText("Is the client's copy deck from Friday final")).toBeVisible();
+    await expect(asks.getByRole('link', { name: /NW-0002/ })).toBeVisible();
+    await expect(asks.getByRole('radiogroup').getByText("Use Friday's deck")).toBeVisible();
+    await expect(asks.getByRole('radiogroup').getByText('Write my own answer')).toBeVisible();
+    await axe(page, 'control chat with worker questions');
+  });
+
+  test('Claude’s own multiple-choice question is answered from the control chat', async ({
+    signedIn: page,
+  }) => {
+    const id = await sessionId('NW-0005');
+    await fake(`/__fake/sessions/${id}/ask`, {
+      method: 'POST',
+      body: JSON.stringify({
+        questions: [
+          {
+            question: 'Which browsers should the QA pass cover?',
+            header: 'Browsers',
+            multiSelect: true,
+            options: [
+              { label: 'Chrome', description: 'Latest stable on macOS and Windows' },
+              { label: 'Safari', description: 'Including Safari on iOS 26' },
+              { label: 'Firefox', description: 'Latest stable only' },
+            ],
+          },
+          {
+            question: 'Run the pass before or after content entry?',
+            header: 'Timing',
+            options: [{ label: 'Before' }, { label: 'After' }],
+          },
+        ],
+      }),
+    });
+    try {
+      await page.goto(`/chat/${await sessionId('northwind-web control')}`);
+      const asks = page.locator('section[aria-labelledby="worker-asks"]');
+      const card = asks.locator('section', {
+        has: page.getByRole('heading', { name: 'Claude is asking you' }),
+      });
+      await expect(card.getByText('Which browsers should the QA pass cover?', { exact: true })).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(card.getByRole('link', { name: /NW-0005/ })).toBeVisible();
+      await axe(page, 'multiple-choice question');
+      await card.getByRole('button', { name: 'Send answers' }).click();
+      await expect(card.getByRole('alert')).toContainText('Answer every question');
+      await card.getByRole('checkbox', { name: /^Chrome/ }).check();
+      await card.getByRole('checkbox', { name: /^Safari/ }).check();
+      await card.getByRole('radio', { name: 'After', exact: true }).check();
+      await card.getByRole('button', { name: 'Send answers' }).click();
+      await expect(page.getByText('Answers sent')).toBeVisible();
+      const state = (await fake('/__fake/state')) as {
+        keys: { id: string; hex: string }[];
+        sent: { id: string; message: string }[];
+      };
+      expect(state.keys.filter((k) => k.id === id).at(-1)?.hex).toBe('1b');
+      const sent = state.sent.filter((m) => m.id === id).at(-1)?.message ?? '';
+      expect(sent).toContain('Answer: Chrome; Safari');
+      expect(sent).toContain('Answer: After');
+      await expect(card).toHaveCount(0, { timeout: 15_000 });
+    } finally {
+      await fake(`/__fake/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'Running', menu: null }),
+      });
+    }
   });
 
   test('reply is confirmed explicitly and reaches the worker', async ({ signedIn: page, browserName }) => {

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { ChatResponse, Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
-import { PERMISSION_MENU, startFakeAoe, type FakeAoe } from '../../fake-aoe/src/server.ts';
+import { ASK_MENU, PERMISSION_MENU, startFakeAoe, type FakeAoe } from '../../fake-aoe/src/server.ts';
 
 const ROOT = join(import.meta.dirname, '../../..');
 const CLI = join(ROOT, 'packages/cli/dist/supercharge.mjs');
@@ -487,6 +487,128 @@ describe('daemon: security, live state and the MR watcher', () => {
     const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
     expect(audit).toMatch(/"action":"prompt_answered".*3\. No, and tell Claude what to do differently/);
     await until(async () => !(await snapshot()).sessions.find((x) => x.id === id)?.prompt);
+    await fetch(`${fake.url}/__fake/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Idle' }),
+    });
+  });
+
+  it("answers Claude's own multiple-choice questions: Escape through the live terminal, then the answers", async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const post = (path: string, body: unknown) =>
+      fetch(`${base()}${path}`, {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const snapshot = async () =>
+      (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const id = (await snapshot()).tasks[0]!.aoeSessionId;
+    const questions = [
+      {
+        question: 'Which browsers should the QA pass cover?',
+        header: 'Browsers',
+        multiSelect: true,
+        options: [{ label: 'Chrome' }, { label: 'Safari' }, { label: 'Firefox' }],
+      },
+      {
+        question: 'Before or after content entry?',
+        header: 'Timing',
+        options: [{ label: 'Before' }, { label: 'After' }],
+      },
+    ];
+    await fetch(`${fake.url}/__fake/sessions/${id}/ask`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ questions }),
+    });
+    const snap = await until(async () => {
+      const s = await snapshot();
+      return s.sessions.find((x) => x.id === id)?.prompt?.kind === 'question' ? s : null;
+    });
+    const prompt = snap.sessions.find((x) => x.id === id)!.prompt!;
+    expect(snap.needsYou.some((n) => n.sessionId === id && n.kind === 'question')).toBe(true);
+    const detail = (await (await fetch(`${base()}/api/sessions/${id}/prompt`, { headers: auth })).json()) as {
+      questions: { question: string }[];
+    };
+    expect(detail.questions.map((q) => q.question)).toEqual(questions.map((q) => q.question));
+
+    // While someone views the session in AoE, Supercharge cannot type into it and says so.
+    fake.state.viewers[id] = true;
+    const busy = await post(`/api/sessions/${id}/answer-questions`, {
+      toolId: prompt.key,
+      answers: [{ question: questions[0]!.question, picked: ['Chrome'] }],
+    });
+    expect(busy.status).toBe(409);
+    expect(((await busy.json()) as { error: string }).error).toBe('terminal_busy');
+    fake.state.viewers[id] = false;
+
+    expect(
+      (await post(`/api/sessions/${id}/answer-questions`, { toolId: 'toolu_stale', answers: [] })).status,
+    ).toBe(409);
+    const ok = await post(`/api/sessions/${id}/answer-questions`, {
+      toolId: prompt.key,
+      answers: [
+        { question: questions[0]!.question, picked: ['Chrome', 'Safari'] },
+        { question: questions[1]!.question, picked: [], other: 'After, but only the launch pages' },
+      ],
+    });
+    expect(ok.status).toBe(200);
+    expect(fake.state.keys.filter((k) => k.id === id).map((k) => k.hex)).toEqual(['1b']);
+    const sent = fake.state.sent.filter((m) => m.id === id).at(-1)!.message;
+    expect(sent).toContain('1. Which browsers should the QA pass cover?\n   Answer: Chrome; Safari');
+    expect(sent).toContain('Answer: After, but only the launch pages');
+    await until(async () => !(await snapshot()).sessions.find((x) => x.id === id)?.prompt);
+    await fetch(`${fake.url}/__fake/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Idle' }),
+    });
+  });
+
+  it('answers a question it can only read from the screen (Claude has not written the call yet)', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const snapshot = async () =>
+      (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const id = (await snapshot()).tasks[0]!.aoeSessionId;
+    await fetch(`${fake.url}/__fake/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Waiting', menu: ASK_MENU }),
+    });
+    const snap = await until(async () => {
+      const s = await snapshot();
+      return s.sessions.find((x) => x.id === id)?.prompt?.kind === 'question' ? s : null;
+    });
+    const prompt = snap.sessions.find((x) => x.id === id)!.prompt!;
+    expect(prompt).toMatchObject({ tabs: ['Browsers', 'Devices'], multi: true });
+    const detail = (await (await fetch(`${base()}/api/sessions/${id}/prompt`, { headers: auth })).json()) as {
+      questions: { question: string; multiSelect: boolean; options: { label: string }[] }[];
+      otherTabs: string[];
+    };
+    expect(detail.questions).toHaveLength(1);
+    expect(detail.questions[0]).toMatchObject({
+      question: 'Which browsers should the QA pass cover?',
+      multiSelect: true,
+    });
+    expect(detail.questions[0]!.options.map((o) => o.label)).toEqual(['Chrome', 'Safari', 'Firefox']);
+    expect(detail.otherTabs).toEqual(['Browsers', 'Devices']);
+    const keysBefore = fake.state.keys.length;
+    const ok = await fetch(`${base()}/api/sessions/${id}/answer-questions`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        toolId: prompt.key,
+        answers: [{ question: detail.questions[0]!.question, picked: ['Firefox'] }],
+        note: 'Ask me about devices again.',
+      }),
+    });
+    expect(ok.status).toBe(200);
+    expect(fake.state.keys.slice(keysBefore).map((k) => k.hex)).toEqual(['1b']);
+    const sent = fake.state.sent.filter((m) => m.id === id).at(-1)!.message;
+    expect(sent).toContain('Answer: Firefox');
+    expect(sent).toContain('Ask me about devices again.');
     await fetch(`${fake.url}/__fake/sessions/${id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },

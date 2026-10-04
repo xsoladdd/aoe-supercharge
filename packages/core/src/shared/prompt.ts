@@ -36,14 +36,21 @@ export interface SessionPrompt {
   options: PromptOption[];
   /** The tool call it is about (from the transcript), e.g. `Bash` and its command. */
   tool: { name: string; summary: string } | null;
-  /** Digit answers are safe. False for AskUserQuestion, whose tabs would swallow AoE's extra Enter. */
+  /** The dashboard can answer it (plan and permission by number, AskUserQuestion by Escape + message). */
   answerable: boolean;
+  /** AskUserQuestion only: the headers in its tab bar (every question it asked), and checkboxes. */
+  tabs?: string[];
+  multi?: boolean;
 }
 
 const OPTION = /^(?:❯|›|>)?\s*(\d{1,2})\.\s+(\S.*?)\s*$/;
 const CURSOR = /^(?:❯|›|>)\s*\d/;
 const RULE = /^[╭╰┌└]?[─━╌═\-_]{8,}[╮╯┐┘]?$/;
 const FEEDBACK = /tell claude|what to change|type something/i;
+/** Hint lines under an option are indented (two spaces in AskUserQuestion, more in other menus). */
+const HINT = /^\s{2,}\S/;
+/** Multi-select rows start with a checkbox. */
+const CHECKBOX = /^\[[ x✔✓]\]\s+/;
 
 /** Strip box borders and trailing space; keep the leading indent (hint lines are indented). */
 function clean(line: string): string {
@@ -67,6 +74,21 @@ export interface ParsedMenu {
   key: string;
   question: string;
   options: PromptOption[];
+  /** AskUserQuestion's tab bar ("←  ☐ Core shapes  ☐ Odd shapes  ✔ Submit  →"), minus Submit. */
+  tabs: string[];
+  /** Options drawn with checkboxes. */
+  multi: boolean;
+}
+
+const TAB_MARK = /[☐☒✔✓]/;
+
+function parseTabs(line: string): string[] {
+  if (!TAB_MARK.test(line) || !/[←→]/.test(line)) return [];
+  return line
+    .replace(/[←→]/g, '')
+    .split(/[☐☒✔✓]/)
+    .map((t) => t.trim())
+    .filter((t) => t && t !== 'Submit');
 }
 
 /**
@@ -91,9 +113,9 @@ export function parseTerminalMenu(content: string): ParsedMenu | null {
   if (last < 0) return null;
 
   // The last option's own hint lines sit below it.
-  while (last + 1 <= end && /^\s{4,}\S/.test(lines[last + 1]!) && !OPTION.test(lines[last + 1]!.trim()))
-    last++;
-  // Walk up through the options and the indented hint lines under them.
+  while (last + 1 <= end && HINT.test(lines[last + 1]!) && !OPTION.test(lines[last + 1]!.trim())) last++;
+  // Walk up through the options and the indented hint lines under them. AskUserQuestion puts its
+  // "Chat about this" option under a rule, so a rule with options above it stays inside the block.
   let first = last;
   let cursor = false;
   for (let i = last; i >= 0; i--) {
@@ -102,15 +124,21 @@ export function parseTerminalMenu(content: string): ParsedMenu | null {
     if (OPTION.test(t)) {
       if (CURSOR.test(t)) cursor = true;
       first = i;
-    } else if (!t || !/^\s{4,}\S/.test(raw)) break;
+    } else if (RULE.test(t) && i === first - 1 && !!lines[i - 1]?.trim()) {
+      continue;
+    } else if (!t || !HINT.test(raw)) break;
   }
   // Then down again, attaching each hint line to the option above it.
   const options: PromptOption[] = [];
+  let multi = false;
   for (let i = first; i <= last; i++) {
     const t = lines[i]!.trim();
     const m = OPTION.exec(t);
-    if (m) options.push({ n: Number(m[1]), label: m[2]!, hint: null, feedback: FEEDBACK.test(m[2]!) });
-    else if (t && options.length) {
+    if (m) {
+      if (CHECKBOX.test(m[2]!)) multi = true;
+      const label = m[2]!.replace(CHECKBOX, '');
+      options.push({ n: Number(m[1]), label, hint: null, feedback: FEEDBACK.test(label) });
+    } else if (t && !RULE.test(t) && options.length) {
       const o = options.at(-1)!;
       o.hint = o.hint ? `${o.hint} ${t}` : t;
     }
@@ -127,10 +155,15 @@ export function parseTerminalMenu(content: string): ParsedMenu | null {
     q.unshift(t);
   }
   const question = q.join(' ').replace(/\s+/g, ' ').trim();
+  // AskUserQuestion draws its tab bar a few lines above the question.
+  let tabs: string[] = [];
+  for (let j = i; j >= Math.max(0, i - 3) && !tabs.length; j--) tabs = parseTabs(lines[j] ?? '');
   return {
     key: hash(`${question}\n${options.map((o) => `${o.n}.${o.label}`).join('\n')}`),
     question,
     options,
+    tabs,
+    multi,
   };
 }
 
@@ -139,6 +172,9 @@ export function promptKind(pendingTool: string | null, menu: ParsedMenu): Prompt
   if (pendingTool === 'ExitPlanMode') return 'plan';
   if (pendingTool === 'AskUserQuestion') return 'question';
   if (pendingTool) return 'permission';
+  // Claude Code does not always write the AskUserQuestion call before it is answered; its screen shows it.
+  if (menu.tabs.length || menu.multi || menu.options.some((o) => o.label === 'Chat about this'))
+    return 'question';
   if (/plan/i.test(menu.question) && /proceed/i.test(menu.question)) return 'plan';
   return 'menu';
 }

@@ -11,6 +11,15 @@ import {
 
 export type AoeErrorKind = 'unreachable' | 'auth' | 'protocol' | 'http';
 
+/** Someone is viewing the session in AoE (web or TUI) and holds its typing lock. */
+export class TerminalBusyError extends Error {
+  constructor() {
+    super(
+      'The session is open in AoE right now, so Supercharge cannot type into it. Answer there, or close it in AoE and try again.',
+    );
+  }
+}
+
 export class AoeError extends Error {
   constructor(
     message: string,
@@ -103,6 +112,56 @@ export class AoeClient {
       );
     }
     return parsed.data;
+  }
+
+  /**
+   * Press keys in a session without AoE's trailing Enter (REST `send` always adds one), through AoE's own
+   * live-terminal websocket: `claim_if_vacant` takes the typing lock only when nobody is viewing the
+   * session in AoE; no `resize` is sent, so the window keeps its size; closing releases the lock
+   * (src/server/live_ws.rs, AoE 1.17.2). Each key goes in its own frame, `gapMs` apart, so a lone
+   * Escape is read as Escape and not as the start of an escape sequence.
+   */
+  async pressKeys(id: string, keys: (string | Uint8Array<ArrayBuffer>)[], gapMs = 300): Promise<void> {
+    if (!this.origin) await this.discover();
+    const url = `${this.origin!.replace(/^http/, 'ws')}/sessions/${encodeURIComponent(id)}/live-ws`;
+    const ws = new WebSocket(url, {
+      headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
+    } as unknown as string[]);
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    try {
+      const owner = await new Promise<boolean>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new AoeError('AoE did not answer the terminal claim', 'protocol')),
+          5000,
+        );
+        ws.onerror = () => {
+          clearTimeout(timer);
+          reject(new AoeError('Cannot open the AoE terminal connection', 'unreachable'));
+        };
+        ws.onopen = () => ws.send(JSON.stringify({ type: 'claim_if_vacant' }));
+        ws.onmessage = (e) => {
+          if (typeof e.data !== 'string') return;
+          try {
+            const m = JSON.parse(e.data) as { type?: string; is_owner?: boolean };
+            if (m.type === 'size_owner') {
+              clearTimeout(timer);
+              resolve(m.is_owner === true);
+            }
+          } catch {
+            // frames and other messages
+          }
+        };
+      });
+      if (!owner) throw new TerminalBusyError();
+      for (const [i, key] of keys.entries()) {
+        if (i > 0) await sleep(gapMs);
+        // Binary frames are raw pane input; text frames are control messages.
+        ws.send(typeof key === 'string' ? new TextEncoder().encode(key) : key);
+      }
+      await sleep(gapMs);
+    } finally {
+      ws.close();
+    }
   }
 
   async listSessions(): Promise<AoeSession[]> {

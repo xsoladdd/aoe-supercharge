@@ -18,7 +18,16 @@ import { buildProjectStatus } from '../status.ts';
 import { CliError } from '../util/errors.ts';
 import { PromptReader } from '../prompt.ts';
 import type { TranscriptStore } from '../transcript.ts';
-import { answerPrompt, MenuOpenError, PromptChangedError, replyToTask, sendToSession } from '../workflow.ts';
+import {
+  answerPrompt,
+  answerQuestions,
+  MenuOpenError,
+  PromptChangedError,
+  replyToTask,
+  sendToSession,
+  TerminalBusyCliError,
+  type QuestionAnswer,
+} from '../workflow.ts';
 import type { Store } from './store.ts';
 
 export interface AppDeps {
@@ -319,11 +328,71 @@ export function createApp(deps: AppDeps) {
       }
     }
     const input = detail as { plan?: unknown; questions?: unknown } | null;
+    // Claude Code may not have written the AskUserQuestion call yet; then the screen is all there is:
+    // the question in front, and the other questions' headers from its tab bar.
+    const fromScreen =
+      prompt?.kind === 'question' && !Array.isArray(input?.questions)
+        ? [
+            {
+              question: prompt.question,
+              multiSelect: !!prompt.multi,
+              options: prompt.options
+                .filter((o) => !/^(type something\.?|chat about this)$/i.test(o.label))
+                .map((o) => ({ label: o.label, description: o.hint ?? undefined })),
+            },
+          ]
+        : null;
     return c.json({
       prompt,
       plan: typeof input?.plan === 'string' ? input.plan : null,
-      questions: Array.isArray(input?.questions) ? input.questions : null,
+      questions: Array.isArray(input?.questions) ? input.questions : fromScreen,
+      // With questions from the screen, the others are known only by their tab headers.
+      otherTabs: fromScreen ? (prompt?.tabs ?? []) : [],
     });
+  });
+
+  // Answer Claude's multiple-choice questions (AskUserQuestion): close them with Escape, send the answers.
+  app.post('/api/sessions/:id/answer-questions', async (c) => {
+    const id = c.req.param('id');
+    const session = store.sessions.find((s) => s.id === id);
+    if (!session) return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      toolId?: string;
+      answers?: QuestionAnswer[];
+      note?: string;
+    };
+    if (typeof body.toolId !== 'string' || !Array.isArray(body.answers))
+      return c.json({ error: 'bad_request', message: 'Pass the question call id and the answers.' }, 400);
+    const text = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
+    const answers = body.answers
+      .filter((a) => a && typeof a.question === 'string')
+      .map((a) => ({
+        question: text(a.question, 2000),
+        picked: (Array.isArray(a.picked) ? a.picked : []).map((p) => text(p, 2000)).filter(Boolean),
+        other: text(a.other, 10_000) || undefined,
+      }));
+    const task = store.tasks.find((t) => t.aoeSessionId === id) ?? null;
+    const project = task?.project ?? store.projects.find((p) => p.controlSessionId === id)?.name ?? null;
+    try {
+      await answerQuestions(ctx, deps.transcripts, {
+        sessionId: id,
+        cwd: session.projectPath,
+        toolId: body.toolId,
+        answers,
+        note: text(body.note, 10_000) || undefined,
+        actor: 'ui',
+        project,
+        taskId: task?.id ?? null,
+      });
+      deps.onClientConnected();
+      return c.json({ ok: true });
+    } catch (err) {
+      if (err instanceof PromptChangedError)
+        return c.json({ error: 'prompt_changed', message: err.message }, 409);
+      if (err instanceof TerminalBusyCliError)
+        return c.json({ error: 'terminal_busy', message: err.message }, 409);
+      return sendError(c, err, 'answer_failed');
+    }
   });
 
   // Answer that menu: an explicit click in the dashboard, audited, only while the same menu is on screen.

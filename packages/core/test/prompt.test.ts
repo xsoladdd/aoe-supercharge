@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PERMISSION_MENU, PLAN_MENU } from '../../fake-aoe/src/server.ts';
+import { ASK_MENU, PERMISSION_MENU, PLAN_MENU } from '../../fake-aoe/src/server.ts';
 import {
   computeNeedsYou,
   parseTerminalMenu,
@@ -37,6 +37,23 @@ describe('parseTerminalMenu: menus at the bottom of a Claude Code pane', () => {
       [2, false],
       [3, true],
     ]);
+  });
+
+  it('reads AskUserQuestion: two-space hints, checkboxes, and the option under the rule', () => {
+    const menu = parseTerminalMenu(pane(' Earlier output.', '', ASK_MENU))!;
+    expect(menu.question).toBe('Which browsers should the QA pass cover?');
+    expect(menu.options.map((o) => [o.n, o.label])).toEqual([
+      [1, 'Chrome'],
+      [2, 'Safari'],
+      [3, 'Firefox'],
+      [4, 'Type something'],
+      [5, 'Chat about this'],
+    ]);
+    expect(menu.options[1]!.hint).toBe('Including Safari on iOS 26.');
+    expect(menu.tabs).toEqual(['Browsers', 'Devices']);
+    expect(menu.multi).toBe(true);
+    // Claude Code may not have written the call yet; the screen alone says it is AskUserQuestion.
+    expect(promptKind(null, menu)).toBe('question');
   });
 
   it('handles boxed menus (older layouts) by stripping the borders', () => {
