@@ -22,9 +22,12 @@ export default defineConfig({
   },
   server: {
     port: 5180,
+    // Dev only: forward to the daemon as if the request came from its own origin, so the daemon's
+    // Host/Origin gate and CSRF check stay strict. Cookies are per host, not per port, so the
+    // sign-in cookie set through this proxy works on localhost:5180.
     proxy: {
-      '/api': { target: daemon, changeOrigin: false, headers: { host: new URL(daemon).host } },
-      '/auth': { target: daemon, changeOrigin: false },
+      '/api': { target: daemon, changeOrigin: true, headers: { origin: daemon } },
+      '/auth': { target: daemon, changeOrigin: true, headers: { origin: daemon } },
     },
   },
 });

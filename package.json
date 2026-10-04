@@ -18,7 +18,8 @@
     "format": "prettier --write .",
     "dev:ui": "npm run dev -w @aoe-supercharge/ui",
     "demo": "npm run build && tsx scripts/demo.ts",
-    "demo:nobuild": "tsx scripts/demo.ts"
+    "demo:nobuild": "tsx scripts/demo.ts",
+    "dev": "tsx scripts/dev.ts"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
