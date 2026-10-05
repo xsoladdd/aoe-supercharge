@@ -45,8 +45,11 @@ function StatusBrief({
   const ready = active.filter((t) => t.stage === 'ready_for_review').length;
   const jump = (taskId: string | null) => {
     const card = taskId ? document.getElementById(`ask-${taskId}`) : null;
-    if (!card) return false;
-    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const log = card?.closest<HTMLElement>('[role=log]');
+    if (!card || !log) return false;
+    // Scroll the conversation only; scrollIntoView would also move the page's clipped containers.
+    const offset = card.getBoundingClientRect().top - log.getBoundingClientRect().top;
+    log.scrollTo({ top: log.scrollTop + offset - 16, behavior: 'smooth' });
     card.classList.add('flash');
     setTimeout(() => card.classList.remove('flash'), 700);
     return true;

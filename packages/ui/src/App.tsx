@@ -197,7 +197,9 @@ export function App() {
             <AppSidebar snap={snap} onToggleTheme={toggleTheme} />
             <SidebarInset
               // The chat scrolls inside itself, with the composer pinned under it.
-              className={cn('min-w-0 bg-surface', isChat && 'h-dvh overflow-hidden md:h-[calc(100dvh-1rem)]')}
+              // clip, not hidden: a hidden box can still be scrolled by focus() and scrollIntoView(), which
+              // slid the whole chat out of view and left the page blank.
+              className={cn('min-w-0 bg-surface', isChat && 'h-dvh overflow-clip md:h-[calc(100dvh-1rem)]')}
             >
               <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 rounded-t-xl border-b border-border bg-surface/95 px-4 backdrop-blur lg:px-6">
                 <SidebarTrigger className="size-9" />

@@ -449,6 +449,26 @@ test.describe('project', () => {
     await axe(page, 'control chat panel');
   });
 
+  test('answering in the control chat never scrolls the page away (the blank screen)', async ({
+    signedIn: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/chat/${await sessionId('northwind-web control')}`);
+    const brief = page
+      .getByRole('complementary', { name: 'Project panel' })
+      .locator('section[aria-labelledby="brief-heading"]');
+    await brief
+      .getByRole('link', { name: /NW-0002/ })
+      .first()
+      .click();
+    await page.locator('#ask-NW-0002').getByRole('radiogroup').locator('label').first().click();
+    const offsets = await page.evaluate(() =>
+      [...document.querySelectorAll('[data-slot=sidebar-inset], main#main')].map((el) => el.scrollTop),
+    );
+    expect(offsets).toEqual([0, 0]);
+    await expect(page.getByLabel(/^Message /)).toBeInViewport();
+  });
+
   test('the control chat panel keeps notes and nudges when something new needs you', async ({
     signedIn: page,
     browserName,
