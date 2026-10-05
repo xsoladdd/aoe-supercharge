@@ -1,5 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises';
-import { basename, join } from 'node:path';
+import { readFile, realpath, writeFile } from 'node:fs/promises';
+import { basename, join, resolve } from 'node:path';
 import { appendAudit, applyStage, SAFE_ARG, writeFileAtomic, type Config } from '@aoe-supercharge/core/node';
 import {
   derivePrefix,
@@ -562,6 +562,174 @@ export async function setSessionModel(
     );
   if (opts.model !== undefined) await sendToSession(ctx, { ...opts, message: `/model ${opts.model}` });
   if (opts.effort !== undefined) await sendToSession(ctx, { ...opts, message: `/effort ${opts.effort}` });
+}
+
+export interface AdoptResult {
+  project: ProjectRecord;
+  tasks: TaskRecord[];
+  skipped: { sessionId: string; title: string; reason: string }[];
+}
+
+/** One directory, however it is spelled (trailing slash, symlinks such as macOS /var → /private/var). */
+export async function realDir(p: string): Promise<string> {
+  return realpath(p).catch(() => resolve(p));
+}
+const sameDir = async (a: string | null | undefined, b: string | null | undefined) =>
+  !!a && !!b && (await realDir(a)) === (await realDir(b));
+
+/**
+ * Bring an existing AoE parent session and its children under Supercharge: the parent becomes (or stays
+ * beside) the project's control chat, each child becomes a task. This only writes the ledger; no agent
+ * is started or sent anything. Children in another repository, or already tasks, are skipped.
+ */
+export async function adoptSessions(
+  ctx: Ctx,
+  opts: {
+    controlSessionId: string;
+    projectName: string;
+    /** Required when `projectName` is not a project yet. */
+    repoPath?: string;
+    children: string[];
+    /** Make the parent the project's control chat (an existing one is kept as a plain AoE session). */
+    makeControl: boolean;
+    actor: Actor;
+  },
+): Promise<AdoptResult> {
+  const list = await ctx.aoeCli.list();
+  const control = list.find((e) => e.id === opts.controlSessionId);
+  if (!control) throw new CliError(`AoE has no live session ${opts.controlSessionId}.`, EXIT.usage);
+  let project = await ctx.ledger.getProject(opts.projectName);
+  if (!project) {
+    const name = slugify(opts.projectName);
+    if (!isSlug(name)) throw new CliError(`"${opts.projectName}" can't be a project name.`, EXIT.usage);
+    const repo = opts.repoPath ? await mainCheckout(opts.repoPath) : null;
+    if (!repo) throw new CliError('Pick the git repository the new project is for.', EXIT.usage);
+    const existing = await ctx.ledger.findProjectByRepo(repo);
+    if (existing)
+      throw new CliError(
+        `This repository is already the project "${existing.name}".`,
+        EXIT.usage,
+        'Add the sessions to that project instead.',
+      );
+    const at = new Date().toISOString();
+    project = {
+      schema: 1,
+      name,
+      repoPath: repo,
+      remoteUrl: await remoteUrl(repo),
+      controlSessionId: opts.makeControl ? control.id : null,
+      idPrefix: ctx.config.tasks.idPrefix || derivePrefix(name),
+      nextTaskSeq: 1,
+      installMode: 'user',
+      createdAt: at,
+      updatedAt: at,
+    };
+    await ctx.ledger.saveProject(project);
+    await installUserSkills(ctx.paths, VERSION);
+  } else if (opts.makeControl && project.controlSessionId !== control.id) {
+    project = await ctx.ledger.updateProject(project.name, (p) => ({ ...p, controlSessionId: control.id }));
+  }
+
+  const managed = new Set((await ctx.ledger.listTasks()).map((t) => t.aoeSessionId));
+  const projects = await ctx.ledger.listProjects();
+  for (const p of projects) if (p.controlSessionId) managed.add(p.controlSessionId);
+  const tasks: TaskRecord[] = [];
+  const skipped: AdoptResult['skipped'] = [];
+  for (const id of opts.children) {
+    const e = list.find((x) => x.id === id);
+    if (!e) {
+      skipped.push({ sessionId: id, title: id, reason: 'no longer in AoE' });
+      continue;
+    }
+    const title = e.title ?? e.id;
+    const path = e.path ?? '';
+    if (managed.has(id)) {
+      skipped.push({ sessionId: id, title, reason: 'already part of a project' });
+      continue;
+    }
+    const repo = e.worktree?.main_repo_path ?? (path ? await mainCheckout(path) : null);
+    if (!path || !(await sameDir(repo, project.repoPath))) {
+      skipped.push({
+        sessionId: id,
+        title,
+        reason: `in another repository (${repo ?? (path || 'unknown')})`,
+      });
+      continue;
+    }
+    const branch = e.worktree?.branch ?? (await currentBranch(path)) ?? '';
+    const at = new Date().toISOString();
+    const task: TaskRecord = {
+      schema: 1,
+      rev: 1,
+      id: await ctx.ledger.allocateTaskId(project.name),
+      project: project.name,
+      title,
+      brief: '',
+      branch,
+      baseBranch: e.worktree?.base_branch ?? (await defaultBranch(project.repoPath)),
+      worktreePath: path,
+      aoeSessionId: e.id,
+      parentSessionId: control.id,
+      stage: 'implementing',
+      blockedFrom: null,
+      openQuestion: null,
+      plan: null,
+      mr: null,
+      createdAt: at,
+      updatedAt: at,
+      history: [{ at, from: null, to: 'implementing', by: opts.actor, note: `Adopted from AoE (${title})` }],
+    };
+    await ctx.ledger.createTask(task);
+    managed.add(id);
+    tasks.push(task);
+  }
+  await appendAudit(ctx.paths, {
+    actor: opts.actor === 'user' ? 'ui' : 'cli',
+    action: 'sessions_adopted',
+    project: project.name,
+    sessionId: control.id,
+    details: { tasks: tasks.map((t) => t.id), skipped: skipped.length, makeControl: opts.makeControl },
+  });
+  return { project, tasks, skipped };
+}
+
+/**
+ * After an adoption: tasks whose branch already has an open MR move to MR raised, so the MR watcher
+ * takes them from there. Runs in the background; a failed lookup just leaves the task where it is.
+ */
+export async function detectAdoptedMrs(
+  ctx: Ctx,
+  project: ProjectRecord,
+  tasks: TaskRecord[],
+): Promise<number> {
+  const provider = mrProvider(ctx.config, ctx.env);
+  const remote = parseRemote(project.remoteUrl ?? (await remoteUrl(project.repoPath)));
+  if (!remote || !provider.matches(remote)) return 0;
+  let found = 0;
+  for (const t of tasks) {
+    if (!t.branch) continue;
+    const ref = await provider.findOpenMrForBranch(remote, t.branch).catch(() => null);
+    if (!ref) continue;
+    found++;
+    await ctx.ledger.updateTask(project.name, t.id, (cur) => ({
+      ...applyStage(cur, 'mr_raised', 'daemon', `Found MR !${ref.iid} for the branch`),
+      mr: {
+        provider: 'gitlab',
+        host: ref.host,
+        repo: ref.repo,
+        iid: ref.iid,
+        url: ref.url,
+        state: 'opened',
+        draft: false,
+        pipeline: null,
+        unresolvedThreads: 0,
+        detailedMergeStatus: null,
+        checkedAt: null,
+        error: null,
+      },
+    }));
+  }
+  return found;
 }
 
 /** Your plan comments as one message the worker can act on, in the order you wrote them. */

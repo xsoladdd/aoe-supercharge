@@ -21,7 +21,10 @@ import { PromptReader } from '../prompt.ts';
 import { MAX_UPLOAD_BYTES, readUpload, saveUpload } from '../uploads.ts';
 import type { TranscriptStore } from '../transcript.ts';
 import {
+  adoptSessions,
   answerPrompt,
+  realDir,
+  detectAdoptedMrs,
   answerQuestions,
   MenuOpenError,
   PromptChangedError,
@@ -241,6 +244,100 @@ export function createApp(deps: AppDeps) {
     const task = await ctx.ledger.getTask(project, id);
     if (!task) return c.json({ error: 'not_found', message: 'Unknown task' }, 404);
     return c.json({ task, plan: await ctx.ledger.readPlan(project, id) });
+  });
+
+  // Adopting an AoE parent session and its children: what would happen, then do it.
+  app.get('/api/adopt/:sessionId', async (c) => {
+    const id = c.req.param('sessionId');
+    const list = await ctx.aoeCli.list().catch(() => null);
+    if (!list) return c.json({ error: 'aoe_error', message: 'Could not list AoE sessions.' }, 502);
+    const control = list.find((e) => e.id === id);
+    if (!control) return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    const managed = new Set([
+      ...store.tasks.map((t) => t.aoeSessionId),
+      ...store.projects.map((p) => p.controlSessionId).filter((x): x is string => !!x),
+    ]);
+    const repoOf = async (e: (typeof list)[number]) => {
+      const p = e.worktree?.main_repo_path ?? e.path;
+      return p ? realDir(p) : '';
+    };
+    const children = await Promise.all(
+      list
+        .filter((e) => e.parent_session_id === id)
+        .map(async (e) => ({
+          id: e.id,
+          title: e.title ?? e.id,
+          branch: e.worktree?.branch ?? null,
+          repo: await repoOf(e),
+          managed: managed.has(e.id),
+        })),
+    );
+    // Suggest the repository most children live in, and the project already registered for it.
+    const counts = new Map<string, number>();
+    for (const ch of children) if (ch.repo) counts.set(ch.repo, (counts.get(ch.repo) ?? 0) + 1);
+    const repo = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    let project: (typeof store.projects)[number] | null = null;
+    for (const p of store.projects) if (repo && (await realDir(p.repoPath)) === repo) project = p;
+    return c.json({
+      control: {
+        id: control.id,
+        title: control.title ?? control.id,
+        path: control.path ?? null,
+        managed: managed.has(id),
+      },
+      children,
+      // Real paths, so the dialog can flag children from another repository whichever project you pick.
+      projects: await Promise.all(
+        store.projects.map(async (p) => ({ name: p.name, repo: await realDir(p.repoPath) })),
+      ),
+      suggestion: {
+        repoPath: repo,
+        project: project?.name ?? null,
+        currentControl: project?.controlSessionId ?? null,
+      },
+    });
+  });
+
+  app.post('/api/adopt', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      controlSessionId?: unknown;
+      projectName?: unknown;
+      repoPath?: unknown;
+      children?: unknown;
+      makeControl?: unknown;
+    };
+    if (
+      typeof body.controlSessionId !== 'string' ||
+      typeof body.projectName !== 'string' ||
+      !Array.isArray(body.children)
+    )
+      return c.json(
+        { error: 'bad_request', message: 'Pass the parent session, a project and the children.' },
+        400,
+      );
+    try {
+      const result = await adoptSessions(ctx, {
+        controlSessionId: body.controlSessionId,
+        projectName: body.projectName,
+        repoPath: typeof body.repoPath === 'string' ? body.repoPath : undefined,
+        children: body.children.filter((x): x is string => typeof x === 'string'),
+        makeControl: body.makeControl === true,
+        actor: 'user',
+      });
+      // Look up open MRs in the background; the ledger watcher shows the stage changes as they land.
+      void detectAdoptedMrs(ctx, result.project, result.tasks).catch((err) =>
+        ctx.logger.warn('MR lookup after adoption failed', { err: (err as Error).message }),
+      );
+      deps.onClientConnected();
+      return c.json({
+        ok: true,
+        project: result.project.name,
+        tasks: result.tasks.map((t) => t.id),
+        skipped: result.skipped,
+      });
+    } catch (err) {
+      return sendError(c, err, 'adopt_failed');
+    }
   });
 
   // Plan comments: select text in a plan, comment, then send them to the worker in one go.

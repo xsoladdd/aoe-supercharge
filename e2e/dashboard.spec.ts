@@ -1,5 +1,8 @@
+import { execFileSync } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { PERMISSION_MENU } from '../packages/fake-aoe/src/server.ts';
-import { axe, expect, fake, test } from './fixtures.ts';
+import { axe, expect, fake, test, world } from './fixtures.ts';
 
 /** The fake AoE id of the session whose title starts with `prefix`. */
 async function sessionId(prefix: string): Promise<string> {
@@ -477,6 +480,81 @@ test.describe('project', () => {
     } finally {
       await fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Idle' }) });
     }
+  });
+
+  test('an AoE parent with children is adopted as a new project, without messaging anyone', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    const { home } = world();
+    const repo = join(home, 'code', `hq-${browserName}`);
+    mkdirSync(repo, { recursive: true });
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: repo, stdio: 'pipe' });
+    git('init', '-q', '-b', 'main');
+    git(
+      '-c',
+      'user.email=e2e@example.invalid',
+      '-c',
+      'user.name=e2e',
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'init',
+    );
+    const mk = (body: Record<string, unknown>) =>
+      fake('/__fake/sessions', { method: 'POST', body: JSON.stringify(body) }) as Promise<{ id: string }>;
+    const parent = await mk({
+      title: `hq ${browserName}`,
+      project_path: join(home, `hq-${browserName}`),
+      status: 'Idle',
+    });
+    for (const t of ['idea-35-theme', 'idea-38-claim'])
+      await mk({
+        title: `${t}-${browserName}`,
+        project_path: join(home, 'code', `hq-${browserName}-worktrees`, t),
+        main_repo_path: repo,
+        branch: `feature/${t}`,
+        base_branch: 'main',
+        parent_session_id: parent.id,
+        status: 'Idle',
+      });
+    const sentBefore = ((await fake('/__fake/state')) as { sent: unknown[] }).sent.length;
+    await page.goto('/');
+    const group = page.locator(`[id="group-${parent.id}"]`);
+    await expect(group).toBeVisible({ timeout: 15_000 });
+    await group.getByRole('button', { name: 'Adopt as project' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Adopt as a project' });
+    await expect(dialog.getByText(`idea-35-theme-${browserName}`)).toBeVisible();
+    await expect(dialog.getByLabel('Name')).toHaveValue(`hq-${browserName}`);
+    await axe(page, 'adopt dialog');
+    await dialog.getByRole('button', { name: /^Adopt 2 sessions$/ }).click();
+    await expect(page).toHaveURL(new RegExp(`/p/hq-${browserName}$`));
+    await expect(
+      page.getByRole('list', { name: 'Workers' }).getByText(`idea-35-theme-${browserName}`),
+    ).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(
+      page.locator('section[aria-labelledby="control-heading"]').getByText(parent.id),
+    ).toBeVisible();
+    expect(((await fake('/__fake/state')) as { sent: unknown[] }).sent.length).toBe(sentBefore);
+  });
+
+  test('the sidebar + opens Add a project: adopt from AoE, or the init command for a repository', async ({
+    signedIn: page,
+  }) => {
+    await page.getByRole('button', { name: 'Add a project' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Add a project' });
+    await expect(dialog.getByText('ops control')).toBeVisible();
+    await dialog.getByLabel('Path to the repository').fill('~/Dev/new-thing');
+    await expect(dialog.getByText('cd ~/Dev/new-thing && supercharge init')).toBeVisible();
+    await dialog
+      .getByRole('listitem')
+      .filter({ hasText: 'ops control' })
+      .getByRole('button', { name: 'Adopt' })
+      .click();
+    await expect(page.getByRole('dialog', { name: 'Adopt as a project' })).toBeVisible();
   });
 
   test('new task dialog builds the CLI command (dashboard never spawns agents)', async ({

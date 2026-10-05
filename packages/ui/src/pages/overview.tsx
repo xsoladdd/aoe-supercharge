@@ -1,8 +1,15 @@
-import { ArrowRightIcon, FolderSimplePlusIcon, TerminalWindowIcon } from '@phosphor-icons/react';
-import { useEffect, useMemo } from 'react';
+import {
+  ArrowRightIcon,
+  FolderSimplePlusIcon,
+  TerminalWindowIcon,
+  TreeStructureIcon,
+} from '@phosphor-icons/react';
+import { useEffect, useMemo, useState } from 'react';
 import { relativeTime, STAGE_LABEL, type Snapshot, type SessionView } from '@aoe-supercharge/core/shared';
 import { Link } from 'wouter';
+import { AdoptDialog } from '@/components/add-project';
 import { CommandLine } from '@/components/copy';
+import { Button } from '@/components/ui/button';
 import { LiveStatus, STAGE_META } from '@/components/status';
 import { projectViews, unmanagedGroups } from '@/lib/derive';
 import { useSessionHref } from '@/lib/nav';
@@ -62,6 +69,7 @@ export function OverviewPage({ snap }: { snap: Snapshot }) {
   const sessionHref = useSessionHref();
   const projects = useMemo(() => projectViews(snap), [snap]);
   const groups = useMemo(() => unmanagedGroups(snap), [snap]);
+  const [adopting, setAdopting] = useState<string | null>(null);
   const aoeOk = snap.health.aoe.state === 'ok';
 
   useEffect(() => {
@@ -184,7 +192,15 @@ export function OverviewPage({ snap }: { snap: Snapshot }) {
                       : plural(g.children.length, 'session')}
                   </span>
                 </Link>
-                {g.parent && <LiveStatus status={g.parent.status} unread={g.parent.unread} />}
+                {g.parent && (
+                  <span className="flex items-center gap-3">
+                    <LiveStatus status={g.parent.status} unread={g.parent.unread} />
+                    <Button size="sm" variant="secondary" onClick={() => setAdopting(g.parent!.id)}>
+                      <TreeStructureIcon />
+                      Adopt as project
+                    </Button>
+                  </span>
+                )}
               </div>
               <ul className="divide-y divide-border">
                 {g.children.map((s) => (
@@ -195,6 +211,7 @@ export function OverviewPage({ snap }: { snap: Snapshot }) {
           ))
         )}
       </section>
+      <AdoptDialog snap={snap} sessionId={adopting} onOpenChange={(o) => !o && setAdopting(null)} />
     </div>
   );
 }

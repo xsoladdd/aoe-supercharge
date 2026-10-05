@@ -6,8 +6,9 @@ import {
   SquaresFourIcon,
   SunIcon,
   TerminalWindowIcon,
+  PlusIcon,
 } from '@phosphor-icons/react';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import { STAGE_LABEL, type Snapshot } from '@aoe-supercharge/core/shared';
 import { Wordmark } from '@/components/brand';
@@ -29,7 +30,9 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
+  SidebarGroupAction,
 } from '@/components/ui/sidebar';
+import { AddProjectDialog, AdoptDialog } from '@/components/add-project';
 import { projectViews, sessionMap, unmanagedGroups } from '@/lib/derive';
 import { chatHref } from '@/lib/nav';
 import { useResolvedTheme } from '@/lib/theme';
@@ -47,6 +50,8 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
     return m;
   }, [snap.needsYou]);
   const aoe = snap.health.aoe;
+  const [adding, setAdding] = useState(false);
+  const [adopting, setAdopting] = useState<string | null>(null);
 
   return (
     <Sidebar variant="inset" collapsible="icon">
@@ -84,6 +89,15 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
 
         <SidebarGroup>
           <SidebarGroupLabel className="text-[0.8125rem]">Projects</SidebarGroupLabel>
+          <SidebarGroupAction
+            title="Add a project"
+            aria-label="Add a project"
+            onClick={() => setAdding(true)}
+            // At least 24px whatever the interface size (WCAG 2.2 target size).
+            className="top-2.5 w-[max(1.5rem,24px)]"
+          >
+            <PlusIcon />
+          </SidebarGroupAction>
           <SidebarGroupContent>
             <SidebarMenu>
               {projects.length === 0 && (
@@ -285,6 +299,16 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
         </div>
       </SidebarFooter>
       <SidebarRail />
+      <AddProjectDialog
+        snap={snap}
+        open={adding}
+        onOpenChange={setAdding}
+        onAdopt={(id) => {
+          setAdding(false);
+          setAdopting(id);
+        }}
+      />
+      <AdoptDialog snap={snap} sessionId={adopting} onOpenChange={(o) => !o && setAdopting(null)} />
     </Sidebar>
   );
 }

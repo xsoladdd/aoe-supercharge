@@ -801,6 +801,83 @@ describe('daemon: security, live state and the MR watcher', () => {
     );
   });
 
+  it('adopts an AoE parent and its children as tasks (ledger only), skipping other repositories', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const json = { ...auth, 'content-type': 'application/json' };
+    const mk = async (body: Record<string, unknown>) =>
+      (await (
+        await fetch(`${fake.url}/__fake/sessions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      ).json()) as { id: string };
+    const parent = await mk({ title: 'hq', project_path: join(home, 'hq'), status: 'Idle' });
+    const kid = (title: string, branch: string, repoPath: string) =>
+      mk({
+        title,
+        project_path: join(home, 'code', 'northwind-worktrees', title),
+        main_repo_path: `${repoPath}/`,
+        branch,
+        base_branch: 'main',
+        parent_session_id: parent.id,
+        status: 'Idle',
+      });
+    const a = await kid('swippy-35-theme-search', 'feature/idea-35', repo);
+    const b = await kid('web-456-footer', 'bugfix/idea-456', repo);
+    const elsewhere = await kid('other-repo-thing', 'feature/x', join(home, 'somewhere-else'));
+    const sentBefore = fake.state.sent.length;
+    const preview = await until(async () => {
+      const r = await fetch(`${base()}/api/adopt/${parent.id}`, { headers: auth });
+      const p = (await r.json()) as { children: { id: string }[]; suggestion: { project: string | null } };
+      return p.children?.length === 3 ? p : null;
+    });
+    expect(preview.suggestion.project).toBe('northwind');
+    const r = await fetch(`${base()}/api/adopt`, {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({
+        controlSessionId: parent.id,
+        projectName: 'northwind',
+        children: [a.id, b.id, elsewhere.id],
+        makeControl: false,
+      }),
+    });
+    expect(r.status).toBe(200);
+    const out = (await r.json()) as { tasks: string[]; skipped: { title: string; reason: string }[] };
+    expect(out.tasks).toHaveLength(2);
+    expect(out.skipped).toEqual([
+      expect.objectContaining({
+        title: 'other-repo-thing',
+        reason: expect.stringMatching(/another repository/),
+      }),
+    ]);
+    const t = await readTask(out.tasks[0]!);
+    expect(t).toMatchObject({
+      title: 'swippy-35-theme-search',
+      branch: 'feature/idea-35',
+      aoeSessionId: a.id,
+      parentSessionId: parent.id,
+      stage: 'implementing',
+    });
+    // Adopting writes the ledger only: nothing was sent to any session.
+    expect(fake.state.sent.length).toBe(sentBefore);
+    // Adopting again skips what is already a task.
+    const again = await fetch(`${base()}/api/adopt`, {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({
+        controlSessionId: parent.id,
+        projectName: 'northwind',
+        children: [a.id],
+        makeControl: false,
+      }),
+    });
+    expect(((await again.json()) as { skipped: { reason: string }[] }).skipped[0]?.reason).toBe(
+      'already part of a project',
+    );
+  });
+
   it('serves the project status in the control-chat format', async () => {
     const r = await sc(['status', '--project', 'northwind', '--json']);
     const st = JSON.parse(r.stdout);

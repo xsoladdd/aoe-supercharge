@@ -225,6 +225,7 @@ export interface AuditEntry {
     | 'daemon_restart'
     | 'task_created'
     | 'project_init'
+    | 'sessions_adopted'
     | 'aoe_upgrade';
   project?: string | null;
   taskId?: string | null;
