@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils';
 import { OverviewPage } from '@/pages/overview';
 import { ProjectPage } from '@/pages/project';
 import { SettingsPage } from '@/pages/settings';
+import { ProjectSettingsPage } from '@/pages/project-settings';
 import { TaskPage, type TaskTab } from '@/pages/task';
 import type { Snapshot } from '@aoe-supercharge/core/shared';
 
@@ -43,6 +44,7 @@ function crumbsFor(location: string, snap: Snapshot): Crumb[] {
   if (parts[0] === 'settings') return [{ label: 'Settings' }];
   if (parts[0] === 'p' && parts[1]) {
     const c: Crumb[] = [{ label: parts[1], href: `/p/${parts[1]}` }];
+    if (parts[2] === 'settings') c.push({ label: 'Settings' });
     if (parts[2] === 't' && parts[3]) {
       const tab = parts[4] === 'chat' ? 'Chat' : parts[4] === 'plan' ? 'Plan' : null;
       c.push({ label: parts[3], href: `/p/${parts[1]}/t/${parts[3]}`, mono: true });
@@ -289,6 +291,11 @@ export function App() {
                         taskId={taskParams.taskId}
                         tab={taskTab}
                       />
+                    )}
+                  </Route>
+                  <Route path="/p/:project/settings">
+                    {(params: { project: string }) => (
+                      <ProjectSettingsPage snap={snap} name={params.project} />
                     )}
                   </Route>
                   {/* Not a nested router: links inside the project page stay absolute (a nest prefixed them twice). */}

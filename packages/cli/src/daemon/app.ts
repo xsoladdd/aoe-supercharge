@@ -23,6 +23,7 @@ import type { TranscriptStore } from '../transcript.ts';
 import {
   adoptSessions,
   answerPrompt,
+  deleteProject,
   realDir,
   detectAdoptedMrs,
   answerQuestions,
@@ -244,6 +245,33 @@ export function createApp(deps: AppDeps) {
     const task = await ctx.ledger.getTask(project, id);
     if (!task) return c.json({ error: 'not_found', message: 'Unknown task' }, 404);
     return c.json({ task, plan: await ctx.ledger.readPlan(project, id) });
+  });
+
+  // Delete a project (Project settings, danger zone). The body must repeat the project's name.
+  app.delete('/api/projects/:name', async (c) => {
+    const name = c.req.param('name');
+    const body = (await c.req.json().catch(() => ({}))) as {
+      confirm?: unknown;
+      deleteSessions?: unknown;
+      deleteWorktrees?: unknown;
+      deleteBranches?: unknown;
+    };
+    if (body.confirm !== name)
+      return c.json({ error: 'confirm_required', message: 'Type the project name to delete it.' }, 400);
+    try {
+      const sessions = body.deleteSessions === true;
+      const result = await deleteProject(ctx, {
+        name,
+        deleteSessions: sessions,
+        deleteWorktrees: sessions && body.deleteWorktrees === true,
+        deleteBranches: sessions && body.deleteBranches === true,
+        actor: 'ui',
+      });
+      deps.onClientConnected();
+      return c.json({ ok: true, ...result });
+    } catch (err) {
+      return sendError(c, err, 'delete_failed');
+    }
   });
 
   // Adopting an AoE parent session and its children: what would happen, then do it.

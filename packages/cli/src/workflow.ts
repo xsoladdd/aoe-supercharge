@@ -1,4 +1,4 @@
-import { readFile, realpath, writeFile } from 'node:fs/promises';
+import { readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { appendAudit, applyStage, SAFE_ARG, writeFileAtomic, type Config } from '@aoe-supercharge/core/node';
 import {
@@ -562,6 +562,69 @@ export async function setSessionModel(
     );
   if (opts.model !== undefined) await sendToSession(ctx, { ...opts, message: `/model ${opts.model}` });
   if (opts.effort !== undefined) await sendToSession(ctx, { ...opts, message: `/effort ${opts.effort}` });
+}
+
+export interface DeleteProjectResult {
+  project: string;
+  tasks: number;
+  /** AoE sessions removed, when asked to. */
+  deleted: string[];
+  /** Sessions AoE refused or failed to remove; the project is still forgotten. */
+  failed: { sessionId: string; error: string }[];
+}
+
+/**
+ * Remove a project from Supercharge: its ledger folder (record, tasks, plans, comments, notes). With
+ * `deleteSessions`, its control chat and workers are deleted in AoE too, optionally with their
+ * worktrees and branches. Irreversible; the dashboard asks you to type the project name first.
+ */
+export async function deleteProject(
+  ctx: Ctx,
+  opts: {
+    name: string;
+    deleteSessions: boolean;
+    deleteWorktrees: boolean;
+    deleteBranches: boolean;
+    actor: 'cli' | 'ui';
+  },
+): Promise<DeleteProjectResult> {
+  const project = await ctx.ledger.getProject(opts.name);
+  if (!project) throw new CliError(`There is no project "${opts.name}".`, EXIT.usage);
+  const tasks = await ctx.ledger.listTasks(project.name);
+  const deleted: string[] = [];
+  const failed: DeleteProjectResult['failed'] = [];
+  if (opts.deleteSessions) {
+    const ids = [
+      ...tasks.map((t) => t.aoeSessionId),
+      ...(project.controlSessionId ? [project.controlSessionId] : []),
+    ];
+    for (const id of ids) {
+      try {
+        await ctx.aoe.deleteSession(id, {
+          deleteWorktree: opts.deleteWorktrees,
+          deleteBranch: opts.deleteBranches,
+        });
+        deleted.push(id);
+        await rm(join(ctx.paths.uploadsDir, id), { recursive: true, force: true });
+      } catch (err) {
+        failed.push({ sessionId: id, error: (err as Error).message });
+      }
+    }
+  }
+  await ctx.ledger.removeProject(project.name);
+  await appendAudit(ctx.paths, {
+    actor: opts.actor,
+    action: 'project_deleted',
+    project: project.name,
+    details: {
+      tasks: tasks.length,
+      deletedSessions: deleted,
+      failedSessions: failed.map((f) => f.sessionId),
+      deleteWorktrees: opts.deleteWorktrees,
+      deleteBranches: opts.deleteBranches,
+    },
+  });
+  return { project: project.name, tasks: tasks.length, deleted, failed };
 }
 
 export interface AdoptResult {

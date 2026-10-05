@@ -878,6 +878,79 @@ describe('daemon: security, live state and the MR watcher', () => {
     );
   });
 
+  it('deletes a project only after its name is typed; optionally its AoE sessions too', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const json = { ...auth, 'content-type': 'application/json' };
+    // A throwaway project: adopt a parent and a child in a fresh repository.
+    const other = join(home, 'code', 'throwaway');
+    await mkdir(other, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: other });
+    execFileSync(
+      'git',
+      [
+        '-c',
+        'user.email=t@example.invalid',
+        '-c',
+        'user.name=t',
+        'commit',
+        '-q',
+        '--allow-empty',
+        '-m',
+        'init',
+      ],
+      { cwd: other },
+    );
+    const mk = async (body: Record<string, unknown>) =>
+      (await (
+        await fetch(`${fake.url}/__fake/sessions`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+      ).json()) as { id: string };
+    const parent = await mk({ title: 'throwaway control', project_path: join(home, 'tc'), status: 'Idle' });
+    const child = await mk({
+      title: 'throwaway-1',
+      project_path: join(home, 'code', 'throwaway-worktrees', 't1'),
+      main_repo_path: other,
+      branch: 'feature/t1',
+      parent_session_id: parent.id,
+      status: 'Idle',
+    });
+    await until(async () => (await fetch(`${base()}/api/adopt/${parent.id}`, { headers: auth })).ok);
+    const adopted = await fetch(`${base()}/api/adopt`, {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({
+        controlSessionId: parent.id,
+        projectName: 'throwaway',
+        repoPath: other,
+        children: [child.id],
+        makeControl: true,
+      }),
+    });
+    expect(adopted.status).toBe(200);
+    const del = (body: unknown) =>
+      fetch(`${base()}/api/projects/throwaway`, {
+        method: 'DELETE',
+        headers: json,
+        body: JSON.stringify(body),
+      });
+    expect((await del({ confirm: 'nope' })).status).toBe(400);
+    const r = await del({
+      confirm: 'throwaway',
+      deleteSessions: true,
+      deleteWorktrees: false,
+      deleteBranches: false,
+    });
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { deleted: string[] }).deleted.sort()).toEqual([child.id, parent.id].sort());
+    expect(fake.state.sessions.some((s) => s.id === parent.id || s.id === child.id)).toBe(false);
+    expect(existsSync(join(home, '.local/share/supercharge/projects/throwaway'))).toBe(false);
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"action":"project_deleted","project":"throwaway"/);
+  });
+
   it('serves the project status in the control-chat format', async () => {
     const r = await sc(['status', '--project', 'northwind', '--json']);
     const st = JSON.parse(r.stdout);

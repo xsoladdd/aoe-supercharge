@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readdir, readFile } from 'node:fs/promises';
+import { readdir, readFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { Stage } from '../shared/stages.ts';
 import type { Actor, PlanComment, ProjectRecord, TaskRecord } from '../shared/types.ts';
@@ -201,6 +201,11 @@ export class Ledger {
     });
   }
 
+  /** Forget a project: its record, tasks, plans, comments and notes (the ledger folder). */
+  async removeProject(project: string): Promise<void> {
+    await rm(this.projectDir(project), { recursive: true, force: true });
+  }
+
   /** Your scratch notes for a project (the control chat's Notes tab). */
   notesFile(project: string) {
     return join(this.projectDir(project), 'notes.md');
@@ -226,6 +231,7 @@ export interface AuditEntry {
     | 'task_created'
     | 'project_init'
     | 'sessions_adopted'
+    | 'project_deleted'
     | 'aoe_upgrade';
   project?: string | null;
   taskId?: string | null;

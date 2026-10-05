@@ -34,6 +34,7 @@ import { which } from './util/exec.ts';
 import { c, confirm, json, out, readStdin, sym } from './util/term.ts';
 import {
   askQuestion,
+  deleteProject,
   findTask,
   initProject,
   newTask,
@@ -273,6 +274,39 @@ export function buildProgram(): Command {
         throw new CliError('Use: supercharge proxy enable | disable | status', EXIT.usage);
       await proxyCommand(await ctx(), action as 'enable' | 'disable' | 'status', !!o.yes);
     });
+
+  program
+    .command('remove-project <name>')
+    .description(
+      'forget a project (its tasks, plans, comments and notes); --sessions also deletes them in AoE',
+    )
+    .option('--sessions', 'also delete its control chat and worker sessions in AoE')
+    .option('--worktrees', 'with --sessions: delete their worktrees too')
+    .option('--branches', 'with --sessions: delete their branches too')
+    .option('-y, --yes', 'do not ask for confirmation')
+    .action(
+      async (
+        name: string,
+        o: { sessions?: boolean; worktrees?: boolean; branches?: boolean; yes?: boolean },
+      ) => {
+        const x = await ctx();
+        const what = o.sessions
+          ? `the project "${name}" and its AoE sessions${o.worktrees ? ', worktrees' : ''}${o.branches ? ', branches' : ''}`
+          : `the project "${name}" from Supercharge (AoE sessions are kept)`;
+        if (!o.yes && !(await confirm(`Delete ${what}? This cannot be undone.`))) return;
+        const r = await deleteProject(x, {
+          name,
+          deleteSessions: !!o.sessions,
+          deleteWorktrees: !!o.sessions && !!o.worktrees,
+          deleteBranches: !!o.sessions && !!o.branches,
+          actor: 'cli',
+        });
+        out(
+          `${sym.ok} Removed ${r.project} (${r.tasks} tasks)${r.deleted.length ? `, deleted ${r.deleted.length} AoE sessions` : ''}`,
+        );
+        for (const f of r.failed) out(`${sym.warn} Could not delete ${f.sessionId}: ${f.error}`);
+      },
+    );
 
   program
     .command('uninstall')

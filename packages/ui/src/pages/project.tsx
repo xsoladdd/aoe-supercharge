@@ -1,10 +1,16 @@
-import { PlusIcon } from '@phosphor-icons/react';
+import { PlusIcon, DotsThreeIcon, GearSixIcon } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
-import { useLocation } from 'wouter';
+import { Link, useLocation } from 'wouter';
 import type { Snapshot } from '@aoe-supercharge/core/shared';
 import { CommandLine } from '@/components/copy';
 import { ControlBox } from '@/components/control-box';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Dialog,
   DialogContent,
@@ -119,7 +125,24 @@ export function ProjectPage({
           </span>
         }
       >
-        <NewTaskDialog project={view.project.name} />
+        <div className="flex items-center gap-2">
+          <NewTaskDialog project={view.project.name} />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" aria-label="More project actions">
+                <DotsThreeIcon weight="bold" className="size-5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem asChild>
+                <Link href={`/p/${view.project.name}/settings`}>
+                  <GearSixIcon />
+                  Project settings
+                </Link>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </PageHeader>
       <ControlBox view={view} remoteControl={snap.health.remoteControl} />
       <section aria-labelledby="workers-heading" className="space-y-3">

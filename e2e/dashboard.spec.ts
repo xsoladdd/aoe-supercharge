@@ -561,6 +561,31 @@ test.describe('project', () => {
     expect(((await fake('/__fake/state')) as { sent: unknown[] }).sent.length).toBe(sentBefore);
   });
 
+  test('a project is deleted from its settings, behind the ⋯ menu and a typed name', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    // The project the adoption test just created for this engine.
+    const name = `hq-${browserName}`;
+    await page.goto(`/p/${name}`);
+    await page.getByRole('button', { name: 'More project actions' }).click();
+    await page.getByRole('menuitem', { name: 'Project settings' }).click();
+    await expect(page).toHaveURL(new RegExp(`/p/${name}/settings$`));
+    await page.getByRole('button', { name: 'Delete project' }).click();
+    const dialog = page.getByRole('dialog', { name: `Delete ${name}?` });
+    const go = dialog.getByRole('button', { name: 'Delete project' });
+    await expect(go).toBeDisabled();
+    await dialog.getByLabel(/Type .* to confirm/).fill(name);
+    await expect(go).toBeEnabled();
+    await go.click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole('link', { name: new RegExp(`^${name}`) })).toHaveCount(0);
+    // Its sessions were kept: they are back under Other AoE sessions.
+    await expect(page.locator('main#main').getByText(`hq ${browserName}`, { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+  });
+
   test('the sidebar + opens Add a project: adopt from AoE, or the init command for a repository', async ({
     signedIn: page,
   }) => {
