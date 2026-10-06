@@ -12,6 +12,7 @@ import {
 import {
   countActiveWorkers,
   normalizeAoeStatus,
+  pickWorkerName,
   usageReport,
   type AoeState,
   type Health,
@@ -341,12 +342,21 @@ export class LedgerWatcher {
     this.timer.unref();
   }
 
-  async reload() {
+  async reload(): Promise<void> {
     try {
-      const [projects, tasks] = await Promise.all([
-        this.ctx.ledger.listProjects(),
-        this.ctx.ledger.listTasks(),
-      ]);
+      const projects = await this.ctx.ledger.listProjects();
+      let tasks = await this.ctx.ledger.listTasks();
+      // Workers from before names (or adopted by an older version) get one, oldest first.
+      const unnamed = tasks.filter((t) => !t.name);
+      if (unnamed.length) {
+        for (const t of unnamed)
+          await this.ctx.ledger.nameTask(
+            t.project,
+            t.id,
+            pickWorkerName(await this.ctx.ledger.takenNames(t.project), t.project),
+          );
+        tasks = await this.ctx.ledger.listTasks();
+      }
       this.store.setLedger(projects, tasks);
     } catch (err) {
       this.ctx.logger.error('ledger reload failed', { err });

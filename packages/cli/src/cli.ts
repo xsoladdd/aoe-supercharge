@@ -444,6 +444,7 @@ export function buildProgram(): Command {
         if (o.json)
           return json({
             id: t.id,
+            name: t.name ?? null,
             project: t.project,
             branch: t.branch,
             worktree: t.worktreePath,
@@ -455,7 +456,7 @@ export function buildProgram(): Command {
             warnings: t.warnings ?? [],
           });
         for (const w of t.warnings ?? []) out(`${sym.warn} ${w}`);
-        out(`${sym.ok} ${c.bold(t.id)} ${t.title}`);
+        out(`${sym.ok} ${c.bold(t.name ?? t.id)}${t.name ? ` (${t.id})` : ''} ${t.title}`);
         out(`  branch   ${t.branch} (from ${t.baseBranch})`);
         out(`  worktree ${t.worktreePath}`);
         out(`  session  ${t.aoeSessionId}`);
@@ -475,7 +476,7 @@ export function buildProgram(): Command {
       if (!tasks.length) return out('No tasks yet. Create one with: supercharge task new "<title>"');
       for (const t of tasks)
         out(
-          `${t.id.padEnd(9)} ${STAGE_LABEL[t.stage].padEnd(17)} ${t.title}  ${c.dim(relativeTime(t.updatedAt))}`,
+          `${t.id.padEnd(9)} ${(t.name ?? '').padEnd(11)} ${STAGE_LABEL[t.stage].padEnd(17)} ${t.title}  ${c.dim(relativeTime(t.updatedAt))}`,
         );
     });
 

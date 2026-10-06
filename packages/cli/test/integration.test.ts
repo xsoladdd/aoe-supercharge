@@ -174,6 +174,9 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(r.code, r.stderr).toBe(0);
     worker = JSON.parse(r.stdout);
     expect(worker.id).toBe('NO-0001');
+    // Every worker gets a medieval name, kept on its task.
+    expect((worker as unknown as { name: string }).name).toMatch(/^[A-Z][a-z]+$/);
+    expect((await readTask('NO-0001')).name).toBe((worker as unknown as { name: string }).name);
     expect(worker.branch).toBe('sc/no-0001-build-templates');
     expect(existsSync(worker.worktree)).toBe(true);
     expect(fake.state.sessions.find((s) => s.id === worker.aoeSessionId)?.parent_session_id).toBe(controlId);
@@ -396,6 +399,9 @@ describe('daemon: security, live state and the MR watcher', () => {
     });
     expect(snap.projects[0]?.name).toBe('northwind');
     expect(snap.tasks[0]?.id).toBe('NO-0001');
+    const names = snap.tasks.map((t) => t.name);
+    expect(names.every(Boolean)).toBe(true);
+    expect(new Set(names).size).toBe(names.length);
     const w = snap.sessions.find((s) => s.id === snap.tasks[0]!.aoeSessionId);
     expect(w?.parentId).toBe(snap.projects[0]!.controlSessionId);
     expect(snap.health.aoe.serveVersion).toBe('1.17.2');

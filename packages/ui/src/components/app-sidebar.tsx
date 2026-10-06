@@ -249,13 +249,21 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                                           role="img"
                                           aria-label={STAGE_LABEL[t.stage]}
                                         />
-                                        <span
-                                          translate="no"
-                                          className="font-mono text-[0.8125rem] text-muted-foreground"
-                                        >
-                                          {t.id.split('-')[1]}
+                                        {t.name ? (
+                                          <span className="shrink-0 font-medium" title={t.id}>
+                                            {t.name}
+                                          </span>
+                                        ) : (
+                                          <span
+                                            translate="no"
+                                            className="font-mono text-[0.8125rem] text-muted-foreground"
+                                          >
+                                            {t.id.split('-')[1]}
+                                          </span>
+                                        )}
+                                        <span className={cn('truncate', t.name && 'text-muted-foreground')}>
+                                          {t.title}
                                         </span>
-                                        <span className="truncate">{t.title}</span>
                                         {/* A div, not a span: the sidebar truncates a row's last span, which clipped these icons. */}
                                         <div className="ml-auto flex shrink-0 items-center gap-1">
                                           <Marks session={s} />

@@ -202,7 +202,8 @@ test.describe('project', () => {
       asks.getByRole('heading', { name: /worker is asking you|workers are asking you/ }),
     ).toBeVisible();
     await expect(asks.getByText("Is the client's copy deck from Friday final")).toBeVisible();
-    await expect(asks.getByRole('heading', { name: 'NW-0002 asks' })).toBeVisible();
+    // The worker asks by its name; the card links its task by title.
+    await expect(asks.getByRole('heading', { name: /^[A-Z][a-z]+ asks$/ })).toBeVisible();
     await expect(asks.getByRole('link', { name: 'Content entry for launch pages' })).toBeVisible();
     await expect(asks.getByRole('radiogroup').getByText("Use Friday's deck")).toBeVisible();
     await expect(asks.getByRole('radiogroup').getByText('Write my own answer')).toBeVisible();
@@ -278,9 +279,9 @@ test.describe('project', () => {
     await page.getByLabel('Message to the worker').fill(message);
     await page.getByRole('button', { name: 'Send reply' }).click();
     const confirm = page.getByRole('alertdialog');
-    await expect(confirm.getByText('Send this to NW-0005?')).toBeVisible();
+    await expect(confirm.getByText(/^Send this to [A-Z][a-z]+ \(NW-0005\)\?$/)).toBeVisible();
     await confirm.getByRole('button', { name: 'Send reply' }).click();
-    await expect(page.getByText('Sent to NW-0005')).toBeVisible();
+    await expect(page.getByText(/^Sent to [A-Z][a-z]+$/)).toBeVisible();
     const state = (await fake('/__fake/state')) as { sent: { message: string }[] };
     expect(state.sent.some((s) => s.message === message)).toBe(true);
   });

@@ -34,6 +34,7 @@ export function buildProjectStatus(
       .filter((t) => t.stage === 'blocked' && t.openQuestion)
       .map((t) => ({
         taskId: t.id,
+        name: t.name ?? null,
         title: t.title,
         question: t.openQuestion!.text,
         options: t.openQuestion!.options ?? [],
@@ -42,14 +43,15 @@ export function buildProjectStatus(
       .sort((a, b) => a.since.localeCompare(b.since)),
     readyForReview: own
       .filter((t) => t.stage === 'ready_for_review')
-      .map((t) => ({ taskId: t.id, title: t.title, mrUrl: t.mr?.url ?? null })),
+      .map((t) => ({ taskId: t.id, name: t.name ?? null, title: t.title, mrUrl: t.mr?.url ?? null })),
     failingPipelines: own
       .filter((t) => t.mr?.pipeline === 'failed' && t.stage !== 'done')
-      .map((t) => ({ taskId: t.id, title: t.title, mrUrl: t.mr?.url ?? null })),
+      .map((t) => ({ taskId: t.id, name: t.name ?? null, title: t.title, mrUrl: t.mr?.url ?? null })),
     tasks: own.map((t) => {
       const s = byId.get(t.aoeSessionId);
       return {
         id: t.id,
+        name: t.name ?? null,
         title: t.title,
         stage: t.stage,
         branch: t.branch,

@@ -158,6 +158,7 @@ function PlanCard({ task, session }: { task: TaskRecord; session: SessionView | 
     <details open={pending || open > 0} className="group/plan rounded-xl border border-border bg-card">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 select-none [&::-webkit-details-marker]:hidden">
         <CaretRightIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/plan:rotate-90" />
+        {task.name && <span className="shrink-0 text-sm font-semibold">{task.name}</span>}
         <span translate="no" className="font-mono text-xs text-muted-foreground">
           {task.id}
         </span>
@@ -241,6 +242,7 @@ function TaskComments({ task }: { task: TaskRecord }) {
   return (
     <section className="space-y-2">
       <h3 className="flex items-baseline gap-2 text-sm">
+        {task.name && <span className="shrink-0 font-semibold">{task.name}</span>}
         <span translate="no" className="font-mono text-xs text-muted-foreground">
           {task.id}
         </span>

@@ -69,6 +69,8 @@ export interface TaskRecord {
   rev: number;
   id: string;
   project: string;
+  /** A medieval name ("Gareth") shown with the id; older tasks get one when the daemon next loads them. */
+  name?: string;
   title: string;
   brief: string;
   branch: string;
@@ -218,11 +220,13 @@ export interface ProjectStatus {
   project: string;
   control: { sessionId: string | null; status: LiveStatus | 'missing'; remoteControl: boolean };
   counts: Record<Stage, number>;
-  blocked: { taskId: string; title: string; question: string; since: string }[];
-  readyForReview: { taskId: string; title: string; mrUrl: string | null }[];
-  failingPipelines: { taskId: string; title: string; mrUrl: string | null }[];
+  blocked: { taskId: string; name: string | null; title: string; question: string; since: string }[];
+  readyForReview: { taskId: string; name: string | null; title: string; mrUrl: string | null }[];
+  failingPipelines: { taskId: string; name: string | null; title: string; mrUrl: string | null }[];
   tasks: {
     id: string;
+    /** The worker's medieval name ("Gareth"); call it that, with the id. */
+    name: string | null;
     title: string;
     stage: Stage;
     branch: string;

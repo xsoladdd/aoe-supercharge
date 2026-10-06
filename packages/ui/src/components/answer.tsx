@@ -8,7 +8,13 @@ import {
   TerminalWindowIcon,
   type Icon,
 } from '@phosphor-icons/react';
-import { ago, type SessionPrompt, type SessionView, type TaskRecord } from '@aoe-supercharge/core/shared';
+import {
+  ago,
+  type SessionPrompt,
+  type SessionView,
+  type TaskRecord,
+  workerName,
+} from '@aoe-supercharge/core/shared';
 import { lazy, Suspense, useEffect, useId, useState } from 'react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
@@ -581,7 +587,7 @@ export function QuestionCard({
           confirm: true,
         },
       );
-      toast.success(`Answer sent to ${task.id}`, { description: 'Recorded in the audit log.' });
+      toast.success(`Answer sent to ${workerName(task)}`, { description: 'Recorded in the audit log.' });
       onAnswered?.();
     } catch (e) {
       setError(`${e instanceof ApiError ? e.message : 'Could not send the answer.'} Try again.`);
@@ -593,7 +599,7 @@ export function QuestionCard({
   return (
     <CardShell
       icon={QuestionIcon}
-      title={`${task.id} asks`}
+      title={`${workerName(task)} asks`}
       context={context ?? `${ago(q.askedAt, now)}, the worker is blocked until you answer`}
       className={className}
     >
@@ -679,6 +685,7 @@ export function TaskAsks({
       href={`/p/${task.project}/t/${task.id}`}
       className="underline underline-offset-3 hover:text-foreground"
     >
+      {task.name && <span className="font-medium">{task.name} </span>}
       <span translate="no" className="font-mono">
         {task.id}
       </span>{' '}

@@ -168,6 +168,24 @@ export class Ledger {
     });
   }
 
+  /** Give an unnamed task its name, leaving updatedAt alone (naming is not news). */
+  async nameTask(project: string, id: string, name: string): Promise<void> {
+    await withLock(this.taskDir(project, id), async () => {
+      const cur = await this.getTask(project, id);
+      if (!cur || cur.name) return;
+      await writeJsonAtomic(this.taskFile(project, id), { ...cur, name, rev: cur.rev + 1 });
+    });
+  }
+
+  /** Names every task in the project has had, removed ones included. */
+  async takenNames(project: string): Promise<string[]> {
+    const tasks = [
+      ...(await this.listTasks(project)),
+      ...(await this.listRemovedTasks()).filter((t) => t.project === project),
+    ];
+    return tasks.map((t) => t.name).filter((n): n is string => !!n);
+  }
+
   async readPlan(project: string, id: string): Promise<string | null> {
     try {
       return await readFile(this.planFile(project, id), 'utf8');

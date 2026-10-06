@@ -1,3 +1,4 @@
+import { workerLabel } from './names.ts';
 import type { SessionPrompt } from './prompt.ts';
 import type { NeedsYouItem, ProjectRecord, SessionView, TaskRecord } from './types.ts';
 
@@ -45,7 +46,7 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         project: t.project,
         taskId: t.id,
         sessionId: t.aoeSessionId,
-        title: `${t.id} ${t.title}`,
+        title: `${workerLabel(t)} ${t.title}`,
         detail: t.openQuestion.text,
         since: t.openQuestion.askedAt,
       });
@@ -58,7 +59,7 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         project: t.project,
         taskId: t.id,
         sessionId: t.aoeSessionId,
-        title: `${t.id} ${t.title}`,
+        title: `${workerLabel(t)} ${t.title}`,
         detail: t.mr ? `Ready for review: !${t.mr.iid}` : 'Ready for review',
         since: at,
       });
@@ -70,7 +71,7 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         project: t.project,
         taskId: t.id,
         sessionId: t.aoeSessionId,
-        title: `${t.id} ${t.title}`,
+        title: `${workerLabel(t)} ${t.title}`,
         detail: `MR !${t.mr.iid} was closed without merging`,
         since: iso(t.mr.checkedAt, t.updatedAt),
       });
@@ -82,7 +83,7 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         project: t.project,
         taskId: t.id,
         sessionId: t.aoeSessionId,
-        title: `${t.id} ${t.title}`,
+        title: `${workerLabel(t)} ${t.title}`,
         detail: 'Its AoE session no longer exists',
         since: t.updatedAt,
       });
@@ -95,7 +96,7 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
     const isControl = !!project || parentIds.has(s.id);
     const task = taskBySession.get(s.id) ?? null;
     const since = iso(s.statusSince, nowIso);
-    const label = task ? `${task.id} ${task.title}` : s.title;
+    const label = task ? `${workerLabel(task)} ${task.title}` : s.title;
     const projectName = project?.name ?? task?.project ?? null;
 
     if (s.status === 'waiting') {

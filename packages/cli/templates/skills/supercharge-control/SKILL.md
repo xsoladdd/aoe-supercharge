@@ -55,7 +55,7 @@ supercharge task new "<short imperative title>" --model <sonnet|opus> --brief-fi
 
 - Write the brief to a temporary file outside the repository (for example under `/tmp`). Include the goal, constraints, acceptance criteria, the files or areas to start from, and anything the worker must not touch. A precise brief saves the worker from exploring.
 - Use `--brief "<text>"` for short briefs instead of a file.
-- The JSON output contains the task id, branch, worktree, AoE session id, model, and the usage after it started (`usage.canStartCount`). Tell the user the task ids you created.
+- The JSON output contains the task id, the worker's name, branch, worktree, AoE session id, model, and the usage after it started (`usage.canStartCount`). Tell the user which workers you started, by name and id (for example "Gareth (CB-0019)").
 - Do not create more tasks than the user asked for. Ask first when the split is unclear.
 
 ### 3.4 Keep sessions short
@@ -74,7 +74,7 @@ supercharge status --project <project> --json
 
 Summarise it in this order, briefly:
 
-1. Anything blocked: task id, the open question, and how long it has waited.
+1. Anything blocked: the worker's name and task id, the open question, and how long it has waited.
 2. Merge requests ready for review, with links.
 3. Failing pipelines.
 4. Counts per stage.

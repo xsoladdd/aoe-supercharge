@@ -15,6 +15,8 @@ import {
   type SessionView,
   type Snapshot,
   type TaskRecord,
+  workerLabel,
+  workerName,
 } from '@aoe-supercharge/core/shared';
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
@@ -154,7 +156,7 @@ function Reply({ task, session }: { task: TaskRecord; session: SessionView | nul
           confirm: true,
         },
       );
-      toast.success(`Sent to ${task.id}`, { description: 'Recorded in the audit log.' });
+      toast.success(`Sent to ${workerName(task)}`, { description: 'Recorded in the audit log.' });
       setMessage('');
     } catch (e) {
       setError(
@@ -203,7 +205,7 @@ function Reply({ task, session }: { task: TaskRecord; session: SessionView | nul
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Send this to {task.id}?</AlertDialogTitle>
+            <AlertDialogTitle>Send this to {workerLabel(task)}?</AlertDialogTitle>
             <AlertDialogDescription>
               The worker receives it as a prompt in its AoE session.
             </AlertDialogDescription>
@@ -464,6 +466,7 @@ export function TaskPage({
       {/* One compact row that stays under the top bar, so the tabs are always in reach. */}
       <header className="sticky top-14 z-[5] flex flex-wrap items-end gap-x-4 border-b border-border bg-surface/95 px-5 pt-2 backdrop-blur lg:px-7">
         <div className="flex min-w-0 flex-1 items-center gap-x-2.5 pb-2.5">
+          {task.name && <span className="shrink-0 text-[1.0625rem] font-semibold">{task.name}</span>}
           <span translate="no" className="shrink-0 font-mono text-[0.8125rem] text-muted-foreground">
             {task.id}
           </span>

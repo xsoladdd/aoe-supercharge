@@ -15,7 +15,7 @@ import {
   TerminalWindowIcon,
   TrashIcon,
 } from '@phosphor-icons/react';
-import type { SessionView, Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
+import { workerLabel, type SessionView, type Snapshot, type TaskRecord } from '@aoe-supercharge/core/shared';
 import { useId, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useLocation } from 'wouter';
@@ -193,7 +193,7 @@ export function SessionMenu({
           <ContextMenuLabel className="max-w-64 truncate">
             {one
               ? one.task
-                ? `${one.task.id} ${one.task.title}`
+                ? `${workerLabel(one.task)} ${one.task.title}`
                 : one.session.title
               : `${targets.length} sessions`}
           </ContextMenuLabel>
@@ -356,7 +356,7 @@ function DeleteSessions({
   const locked = list.filter((t) => t.session.locked).length;
   const controls = list.filter((t) => t.control && !t.session.locked).length;
   const workers = go.filter((t) => t.task).length;
-  const name = (t: Target) => (t.task ? `${t.task.id} ${t.task.title}` : t.session.title);
+  const name = (t: Target) => (t.task ? `${workerLabel(t.task)} ${t.task.title}` : t.session.title);
 
   return (
     <AlertDialog

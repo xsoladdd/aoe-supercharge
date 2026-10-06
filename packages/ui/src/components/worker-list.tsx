@@ -65,6 +65,7 @@ export function WorkerList({
                     href={`/p/${project}/t/${t.id}`}
                     className="flex items-baseline gap-2 rounded-sm after:absolute after:inset-0 after:content-[''] hover:underline"
                   >
+                    {t.name && <span className="shrink-0 text-[0.9375rem] font-semibold">{t.name}</span>}
                     <span
                       translate="no"
                       className="shrink-0 font-mono text-[0.875rem] whitespace-nowrap text-muted-foreground"

@@ -163,6 +163,7 @@ export function ControlBox({ view, remoteControl }: { view: ProjectView; remoteC
                 {ready.map((t) => (
                   <li key={t.id}>
                     <Link href={`/p/${project.name}/t/${t.id}`} className="hover:underline">
+                      {t.name && <span className="font-medium">{t.name} </span>}
                       <span className="font-mono text-[0.875rem]">{t.id}</span> {t.mr ? `!${t.mr.iid}` : ''}
                     </Link>
                   </li>
