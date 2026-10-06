@@ -95,8 +95,13 @@ export interface FakeState {
   sent: { id: string; message: string; at: string }[];
   /** Raw keys typed through the live-terminal websocket, as hex. */
   keys: { id: string; hex: string; at: string }[];
-  /** Fake only: who holds each session's typing lock (someone viewing it in AoE). */
-  viewers: Record<string, boolean>;
+  /**
+   * Fake only: who holds each session's typing lock. `true`: someone views it in AoE (a `claim` takes
+   * over); `'stuck'`: not even a take-over gets it.
+   */
+  viewers: Record<string, boolean | 'stuck'>;
+  /** Claims made through the live-terminal websocket, in order. */
+  claims: { id: string; type: string; owner: boolean }[];
 }
 
 export function newId(): string {
@@ -392,6 +397,7 @@ export async function startFakeAoe(
     sent: [],
     keys: [],
     viewers: {},
+    claims: [],
   };
   const transcripts = opts.transcripts ? new FakeTranscripts(opts.transcripts) : null;
   const app = createFakeApp(state, transcripts);
@@ -414,8 +420,9 @@ export async function startFakeAoe(
 
 /**
  * AoE's live-terminal websocket, reduced to what Supercharge uses (src/server/live_ws.rs): bearer auth,
- * `claim_if_vacant` answered with `size_owner`, binary frames as raw pane input. Escape on a menu
- * closes it and rejects the call it was about, like Claude Code does.
+ * `claim_if_vacant` (only when nobody views the session) and `claim` (take over) answered with
+ * `size_owner`, binary frames as raw pane input. Escape on a menu closes it and rejects the call it was
+ * about, like Claude Code does.
  */
 function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: FakeTranscripts | null) {
   const wss = new WebSocketServer({ noServer: true });
@@ -431,8 +438,10 @@ function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: F
       ws.on('message', (data, isBinary) => {
         if (!isBinary) {
           const msg = JSON.parse(String(data)) as { type?: string };
-          if (msg.type === 'claim_if_vacant') {
-            owner = !state.viewers[s.id];
+          if (msg.type === 'claim_if_vacant' || msg.type === 'claim') {
+            const viewer = state.viewers[s.id];
+            owner = msg.type === 'claim' ? viewer !== 'stuck' : !viewer;
+            state.claims.push({ id: s.id, type: msg.type, owner });
             ws.send(JSON.stringify({ type: 'size_owner', is_owner: owner }));
           }
           return;

@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+- Right-click menu on sessions and workers (open, pin, lock, mark read, stop or start, archive, delete),
+  with Ctrl/⌘ and Shift to select several. A worker whose AoE session is trashed or deleted leaves the
+  lists, and comes back if the session is restored.
+- `supercharge usage --connect`: every Claude Code session you run records your 5-hour and weekly usage,
+  not only the ones Supercharge starts.
+- Workers get medieval names (Gareth, Godfrey, Isolde…), with the task id beside them.
+- Typing `/` in a chat suggests Claude Code's commands and your skills; Tab completes.
+- Control chats start on Opus (`agent.controlModel`). The control panel opens on Notes, hides with a
+  visible toggle, and Start fresh sits under the message box once a chat gets long.
+- The chat follows `/clear` at once, instead of up to 30 seconds later.
+- **Run commands from the chat.** A `bash` block in Claude's reply has a Run button. After you confirm, it
+  runs in the session through Claude Code's shell mode (`!`), as you, and Claude reads the output and
+  replies. What you ran and what it printed show in the chat, also for `!` commands typed in the
+  terminal. The control skill now asks Claude to put commands for you in `bash` blocks.
+- **Answers go through while the session is open in AoE.** Supercharge used to refuse when AoE's web view
+  or TUI held the session's typing lock. It now takes the lock over for the one keypress it needs, and
+  AoE's view takes it back by itself.
+- **A control chat off its model says so.** When a control chat runs on something other than
+  `agent.controlModel` (Sonnet, after `/model opusplan` for example), the chat offers to switch it back.
+  When it still runs a Claude Code older than 2.1.284 while a newer one is installed, it offers to restart
+  it, which resumes the same conversation on the 5.5 models.
+- Settings: the agent settings say they apply to chats started from now on, instead of asking for a
+  daemon restart that would not change a running chat. The model menu marks the current model.
+
 ## 0.2.1 (2026-10-06)
 
 Spend less of your Claude plan limits.

@@ -17,6 +17,7 @@ import type { PlanComment, SlashCommand } from '@aoe-supercharge/core/shared';
 import { VERSION, type Ctx } from '../context.ts';
 import { buildProjectStatus } from '../status.ts';
 import { CliError } from '../util/errors.ts';
+import { run } from '../util/exec.ts';
 import { PromptReader } from '../prompt.ts';
 import { listSlashCommands } from '../slash.ts';
 import { MAX_UPLOAD_BYTES, readUpload, saveUpload } from '../uploads.ts';
@@ -31,6 +32,7 @@ import {
   MenuOpenError,
   PromptChangedError,
   replyToTask,
+  runInSession,
   SESSION_ACTIONS,
   sendPlanComments,
   sendToSession,
@@ -100,6 +102,19 @@ function sendError(c: Context, err: unknown, code: string) {
 
 export function createApp(deps: AppDeps) {
   const { ctx, store, token } = deps;
+  // `claude --version`, re-read every 10 minutes (a brew upgrade changes it under a running daemon).
+  let claude: { at: number; version: Promise<string | null> } | null = null;
+  const installedClaude = () => {
+    if (!claude || Date.now() - claude.at > 10 * 60_000)
+      claude = {
+        at: Date.now(),
+        version: run('claude', ['--version'], { env: ctx.env, timeoutMs: 10_000 }).then(
+          (r) => (r.code === 0 ? (/(\d+\.\d+\.\d+)/.exec(r.stdout || r.stderr)?.[1] ?? null) : null),
+          () => null,
+        ),
+      };
+    return claude.version;
+  };
   const app = new Hono();
   const nonces = new Map<string, number>();
   const sessionValue = hmac(token, 'ui-session');
@@ -558,7 +573,12 @@ export function createApp(deps: AppDeps) {
     try {
       const chat = await deps.transcripts.read(id, session.projectPath);
       if (c.req.query('version') === chat.version) return c.json({ unchanged: true, version: chat.version });
-      return c.json(chat);
+      const control = store.projects.some((p) => p.controlSessionId === id);
+      return c.json({
+        ...chat,
+        expectedModel: control ? ctx.config.agent.controlModel || null : null,
+        installedClaude: control ? await installedClaude() : null,
+      });
     } catch (err) {
       ctx.logger.warn('transcript read failed', { session: id, err: (err as Error).message });
       return c.json({
@@ -593,6 +613,30 @@ export function createApp(deps: AppDeps) {
       return c.json({ ok: true });
     } catch (err) {
       return sendError(c, err, 'send_failed');
+    }
+  });
+
+  // Run a command Claude suggested, in the session's own shell mode: an explicit Run, always audited.
+  app.post('/api/sessions/:id/run', async (c) => {
+    const id = c.req.param('id');
+    const session = store.sessions.find((s) => s.id === id);
+    if (!session) return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { command?: unknown };
+    if (typeof body.command !== 'string')
+      return c.json({ error: 'bad_request', message: 'Pass the command to run.' }, 400);
+    const task = store.tasks.find((t) => t.aoeSessionId === id) ?? null;
+    const project = task?.project ?? store.projects.find((p) => p.controlSessionId === id)?.name ?? null;
+    try {
+      await runInSession(ctx, {
+        sessionId: id,
+        command: body.command,
+        actor: 'ui',
+        project,
+        taskId: task?.id ?? null,
+      });
+      return c.json({ ok: true });
+    } catch (err) {
+      return sendError(c, err, 'run_failed');
     }
   });
 

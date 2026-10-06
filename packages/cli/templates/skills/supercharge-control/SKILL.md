@@ -92,7 +92,11 @@ supercharge reply <task-id> "<the user's answer>" --yes
 
 This sends a prompt to that worker's session and is recorded in the audit log. Never send prompts to workers on your own initiative.
 
-## 6. Rules
+## 6. Commands the user runs
+
+When a command has to come from the user (a permission rule blocks it for you, or it is theirs to decide), give it in a fenced `bash` block, one block per thing to run, without a `$ ` prompt and without output lines. The Supercharge dashboard puts a **Run** button on `bash` blocks. A click runs the block in this session through Claude Code's shell mode (`!`), as the user, and you then see its output. Use a `text` block for anything that is not meant to be run, like a list of names.
+
+## 7. Rules
 
 - Never run `supercharge stage`, `ask` or `plan` yourself; those belong to workers.
 - Never merge, push or close merge requests unless the user tells you to.

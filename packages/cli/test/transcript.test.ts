@@ -119,6 +119,38 @@ describe('TranscriptParser: Claude Code JSONL → chat messages', () => {
     expect(p.messages.filter((m) => m.role === 'user')).toHaveLength(0);
   });
 
+  it('shows shell-mode commands with their output, and the Claude Code version that wrote them', () => {
+    // Records as Claude Code 2.1.285 wrote them for `!echo …` and a failing `!ls`.
+    const p = new TranscriptParser();
+    for (const l of [
+      user('<bash-input>echo one      # first\necho two</bash-input>', { version: '2.1.236' }),
+      user('<bash-stdout>one\ntwo</bash-stdout><bash-stderr></bash-stderr>', { version: '2.1.285' }),
+      user('<bash-input>ls /nope</bash-input>'),
+      assistant('m1', { type: 'text', text: 'Still running?' }),
+      user('<bash-stdout></bash-stdout><bash-stderr>ls: /nope: No such file or directory\n</bash-stderr>'),
+    ])
+      p.push(l);
+    expect(p.messages.map((m) => [m.role, m.blocks])).toEqual([
+      [
+        'user',
+        [{ kind: 'shell', command: 'echo one      # first\necho two', stdout: 'one\ntwo', stderr: '' }],
+      ],
+      [
+        'user',
+        [
+          {
+            kind: 'shell',
+            command: 'ls /nope',
+            stdout: '',
+            stderr: 'ls: /nope: No such file or directory\n',
+          },
+        ],
+      ],
+      ['assistant', [{ kind: 'text', text: 'Still running?' }]],
+    ]);
+    expect(p.claudeVersion).toBe('2.1.285');
+  });
+
   it('leaves a tool without a result as pending', () => {
     const p = new TranscriptParser();
     p.push(

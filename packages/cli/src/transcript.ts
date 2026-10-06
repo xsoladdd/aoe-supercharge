@@ -17,6 +17,7 @@ const MAX_MESSAGES = 300;
 const FULL_INPUT = new Set(['ExitPlanMode', 'AskUserQuestion']);
 
 type ToolBlock = Extract<ChatBlock, { kind: 'tool' }>;
+type ShellBlock = Extract<ChatBlock, { kind: 'shell' }>;
 
 /**
  * Incremental parser for Claude Code's transcript JSONL (~/.claude/projects/<cwd>/<session>.jsonl,
@@ -30,8 +31,12 @@ export class TranscriptParser {
   effort: string | null = null;
   /** Tokens in the context at the latest reply (input, cache and output), for the context meter. */
   contextTokens: number | null = null;
+  /** The Claude Code version that wrote the latest message (each record carries it). */
+  claudeVersion: string | null = null;
   private assistantById = new Map<string, ChatMessage>();
   private toolById = new Map<string, ToolBlock>();
+  /** A shell-mode command still waiting for its output. */
+  private pendingShell: ShellBlock | null = null;
 
   push(line: string): void {
     let rec: Record<string, unknown>;
@@ -45,6 +50,8 @@ export class TranscriptParser {
       return;
     }
     if (rec.isSidechain === true) return;
+    if ((rec.type === 'user' || rec.type === 'assistant') && typeof rec.version === 'string')
+      this.claudeVersion = rec.version;
     const message = rec.message as { id?: string; content?: unknown; model?: unknown } | undefined;
     this.trackSettings(rec, message);
     if (rec.isMeta === true) return;
@@ -86,6 +93,7 @@ export class TranscriptParser {
     const kind = (origin as { kind?: string } | undefined)?.kind;
     if (kind && kind !== 'human') return;
     if (typeof content === 'string') {
+      if (this.shell(content, id, at)) return;
       if (!content.trim() || NOT_TYPED.test(content)) return;
       this.messages.push({ id, role: 'user', at, blocks: [{ kind: 'text', text: content }] });
       return;
@@ -107,6 +115,28 @@ export class TranscriptParser {
     }
     if (texts.length)
       this.messages.push({ id, role: 'user', at, blocks: [{ kind: 'text', text: texts.join('\n\n') }] });
+  }
+
+  /**
+   * Shell mode (`!command`, Claude Code 2.1.285): one user record with `<bash-input>`, then one with
+   * `<bash-stdout>` and `<bash-stderr>` once it finishes. True when the record was one of those.
+   */
+  private shell(content: string, id: string, at: string): boolean {
+    const input = /^\s*<bash-input>([\s\S]*)<\/bash-input>\s*$/.exec(content);
+    if (input) {
+      const block: ShellBlock = { kind: 'shell', command: input[1]!, stdout: null, stderr: '' };
+      this.pendingShell = block;
+      this.messages.push({ id, role: 'user', at, blocks: [block] });
+      return true;
+    }
+    const out = /^\s*<bash-stdout>([\s\S]*?)<\/bash-stdout>/.exec(content);
+    if (!out) return false;
+    if (this.pendingShell) {
+      this.pendingShell.stdout = clip(out[1]!);
+      this.pendingShell.stderr = clip(/<bash-stderr>([\s\S]*?)<\/bash-stderr>/.exec(content)?.[1] ?? '');
+      this.pendingShell = null;
+    }
+    return true;
   }
 
   private assistant(content: unknown, messageId: string, at: string) {
@@ -312,6 +342,7 @@ export class TranscriptStore {
       model: c.parser.model,
       effort: c.parser.effort,
       contextTokens: c.parser.contextTokens,
+      claudeVersion: c.parser.claudeVersion,
     };
   }
 }

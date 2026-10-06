@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { checkCompat, readLocalCompat } from '@aoe-supercharge/core/node';
+import { MODELS_55_SINCE, versionAtLeast } from '@aoe-supercharge/core/shared';
 import { SHIPPED_COMPAT, VERSION, type Ctx } from '../context.ts';
 import { readServiceFile, serviceManager } from '../service/index.ts';
 import { skillsStatus } from '../skills.ts';
@@ -34,15 +35,12 @@ export function aoeAppDir(env: NodeJS.ProcessEnv, home: string): string {
   return env.XDG_CONFIG_HOME || process.platform === 'linux' ? xdg : legacy;
 }
 
-/** Claude Code 2.1.284 added Sonnet 5.5; older builds resolve `opus` and `sonnet` to the 5.0 models. */
-export const MODELS_55_SINCE = [2, 1, 284] as const;
+export { MODELS_55_SINCE };
 
 export function claudeModelsCheck(versionLine: string): Check | null {
-  const m = /(\d+)\.(\d+)\.(\d+)/.exec(versionLine);
-  if (!m) return null;
-  const have = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const older = have.findIndex((n, i) => n !== MODELS_55_SINCE[i]);
-  const ok = older === -1 || have[older]! > MODELS_55_SINCE[older]!;
+  const ok = versionAtLeast(versionLine, MODELS_55_SINCE);
+  if (ok === null) return null;
+  const have = /(\d+\.\d+\.\d+)/.exec(versionLine)![1];
   const since = MODELS_55_SINCE.join('.');
   return {
     group: 'Tools',
@@ -50,7 +48,7 @@ export function claudeModelsCheck(versionLine: string): Check | null {
     status: ok ? 'ok' : 'warn',
     detail: ok
       ? 'opus and sonnet start Opus 5.5 and Sonnet 5.5'
-      : `Claude Code ${have.join('.')} is older than ${since}: opus and sonnet start Opus 5 and Sonnet 5, not 5.5`,
+      : `Claude Code ${have} is older than ${since}: opus and sonnet start Opus 5 and Sonnet 5, not 5.5`,
     fix: ok ? undefined : 'Update Claude Code (Homebrew: brew upgrade claude-code), then start new sessions.',
   };
 }

@@ -593,7 +593,13 @@ export function SettingsPage({ health, sound }: { health: Health; sound: boolean
         <div className="grid gap-4 xl:grid-cols-2">
           <Appearance sound={sound} />
           {sections.map(({ key, fields }) => {
-            const needsRestart = data.restartPrefixes.includes(key);
+            // Agent settings are read each time Supercharge starts a chat; one already running keeps its own.
+            const note =
+              key === 'agent'
+                ? 'Applies to chats started from now on'
+                : data.restartPrefixes.includes(key)
+                  ? 'Changes need a restart'
+                  : null;
             return (
               <section
                 key={key}
@@ -604,9 +610,7 @@ export function SettingsPage({ health, sound }: { health: Health; sound: boolean
                   <h2 id={`s-${key}`} className="text-base font-semibold">
                     {SECTION_TITLE[key] ?? key}
                   </h2>
-                  {needsRestart && (
-                    <span className="text-sm text-muted-foreground">Changes need a restart</span>
-                  )}
+                  {note && <span className="text-sm text-muted-foreground">{note}</span>}
                 </div>
                 <div className={cn('divide-y divide-border')}>
                   {fields.map((f) => (

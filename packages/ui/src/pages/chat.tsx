@@ -18,18 +18,27 @@ import {
   SidebarSimpleIcon,
   BroomIcon,
   ArrowUUpLeftIcon,
+  PlayIcon,
+  CpuIcon,
+  ArrowClockwiseIcon,
 } from '@phosphor-icons/react';
 import {
   LIVE_STATUS_LABEL,
+  MODEL_ALIASES,
+  MODELS_55_SINCE,
+  modelMatches,
+  prettyModel,
+  versionAtLeast,
   type ChatBlock,
   type ChatMessage,
+  type ChatResponse,
   type SessionView,
   type Snapshot,
   contextWindow,
   splitAttachments,
   withAttachments,
 } from '@aoe-supercharge/core/shared';
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Link, useLocation, useSearch } from 'wouter';
 import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
@@ -68,13 +77,18 @@ import { useSearchParam } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 
 type Tool = Extract<ChatBlock, { kind: 'tool' }>;
+type Shell = Extract<ChatBlock, { kind: 'shell' }>;
 type Turn =
-  { kind: 'user'; id: string; text: string } | { kind: 'assistant'; id: string; blocks: ChatBlock[] };
+  | { kind: 'user'; id: string; text: string }
+  | { kind: 'shell'; id: string; run: Shell }
+  | { kind: 'assistant'; id: string; blocks: ChatBlock[] };
 type Segment = { kind: 'text'; key: string; text: string } | { kind: 'tools'; key: string; tools: Tool[] };
 
 interface Pending {
   key: number;
+  /** The message, or `!command` for a command run in shell mode. */
   text: string;
+  shell?: boolean;
   sentAt: number;
   /** Local previews of images sent with it, until the transcript has the message. */
   previews: string[];
@@ -96,14 +110,18 @@ function roleOf(snap: Snapshot, id: string): Role {
   return { kind: 'other', project: null, taskId: null, taskTitle: null };
 }
 
-const userText = (m: ChatMessage) => m.blocks.map((b) => (b.kind === 'text' ? b.text : '')).join('\n\n');
+/** What you typed: the text, or `!command` for shell mode (how a pending send finds its record). */
+const userText = (m: ChatMessage) =>
+  m.blocks.map((b) => (b.kind === 'text' ? b.text : b.kind === 'shell' ? `!${b.command}` : '')).join('\n\n');
 
 /** Claude Code writes one record per API message; a reply to one prompt reads better as one turn. */
 function toTurns(messages: ChatMessage[]): Turn[] {
   const turns: Turn[] = [];
   for (const m of messages) {
     const last = turns.at(-1);
-    if (m.role === 'user') turns.push({ kind: 'user', id: m.id, text: userText(m) });
+    const run = m.blocks.find((b): b is Shell => b.kind === 'shell');
+    if (m.role === 'user')
+      turns.push(run ? { kind: 'shell', id: m.id, run } : { kind: 'user', id: m.id, text: userText(m) });
     else if (last?.kind === 'assistant') last.blocks.push(...m.blocks);
     else turns.push({ kind: 'assistant', id: m.id, blocks: [...m.blocks] });
   }
@@ -114,6 +132,7 @@ function toSegments(blocks: ChatBlock[]): Segment[] {
   const out: Segment[] = [];
   for (const b of blocks) {
     const last = out.at(-1);
+    if (b.kind === 'shell') continue;
     if (b.kind === 'text') out.push({ kind: 'text', key: `t${out.length}`, text: b.text });
     else if (last?.kind === 'tools') last.tools.push(b);
     else out.push({ kind: 'tools', key: b.id, tools: [b] });
@@ -184,17 +203,19 @@ const AssistantTurn = memo(function AssistantTurn({
   blocks,
   running,
   cwd,
+  onRun,
 }: {
   blocks: ChatBlock[];
   running: boolean;
   cwd: string | null;
+  onRun: (command: string) => void;
 }) {
   const segments = useMemo(() => toSegments(blocks), [blocks]);
   return (
     <div className="space-y-3">
       {segments.map((s) =>
         s.kind === 'text' ? (
-          <ChatMarkdown key={s.key} text={s.text} />
+          <ChatMarkdown key={s.key} text={s.text} onRun={onRun} />
         ) : (
           <ToolGroup key={s.key} tools={s.tools} running={running} cwd={cwd} />
         ),
@@ -253,6 +274,125 @@ function UserBubble({ text, note }: { text: string; note?: string }) {
       )}
       {note && <span className="pr-1 text-[0.8125rem] text-muted-foreground">{note}</span>}
     </div>
+  );
+}
+
+/** A command you ran in shell mode (`!`) and what it printed, on your side of the conversation. */
+function ShellRun({
+  command,
+  stdout,
+  stderr,
+  note,
+}: {
+  command: string;
+  stdout: string | null;
+  stderr: string;
+  note?: string;
+}) {
+  const out = stdout?.replace(/\n+$/, '') ?? '';
+  const err = stderr.replace(/\n+$/, '');
+  return (
+    <div className="flex flex-col items-end gap-1.5">
+      <div className="w-full max-w-[85%] overflow-hidden rounded-2xl rounded-br-md border border-border bg-background">
+        <div className="flex items-center gap-2 border-b border-border px-3.5 py-1.5 text-[0.8125rem] text-muted-foreground">
+          <TerminalWindowIcon className="size-4" />
+          You ran
+        </div>
+        <pre
+          translate="no"
+          className="overflow-x-auto px-3.5 py-2.5 font-mono text-[0.8125rem] leading-relaxed break-words whitespace-pre-wrap"
+        >
+          <span className="text-st-green select-none">! </span>
+          {command}
+        </pre>
+        {stdout !== null && (
+          <pre
+            translate="no"
+            aria-label="Output"
+            className="max-h-80 overflow-auto border-t border-border px-3.5 py-2.5 font-mono text-[0.8125rem] leading-relaxed break-words whitespace-pre-wrap text-muted-foreground"
+          >
+            {out}
+            {out && err && '\n'}
+            {err && <span className="text-st-red">{err}</span>}
+            {!out && !err && '(no output)'}
+          </pre>
+        )}
+      </div>
+      {note && <span className="pr-1 text-[0.8125rem] text-muted-foreground">{note}</span>}
+    </div>
+  );
+}
+
+/**
+ * Run a command from one of Claude's shell blocks, once you confirm it. Supercharge types `!` and the
+ * command into the session, so Claude Code runs it as you, in the session's folder (shell mode).
+ */
+function RunCommand({
+  session,
+  command,
+  open,
+  onOpenChange,
+  onRan,
+}: {
+  session: SessionView;
+  command: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onRan: (command: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const working = session.status === 'working';
+  const run = async () => {
+    setBusy(true);
+    try {
+      await sendJson('POST', `/api/sessions/${encodeURIComponent(session.id)}/run`, { command });
+      onRan(command);
+      onOpenChange(false);
+    } catch (e) {
+      toast.error('Command not run', { description: e instanceof ApiError ? e.message : undefined });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent className="sm:max-w-xl">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Run this command?</AlertDialogTitle>
+          <AlertDialogDescription>
+            It runs as you in{' '}
+            {session.projectPath ? (
+              <span translate="no" className="font-mono text-[0.8125rem] break-all">
+                {session.projectPath}
+              </span>
+            ) : (
+              "the session's folder"
+            )}
+            , through Claude Code's shell mode, like typing <span className="font-mono">!</span> and the
+            command in its terminal. Claude then reads the output and replies. Recorded in the audit log.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <pre
+          translate="no"
+          className="max-h-72 overflow-auto rounded-lg border border-border bg-background p-3 font-mono text-[0.8125rem] leading-relaxed break-words whitespace-pre-wrap"
+        >
+          {command}
+        </pre>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={busy || working}
+            onClick={(e) => {
+              e.preventDefault();
+              void run();
+            }}
+          >
+            {busy ? <CircleNotchIcon className="animate-spin" /> : <PlayIcon weight="fill" />}
+            {working ? 'Wait until Claude is done' : 'Run'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -751,6 +891,111 @@ function ArchivedNotice({ session }: { session: SessionView }) {
 }
 
 /**
+ * A control chat that is not on the model Supercharge starts control chats on (agent.controlModel), or
+ * that still runs an older Claude Code than the one installed. A control chat AoE started follows your
+ * Claude Code default model, and a running chat keeps the Claude Code it started with.
+ */
+function ControlModelNotice({ session, chat }: { session: SessionView; chat: ChatResponse }) {
+  const [ask, setAsk] = useState<'switch' | 'restart' | null>(null);
+  const [busy, setBusy] = useState(false);
+  const wanted = chat.expectedModel ?? null;
+  const wrongModel = modelMatches(chat.model, wanted) === false;
+  const oldClaude =
+    versionAtLeast(chat.claudeVersion, MODELS_55_SINCE) === false &&
+    versionAtLeast(chat.installedClaude, MODELS_55_SINCE) === true;
+  if (!wrongModel && !oldClaude) return null;
+  const alias = wanted && (MODEL_ALIASES as readonly string[]).includes(wanted) ? wanted : null;
+  const name = alias ? alias.charAt(0).toUpperCase() + alias.slice(1) : wanted;
+  const blocked = session.status === 'working' || session.locked;
+
+  const act = async () => {
+    setBusy(true);
+    try {
+      if (ask === 'switch') {
+        await sendJson('POST', `/api/sessions/${encodeURIComponent(session.id)}/model`, { model: alias });
+        toast.success(`Switching the control chat to ${name}`);
+      } else {
+        // Stop, then start: AoE relaunches Claude on the installed Claude Code and resumes the conversation.
+        for (const action of ['stop', 'start'] as const) {
+          const { results } = await sendJson<{ results: { ok: boolean; error?: string }[] }>(
+            'POST',
+            '/api/sessions/actions',
+            { action, ids: [session.id] },
+          );
+          if (!results[0]?.ok) throw new Error(results[0]?.error ?? `Could not ${action} it`);
+        }
+        toast.success('Restarting the control chat', { description: 'It picks the conversation back up.' });
+      }
+      setAsk(null);
+    } catch (e) {
+      toast.error(ask === 'switch' ? 'Model not changed' : 'Could not restart it', {
+        description: e instanceof Error ? e.message : undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto mb-3 flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 rounded-xl border border-st-yellow/40 bg-st-yellow/5 px-4 py-3">
+      <p className="min-w-0 flex-1 text-[0.9375rem] text-muted-foreground">
+        {wrongModel ? (
+          <>
+            The control chat is on <span className="text-foreground">{prettyModel(chat.model!)}</span>. It
+            plans and judges all the work, so Supercharge runs control chats on {name}.
+          </>
+        ) : (
+          <>
+            This chat still runs Claude Code {chat.claudeVersion}, where Opus means Opus 5. Restart it to move
+            it to {chat.installedClaude} and the 5.5 models; it picks the conversation back up.
+          </>
+        )}
+      </p>
+      {wrongModel ? (
+        alias && (
+          <Button size="sm" disabled={blocked} onClick={() => setAsk('switch')}>
+            <CpuIcon />
+            Switch to {name}
+          </Button>
+        )
+      ) : (
+        <Button size="sm" disabled={blocked} onClick={() => setAsk('restart')}>
+          <ArrowClockwiseIcon />
+          Restart
+        </Button>
+      )}
+      <AlertDialog open={ask !== null} onOpenChange={(o) => !o && setAsk(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {ask === 'switch' ? `Switch the control chat to ${name}?` : 'Restart the control chat?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {ask === 'switch'
+                ? `Supercharge types /model ${alias} into it. Claude Code also saves ${name} as your default for new Claude Code sessions (in ~/.claude/settings.json), including outside Supercharge. That default is also what keeps this chat on ${name} when AoE restarts it.`
+                : 'Supercharge stops it and starts it again through AoE. Claude comes back on the Claude Code installed now and resumes this conversation. Anything it is doing right now stops.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={busy}
+              onClick={(e) => {
+                e.preventDefault();
+                void act();
+              }}
+            >
+              {busy && <CircleNotchIcon className="animate-spin" />}
+              {ask === 'switch' ? `Switch to ${name}` : 'Restart'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+/**
  * Clear the conversation with /clear. Long conversations resend everything with each message, so a
  * fresh one per story keeps your usage down; Supercharge keeps the task, plan and stage either way.
  */
@@ -1003,6 +1248,8 @@ export function SessionChat({
     setDraftState(v);
   };
   const [pending, setPending] = useState<Pending[]>([]);
+  const [run, setRun] = useState<{ command: string; open: boolean }>({ command: '', open: false });
+  const askToRun = useCallback((command: string) => setRun({ command, open: true }), []);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -1043,9 +1290,10 @@ export function SessionChat({
     refresh();
     terminal.refresh();
   };
-  const onSent = (text: string, previews: string[] = []) => {
+  const onSent = (text: string, previews: string[] = [], shell = false) => {
     stick.current = true;
-    if (view === 'chat') setPending((p) => [...p, { key: Date.now(), text, sentAt: Date.now(), previews }]);
+    if (view === 'chat')
+      setPending((p) => [...p, { key: Date.now(), text, sentAt: Date.now(), previews, shell }]);
     refresh();
     terminal.refresh();
   };
@@ -1086,6 +1334,13 @@ export function SessionChat({
           onStartFresh={() => setFresh(true)}
         />
         <StartFresh session={session} role={role} open={fresh} onOpenChange={setFresh} />
+        <RunCommand
+          session={session}
+          command={run.command}
+          open={run.open}
+          onOpenChange={(open) => setRun((r) => ({ ...r, open }))}
+          onRan={(command) => onSent(`!${command}`, [], true)}
+        />
 
         {view === 'terminal' ? (
           <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-4 lg:px-6">
@@ -1143,18 +1398,34 @@ export function SessionChat({
                 {turns.map((t) =>
                   t.kind === 'user' ? (
                     <UserBubble key={t.id} text={t.text} />
+                  ) : t.kind === 'shell' ? (
+                    <ShellRun
+                      key={t.id}
+                      command={t.run.command}
+                      stdout={t.run.stdout}
+                      stderr={t.run.stderr}
+                    />
                   ) : (
                     <AssistantTurn
                       key={t.id}
                       blocks={t.blocks}
                       running={running && t === lastTurn}
                       cwd={session.projectPath}
+                      onRun={askToRun}
                     />
                   ),
                 )}
-                {pending.map((p) => (
-                  <UserBubble key={p.key} text={p.text} note={running ? 'Queued. Claude is busy' : 'Sent'} />
-                ))}
+                {pending.map((p) =>
+                  p.shell ? (
+                    <ShellRun key={p.key} command={p.text.slice(1)} stdout={null} stderr="" note="Running…" />
+                  ) : (
+                    <UserBubble
+                      key={p.key}
+                      text={p.text}
+                      note={running ? 'Queued. Claude is busy' : 'Sent'}
+                    />
+                  ),
+                )}
                 {running && <Working />}
                 {role.kind === 'control' && <WorkerAsks snap={snap} project={role.project!} />}
                 {session.status === 'waiting' && !session.prompt && (
@@ -1211,18 +1482,21 @@ export function SessionChat({
               <PromptCard session={session} onAnswered={onAnswered} />
             </div>
           ) : (
-            <ChatComposer
-              session={session}
-              label={`Message ${title}`}
-              value={draft}
-              onChange={setDraft}
-              onSent={onSent}
-              inputRef={inputRef}
-              model={chat?.model ?? null}
-              effort={chat?.effort ?? null}
-              contextTokens={chat?.contextTokens ?? null}
-              onStartFresh={() => setFresh(true)}
-            />
+            <>
+              {role.kind === 'control' && chat && <ControlModelNotice session={session} chat={chat} />}
+              <ChatComposer
+                session={session}
+                label={`Message ${title}`}
+                value={draft}
+                onChange={setDraft}
+                onSent={onSent}
+                inputRef={inputRef}
+                model={chat?.model ?? null}
+                effort={chat?.effort ?? null}
+                contextTokens={chat?.contextTokens ?? null}
+                onStartFresh={() => setFresh(true)}
+              />
+            </>
           )}
         </div>
       </div>

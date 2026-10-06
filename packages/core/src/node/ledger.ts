@@ -313,6 +313,7 @@ export interface AuditEntry {
   actor: Actor | 'cli' | 'ui';
   action:
     | 'prompt_sent'
+    | 'command_run'
     | 'prompt_answered'
     | 'config_changed'
     | 'daemon_restart'

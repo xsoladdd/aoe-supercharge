@@ -11,12 +11,10 @@ import {
 
 export type AoeErrorKind = 'unreachable' | 'auth' | 'protocol' | 'http';
 
-/** Someone is viewing the session in AoE (web or TUI) and holds its typing lock. */
+/** AoE would not hand Supercharge the session's typing lock, even when asked to take over. */
 export class TerminalBusyError extends Error {
   constructor() {
-    super(
-      'The session is open in AoE right now, so Supercharge cannot type into it. Answer there, or close it in AoE and try again.',
-    );
+    super('AoE would not let Supercharge type into this session just now. Try again in a moment.');
   }
 }
 
@@ -116,10 +114,12 @@ export class AoeClient {
 
   /**
    * Press keys in a session without AoE's trailing Enter (REST `send` always adds one), through AoE's own
-   * live-terminal websocket: `claim_if_vacant` takes the typing lock only when nobody is viewing the
-   * session in AoE; no `resize` is sent, so the window keeps its size; closing releases the lock
-   * (src/server/live_ws.rs, AoE 1.17.2). Each key goes in its own frame, `gapMs` apart, so a lone
-   * Escape is read as Escape and not as the start of an escape sequence.
+   * live-terminal websocket. Only the holder of a session's typing lock may type there. Supercharge asks
+   * for it with `claim_if_vacant`; when you have the session open in AoE (web or TUI), it takes over with
+   * `claim` instead, without a `resize`, so the window keeps your size. Closing releases the lock, and
+   * AoE's web view takes it back by itself within a couple of seconds (src/server/live_ws.rs, AoE
+   * 1.17.2). Each key goes in its own frame, `gapMs` apart, so a lone Escape is read as Escape and not
+   * as the start of an escape sequence.
    */
   async pressKeys(id: string, keys: (string | Uint8Array<ArrayBuffer>)[], gapMs = 300): Promise<void> {
     if (!this.origin) await this.discover();
@@ -128,31 +128,36 @@ export class AoeClient {
       headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
     } as unknown as string[]);
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    try {
-      const owner = await new Promise<boolean>((resolve, reject) => {
+    // AoE answers every claim with a `size_owner` message.
+    const waiters: ((owner: boolean) => void)[] = [];
+    const opened = new Promise<void>((resolve, reject) => {
+      ws.onopen = () => resolve();
+      ws.onerror = () => reject(new AoeError('Cannot open the AoE terminal connection', 'unreachable'));
+    });
+    ws.onmessage = (e) => {
+      if (typeof e.data !== 'string') return;
+      try {
+        const m = JSON.parse(e.data) as { type?: string; is_owner?: boolean };
+        if (m.type === 'size_owner') waiters.shift()?.(m.is_owner === true);
+      } catch {
+        // frames and other messages
+      }
+    };
+    const claim = (type: 'claim_if_vacant' | 'claim') =>
+      new Promise<boolean>((resolve, reject) => {
         const timer = setTimeout(
           () => reject(new AoeError('AoE did not answer the terminal claim', 'protocol')),
           5000,
         );
-        ws.onerror = () => {
+        waiters.push((owner) => {
           clearTimeout(timer);
-          reject(new AoeError('Cannot open the AoE terminal connection', 'unreachable'));
-        };
-        ws.onopen = () => ws.send(JSON.stringify({ type: 'claim_if_vacant' }));
-        ws.onmessage = (e) => {
-          if (typeof e.data !== 'string') return;
-          try {
-            const m = JSON.parse(e.data) as { type?: string; is_owner?: boolean };
-            if (m.type === 'size_owner') {
-              clearTimeout(timer);
-              resolve(m.is_owner === true);
-            }
-          } catch {
-            // frames and other messages
-          }
-        };
+          resolve(owner);
+        });
+        ws.send(JSON.stringify({ type }));
       });
-      if (!owner) throw new TerminalBusyError();
+    try {
+      await opened;
+      if (!(await claim('claim_if_vacant')) && !(await claim('claim'))) throw new TerminalBusyError();
       for (const [i, key] of keys.entries()) {
         if (i > 0) await sleep(gapMs);
         // Binary frames are raw pane input; text frames are control messages.

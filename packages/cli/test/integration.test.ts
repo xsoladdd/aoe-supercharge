@@ -542,6 +542,9 @@ describe('daemon: security, live state and the MR watcher', () => {
     const stray = await post(`/api/sessions/${id}/send`, { message: 'hello' });
     expect(stray.status).toBe(409);
     expect(((await stray.json()) as { error: string }).error).toBe('menu_open');
+    const command = await post(`/api/sessions/${id}/run`, { command: 'ls' });
+    expect(command.status).toBe(409);
+    expect(((await command.json()) as { error: string }).error).toBe('menu_open');
     const reply = await sc(['reply', 'NO-0001', 'hello', '--yes']);
     expect(reply.code).not.toBe(0);
     expect(reply.stderr).toMatch(/showing a menu/);
@@ -614,19 +617,21 @@ describe('daemon: security, live state and the MR watcher', () => {
     };
     expect(detail.questions.map((q) => q.question)).toEqual(questions.map((q) => q.question));
 
-    // While someone views the session in AoE, Supercharge cannot type into it and says so.
-    fake.state.viewers[id] = true;
+    // Only when AoE refuses even a take-over does Supercharge give up, and say so.
+    fake.state.viewers[id] = 'stuck';
     const busy = await post(`/api/sessions/${id}/answer-questions`, {
       toolId: prompt.key,
       answers: [{ question: questions[0]!.question, picked: ['Chrome'] }],
     });
     expect(busy.status).toBe(409);
     expect(((await busy.json()) as { error: string }).error).toBe('terminal_busy');
-    fake.state.viewers[id] = false;
 
     expect(
       (await post(`/api/sessions/${id}/answer-questions`, { toolId: 'toolu_stale', answers: [] })).status,
     ).toBe(409);
+    // With the session open in AoE, Supercharge asks for the typing lock, then takes it over.
+    fake.state.viewers[id] = true;
+    fake.state.claims = [];
     const ok = await post(`/api/sessions/${id}/answer-questions`, {
       toolId: prompt.key,
       answers: [
@@ -635,6 +640,11 @@ describe('daemon: security, live state and the MR watcher', () => {
       ],
     });
     expect(ok.status).toBe(200);
+    expect(fake.state.claims).toEqual([
+      { id, type: 'claim_if_vacant', owner: false },
+      { id, type: 'claim', owner: true },
+    ]);
+    fake.state.viewers[id] = false;
     expect(fake.state.keys.filter((k) => k.id === id).map((k) => k.hex)).toEqual(['1b']);
     const sent = fake.state.sent.filter((m) => m.id === id).at(-1)!.message;
     expect(sent).toContain('1. Which browsers should the QA pass cover?\n   Answer: Chrome; Safari');
@@ -750,6 +760,46 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(empty.status).toBe(400);
   });
 
+  it("runs a command from Claude's shell block in the session's shell mode (audited)", async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const snap = (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const control = snap.projects[0]!.controlSessionId!;
+    const run = (body: unknown) =>
+      fetch(`${base()}/api/sessions/${control}/run`, {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const command = 'aoe remove old-worker      # merged\naoe remove other-worker';
+    expect((await run({ command: `\n${command}\n` })).status).toBe(200);
+    // Typed as `!` and the command, which Claude Code runs as you; several lines run as one script.
+    expect(fake.state.sent.at(-1)).toMatchObject({ id: control, message: `!${command}` });
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"actor":"ui","action":"command_run".*aoe remove old-worker/);
+    const chat = await until(async () => {
+      const c = (await (
+        await fetch(`${base()}/api/sessions/${control}/chat`, { headers: auth })
+      ).json()) as ChatResponse;
+      return c.messages.some((m) => m.blocks.some((b) => b.kind === 'shell' && b.command === command))
+        ? c
+        : null;
+    });
+    expect(chat.messages.flatMap((m) => m.blocks).find((b) => b.kind === 'shell')).toEqual({
+      kind: 'shell',
+      command,
+      stdout: 'ran: aoe remove old-worker      # merged\nran: aoe remove other-worker',
+      stderr: '',
+    });
+    const sent = fake.state.sent.length;
+    expect((await run({ command: '  ' })).status).toBe(400);
+    expect((await run({})).status).toBe(400);
+    expect((await run({ command: 'x'.repeat(20_001) })).status).toBe(400);
+    expect(
+      (await fetch(`${base()}/api/sessions/ffffffffffffffff/run`, { method: 'POST', headers: auth })).status,
+    ).toBe(404);
+    expect(fake.state.sent.length).toBe(sent);
+  });
+
   it('switches a running session’s model and effort by typing /model and /effort (audited)', async () => {
     const auth = { authorization: `Bearer ${bearer}` };
     const snap = (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
@@ -772,6 +822,9 @@ describe('daemon: security, live state and the MR watcher', () => {
       await fetch(`${base()}/api/sessions/${control}/chat`, { headers: auth })
     ).json()) as ChatResponse;
     expect([chat.model, chat.effort]).toEqual(['claude-sonnet-5', 'max']);
+    // A control chat says which model Supercharge starts control chats on, so the dashboard can flag Sonnet.
+    expect(chat.expectedModel).toBe('opus');
+    expect(chat.claudeVersion).toBe('2.1.285');
     const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
     expect(audit).toMatch(/"action":"prompt_sent".*\/model sonnet/);
   });

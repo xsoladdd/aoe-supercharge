@@ -45,7 +45,7 @@ export class FakeTranscript {
       userType: 'external',
       cwd: this.cwd,
       sessionId: this.claudeId,
-      version: '2.1.0',
+      version: '2.1.285',
       type,
       uuid: randomUUID(),
       timestamp: new Date().toISOString(),
@@ -76,6 +76,17 @@ export class FakeTranscript {
 
   user(text: string) {
     this.write('user', { message: { role: 'user', content: text }, origin: { kind: 'human' } });
+  }
+
+  /** Shell mode (`!command`), recorded like Claude Code 2.1.285: the input, then what it printed. */
+  shell(command: string, stdout: string, stderr = '') {
+    this.write('user', { message: { role: 'user', content: `<bash-input>${command}</bash-input>` } });
+    this.write('user', {
+      message: {
+        role: 'user',
+        content: `<bash-stdout>${stdout}</bash-stdout><bash-stderr>${stderr}</bash-stderr>`,
+      },
+    });
   }
 
   /** One API message; like Claude Code, each content block is its own record. Returns tool ids in order. */
@@ -379,6 +390,21 @@ export class FakeTranscripts {
         if (arg !== 'auto') t.effort = arg!;
         t.command('effort', arg!, `Set effort level to ${arg} (saved as your default for new sessions)`);
       }
+      return;
+    }
+    // Shell mode: Claude Code runs the command, then Claude replies to its output.
+    if (message.startsWith('!')) {
+      const command = message.slice(1);
+      t.shell(
+        command,
+        command
+          .split('\n')
+          .map((l) => `ran: ${l}`)
+          .join('\n'),
+      );
+      setTimeout(() => {
+        t.assistant({ type: 'text', text: 'That ran cleanly. I checked the output; nothing else to do.' });
+      }, delayMs).unref?.();
       return;
     }
     t.user(message);

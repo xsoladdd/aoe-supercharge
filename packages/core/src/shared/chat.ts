@@ -11,6 +11,14 @@ export type ChatBlock =
       /** null while the tool is still running. */
       result: string | null;
       isError: boolean;
+    }
+  | {
+      /** A command you ran in Claude Code's shell mode (`!`), from the dashboard or the terminal. */
+      kind: 'shell';
+      command: string;
+      /** What it printed; null until it finishes. */
+      stdout: string | null;
+      stderr: string;
     };
 
 export interface ChatMessage {
@@ -41,6 +49,34 @@ export interface ChatResponse {
   effort: string | null;
   /** Tokens in the context at the latest reply. */
   contextTokens: number | null;
+  /** The Claude Code version that wrote the conversation's latest record. */
+  claudeVersion?: string | null;
+  /** A control chat only: the model Supercharge starts control chats on (agent.controlModel). */
+  expectedModel?: string | null;
+  /** The Claude Code installed now (`claude --version`), so the chat can tell a restart would update it. */
+  installedClaude?: string | null;
+}
+
+/** Claude Code 2.1.284 added the 5.5 models; older builds resolve `opus` and `sonnet` to the 5.0 ones. */
+export const MODELS_55_SINCE = [2, 1, 284] as const;
+
+/** Whether a version ("2.1.285", or any text holding one) is at least `min`; null when there is none. */
+export function versionAtLeast(version: string | null | undefined, min: readonly number[]): boolean | null {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(version ?? '');
+  if (!m) return null;
+  const have = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const differs = have.findIndex((n, i) => n !== min[i]);
+  return differs === -1 || have[differs]! > min[differs]!;
+}
+
+/**
+ * Whether a session's model (a full id from its replies) is the one asked for (an alias or a full id).
+ * Null when it cannot tell: no model yet, or `opusplan`, `default` and empty, which switch or defer.
+ */
+export function modelMatches(id: string | null, wanted: string | null | undefined): boolean | null {
+  if (!id || !wanted || ['opusplan', 'default'].includes(wanted)) return null;
+  if (/^[a-z]+$/.test(wanted)) return id.toLowerCase().includes(wanted);
+  return id.startsWith(wanted);
 }
 
 const MAX_TEXT = 4000;
@@ -126,4 +162,20 @@ export interface SlashCommand {
   argumentHint?: string;
   /** Opens a full-screen view in the session; answer it from the Terminal tab. */
   terminal?: boolean;
+}
+
+const SHELL_LANGUAGES = new Set(['bash', 'sh', 'shell', 'zsh', 'console', 'shell-session']);
+
+/**
+ * The command a shell-tagged block runs, or null for any other block. In a console transcript (first
+ * line `$ cmd`) only the `$ ` lines are commands, the rest is their output.
+ */
+export function runnableCommand(language: string | null, code: string): string | null {
+  if (!language || !SHELL_LANGUAGES.has(language.toLowerCase()) || !code.trim()) return null;
+  const lines = code.split('\n');
+  if (!/^\$ /.test(lines.find((l) => l.trim()) ?? '')) return code;
+  return lines
+    .filter((l) => /^\$ /.test(l))
+    .map((l) => l.slice(2))
+    .join('\n');
 }

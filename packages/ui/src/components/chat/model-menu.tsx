@@ -2,6 +2,7 @@ import { CaretDownIcon, CpuIcon } from '@phosphor-icons/react';
 import {
   EFFORT_LEVELS,
   MODEL_ALIASES,
+  modelMatches,
   prettyModel,
   type EffortLevel,
   type ModelAlias,
@@ -129,6 +130,9 @@ export function ModelMenu({
           {MODEL_ALIASES.map((m) => (
             <DropdownMenuItem key={m} disabled={disabled} onSelect={() => setChange({ model: m })}>
               {MODEL_LABEL[m]}
+              {modelMatches(model, m) && (
+                <span className="ml-auto text-xs text-muted-foreground">current</span>
+              )}
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />

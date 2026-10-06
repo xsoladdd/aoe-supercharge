@@ -1,4 +1,5 @@
-import { CheckIcon, CopyIcon } from '@phosphor-icons/react';
+import { CheckIcon, CopyIcon, PlayIcon } from '@phosphor-icons/react';
+import { runnableCommand } from '@aoe-supercharge/core/shared';
 import { memo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
@@ -15,23 +16,39 @@ function textOf(node: ReactNode): string {
   return '';
 }
 
-/** Fenced code: language label, copy button, horizontal scroll, highlight.js tokens. */
+/**
+ * Fenced code: language label, copy button, horizontal scroll, highlight.js tokens. With `onRun`, a
+ * shell block also offers Run.
+ */
 export function CodeBlock({
   language,
   code,
   children,
+  onRun,
 }: {
   language: string | null;
   code: string;
   children?: ReactNode;
+  onRun?: (command: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const command = onRun ? runnableCommand(language, code) : null;
   return (
     <div className="group/code my-3 overflow-hidden rounded-lg border border-border bg-background">
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <span translate="no" className="font-mono text-[0.8125rem] text-muted-foreground">
+      <div className="flex items-center gap-1 border-b border-border px-3 py-1.5">
+        <span translate="no" className="mr-auto font-mono text-[0.8125rem] text-muted-foreground">
           {language ?? 'text'}
         </span>
+        {command !== null && (
+          <button
+            type="button"
+            onClick={() => onRun!(command)}
+            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md px-2 text-[0.8125rem] font-medium text-foreground transition-colors hover:bg-raised"
+          >
+            <PlayIcon weight="fill" className="size-3.5 text-st-green" />
+            Run
+          </button>
+        )}
         <button
           type="button"
           onClick={async () => {
@@ -53,13 +70,15 @@ export function CodeBlock({
   );
 }
 
-/** Claude's markdown: GFM, sanitised (no raw HTML), highlighted code blocks. */
+/** Claude's markdown: GFM, sanitised (no raw HTML), highlighted code blocks; `onRun` adds Run to shell blocks. */
 export const ChatMarkdown = memo(function ChatMarkdown({
   text,
   className,
+  onRun,
 }: {
   text: string;
   className?: string;
+  onRun?: (command: string) => void;
 }) {
   return (
     <div className={cn('chat-md text-[0.9375rem] leading-7 break-words', className)}>
@@ -73,7 +92,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
             const props = (code as { props?: { className?: string; children?: ReactNode } })?.props ?? {};
             const language = /language-([\w+#-]+)/.exec(props.className ?? '')?.[1] ?? null;
             return (
-              <CodeBlock language={language} code={textOf(props.children).replace(/\n$/, '')}>
+              <CodeBlock language={language} code={textOf(props.children).replace(/\n$/, '')} onRun={onRun}>
                 {props.children}
               </CodeBlock>
             );

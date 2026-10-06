@@ -1098,14 +1098,7 @@ export async function sendToSession(
 ): Promise<void> {
   const message = opts.message.trim();
   if (!message) throw new CliError('The message is empty.', EXIT.usage);
-  // AoE types the text and then presses Enter. With a menu open, that Enter picks its highlighted option
-  // (for a plan: "Yes, and use auto mode"), so a message must wait until the menu is answered.
-  const menu = await menuOnScreen(ctx, opts.sessionId);
-  if (menu)
-    throw new MenuOpenError(
-      `The session is showing a menu${menu.question ? ` ("${menu.question}")` : ''}, so a message now would pick its highlighted option.`,
-      'Answer the menu first, in the dashboard or the terminal, then send the message.',
-    );
+  await refuseOverMenu(ctx, opts.sessionId, 'a message now', 'send the message');
   await appendAudit(ctx.paths, {
     actor: opts.actor,
     action: 'prompt_sent',
@@ -1115,6 +1108,54 @@ export async function sendToSession(
     text: message,
   });
   await deliver(ctx, opts.sessionId, message);
+}
+
+/**
+ * AoE types the text and then presses Enter. With a menu open, that Enter picks its highlighted option
+ * (for a plan: "Yes, and use auto mode"), so typing must wait until the menu is answered.
+ */
+async function refuseOverMenu(ctx: Ctx, sessionId: string, what: string, then: string) {
+  const menu = await menuOnScreen(ctx, sessionId);
+  if (menu)
+    throw new MenuOpenError(
+      `The session is showing a menu${menu.question ? ` ("${menu.question}")` : ''}, so ${what} would pick its highlighted option.`,
+      `Answer the menu first, in the dashboard or the terminal, then ${then}.`,
+    );
+}
+
+/** Longest command the dashboard runs in one go. */
+export const MAX_COMMAND = 20_000;
+
+/**
+ * Run a shell command in a session through Claude Code's shell mode: `!` and the command, typed like a
+ * message. Claude Code runs it in the session's folder as you, not as Claude, so no permission rule
+ * applies; several lines run as one script. Claude then reads the output and replies (Claude Code
+ * 2.1.285, checked live through AoE's paste). Audited as its own action.
+ */
+export async function runInSession(
+  ctx: Ctx,
+  opts: {
+    sessionId: string;
+    command: string;
+    actor: 'cli' | 'ui';
+    project?: string | null;
+    taskId?: string | null;
+  },
+): Promise<void> {
+  const command = opts.command.replace(/^\s*\n/, '').trimEnd();
+  if (!command.trim()) throw new CliError('The command is empty.', EXIT.usage);
+  if (command.length > MAX_COMMAND)
+    throw new CliError(`Commands up to ${MAX_COMMAND} characters can be run from here.`, EXIT.usage);
+  await refuseOverMenu(ctx, opts.sessionId, 'a command now', 'run the command');
+  await appendAudit(ctx.paths, {
+    actor: opts.actor,
+    action: 'command_run',
+    project: opts.project ?? null,
+    taskId: opts.taskId ?? null,
+    sessionId: opts.sessionId,
+    text: command,
+  });
+  await deliver(ctx, opts.sessionId, `!${command}`);
 }
 
 export interface QuestionAnswer {
@@ -1195,7 +1236,7 @@ export async function answerQuestions(
   await sendToSession(ctx, { ...opts, message });
 }
 
-/** Someone is viewing the session in AoE and holds its typing lock. */
+/** AoE would not hand over the session's typing lock, even to a take-over. */
 export class TerminalBusyCliError extends CliError {}
 
 /** A message was refused because Claude is showing a menu. */

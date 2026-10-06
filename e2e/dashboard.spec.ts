@@ -363,6 +363,74 @@ test.describe('project', () => {
     await axe(page, 'chat');
   });
 
+  test("a shell block in Claude's reply runs in the session once you confirm it", async ({
+    signedIn: page,
+  }) => {
+    const id = await sessionId('northwind-web control');
+    const lastSent = async () =>
+      ((await fake('/__fake/state')) as { sent: { id: string; message: string }[] }).sent
+        .filter((m) => m.id === id)
+        .at(-1)?.message;
+    await page.goto(`/chat/${id}`);
+    const log = page.getByRole('log', { name: /^Conversation with/ });
+    // Only the bash block offers Run; the TypeScript one does not.
+    const run = log.getByRole('button', { name: 'Run', exact: true });
+    await expect(run).toHaveCount(1);
+    await run.click();
+    const dialog = page.getByRole('alertdialog', { name: 'Run this command?' });
+    await expect(dialog).toContainText('supercharge task new "Build page templates"');
+    await expect(dialog).toContainText("through Claude Code's shell mode");
+    await axe(page, 'run command');
+    const before = await lastSent();
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    expect(await lastSent()).toBe(before);
+    await run.click();
+    await dialog.getByRole('button', { name: 'Run', exact: true }).click();
+    await expect
+      .poll(lastSent)
+      .toBe(
+        '!supercharge task new "Build page templates" \\\n  --brief "Header, listing and detail templates. Match the Figma frames."',
+      );
+    // What it printed shows on your side of the chat, and Claude's reply follows.
+    await expect(log.getByLabel('Output').last()).toContainText('ran: supercharge task new', {
+      timeout: 15_000,
+    });
+    await expect(log.getByText('That ran cleanly.').last()).toBeVisible({ timeout: 15_000 });
+  });
+
+  test('a control chat off Opus says so, and switches back after saying what it does', async ({
+    signedIn: page,
+  }) => {
+    const id = await sessionId('apollo-api control');
+    const patch = (body: unknown) =>
+      fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify(body) });
+    await patch({ status: 'Idle' });
+    await fake('/__fake/send', { method: 'POST', body: JSON.stringify({ id, message: '/model sonnet' }) });
+    try {
+      await page.goto(`/chat/${id}`);
+      const notice = page.getByText(/The control chat is on Sonnet 5\./);
+      await expect(notice).toBeVisible();
+      const open = page.getByRole('button', { name: 'Switch to Opus' });
+      await expect(open).toBeEnabled();
+      await axe(page, 'control model notice');
+      await open.click();
+      const dialog = page.getByRole('alertdialog', { name: 'Switch the control chat to Opus?' });
+      await expect(dialog).toContainText('keeps this chat on Opus when AoE restarts it');
+      await dialog.getByRole('button', { name: 'Switch to Opus' }).click();
+      await expect
+        .poll(
+          async () =>
+            ((await fake('/__fake/state')) as { sent: { id: string; message: string }[] }).sent
+              .filter((m) => m.id === id)
+              .at(-1)?.message,
+        )
+        .toBe('/model opus');
+      await expect(notice).toBeHidden({ timeout: 15_000 });
+    } finally {
+      await patch({ status: 'Running' });
+    }
+  });
+
   test('a working worker shows progress, failures and a running call', async ({ signedIn: page }) => {
     // A worker's /chat/<id> link lands on its task page's Chat tab.
     await page.goto(`/chat/${await sessionId('NW-0003')}`);
