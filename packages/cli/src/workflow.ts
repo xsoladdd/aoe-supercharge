@@ -1059,16 +1059,17 @@ const CLI_SCRIPT = fileURLToPath(import.meta.url);
  * your usage (agent.autoCompactWindow, agent.statusLine). Claude Code layers these over your own
  * settings for that session only. The file is rewritten each time, so it follows upgrades.
  */
+/** The shell command Claude Code runs for Supercharge's status line, through `script` (default: this CLI). */
+export function statusLineCommand(script: string = CLI_SCRIPT): string {
+  const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+  return `${q(process.execPath)} ${q(script)} statusline`;
+}
+
 export async function claudeSettingsArgs(ctx: Ctx): Promise<string[]> {
   const settings: Record<string, unknown> = {};
   if (ctx.config.agent.autoCompactWindow) settings.autoCompactWindow = ctx.config.agent.autoCompactWindow;
   if (ctx.config.agent.statusLine) {
-    const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-    settings.statusLine = {
-      type: 'command',
-      command: `${q(process.execPath)} ${q(CLI_SCRIPT)} statusline`,
-      padding: 0,
-    };
+    settings.statusLine = { type: 'command', command: statusLineCommand(), padding: 0 };
   }
   if (!Object.keys(settings).length) return [];
   const file = ctx.paths.claudeSettingsFile;

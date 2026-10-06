@@ -29,7 +29,7 @@ import { proxyCommand } from './commands/proxy.ts';
 import { runDaemon } from './daemon/index.ts';
 import { serviceManager, servicePathEnv } from './service/index.ts';
 import { installUserSkills, removeUserSkills } from './skills.ts';
-import { statusLine } from './statusline.ts';
+import { connectStatusLine, disconnectStatusLine, statusLine, statusLineConnected } from './statusline.ts';
 import { buildProjectStatus } from './status.ts';
 import { daemonHealth, daemonRequest, waitForDaemon } from './util/daemon-client.ts';
 import { CliError, EXIT } from './util/errors.ts';
@@ -44,6 +44,7 @@ import {
   replyToTask,
   savePlan,
   stageTask,
+  statusLineCommand,
   usageNow,
   whoami,
 } from './workflow.ts';
@@ -160,10 +161,39 @@ export function buildProgram(): Command {
     .command('usage')
     .description('your 5-hour and weekly Claude usage, and whether another worker may start')
     .option('--json', 'machine-readable output')
-    .action(async (o: { json?: boolean }) => {
-      const r = await usageNow(await ctx());
-      if (o.json) return json(r);
+    .option(
+      '--connect',
+      'add Supercharge’s status line to your Claude Code settings: every session reports usage',
+    )
+    .option('--disconnect', 'take it out again (your own status line comes back)')
+    .action(async (o: { json?: boolean; connect?: boolean; disconnect?: boolean }) => {
+      const x = await ctx();
+      if (o.connect) {
+        // Point at the installed `supercharge` when there is one: it outlives this checkout or build.
+        const onPath = await which('supercharge');
+        const installed = onPath ? realpathSync(onPath) : null;
+        const r = await connectStatusLine(
+          x.paths,
+          statusLineCommand(installed?.endsWith('.mjs') ? installed : undefined),
+        );
+        out(
+          r.changed
+            ? `${sym.ok} Every Claude Code session now reports your usage (status line in ${r.file}; backup next to it)`
+            : `${sym.ok} Already connected (${r.file})`,
+        );
+        if (r.keptYours) out(`  Your own status line is kept and still shows.`);
+        return;
+      }
+      if (o.disconnect) {
+        const r = await disconnectStatusLine(x.paths);
+        out(r.changed ? `${sym.ok} Disconnected (${r.file})` : `${sym.info} It was not connected`);
+        return;
+      }
+      const r = await usageNow(x);
+      if (o.json) return json({ ...r, connected: await statusLineConnected(x.paths) });
       printUsage(r);
+      if (!(await statusLineConnected(x.paths)))
+        out(c.dim('  Only Supercharge sessions report usage. Every session: supercharge usage --connect'));
     });
 
   program

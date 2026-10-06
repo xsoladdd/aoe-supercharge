@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { recordUsage, type Paths } from '@aoe-supercharge/core/node';
+import { recordUsage, writeFileAtomic, type Paths } from '@aoe-supercharge/core/node';
+import { CliError } from './util/errors.ts';
 
 /** Fields of Claude Code's status line input that Supercharge reads. */
 interface StatusInput {
@@ -20,17 +21,97 @@ async function readStdin(): Promise<string> {
   return s;
 }
 
-/** Your own status line command from ~/.claude/settings.json, so Supercharge's does not replace it. */
+interface StatusLineSetting {
+  type?: string;
+  command?: string;
+  padding?: number;
+}
+
+/** Supercharge's own status line command (`'<node>' '<supercharge.mjs>' statusline`). */
+const isOurs = (cmd: string | undefined) => !!cmd && /supercharge[^'"]*['"]? statusline$/.test(cmd.trim());
+
+const settingsFile = (paths: Paths) => join(paths.claudeDir, 'settings.json');
+/** Your own status line, kept aside while Supercharge's is in your settings (it still shows). */
+const savedFile = (paths: Paths) => join(paths.configDir, 'claude-statusline.json');
+
+/** Your own status line command, so Supercharge's never replaces what you see. */
 async function userStatusLine(paths: Paths): Promise<string | null> {
-  try {
-    const settings = JSON.parse(await readFile(join(paths.claudeDir, 'settings.json'), 'utf8')) as {
-      statusLine?: { type?: string; command?: string };
-    };
-    const cmd = settings.statusLine?.type === 'command' ? settings.statusLine.command?.trim() : '';
-    return cmd && !cmd.includes(' statusline') ? cmd : null;
-  } catch {
-    return null;
+  const saved = await readFile(savedFile(paths), 'utf8')
+    .then((t) => (JSON.parse(t) as { previous?: StatusLineSetting | null }).previous ?? null)
+    .catch(() => null);
+  const fromSettings = await readFile(settingsFile(paths), 'utf8')
+    .then((t) => (JSON.parse(t) as { statusLine?: StatusLineSetting }).statusLine ?? null)
+    .catch(() => null);
+  for (const s of [saved, fromSettings]) {
+    const cmd = s?.type === 'command' ? s.command?.trim() : '';
+    if (cmd && !isOurs(cmd)) return cmd;
   }
+  return null;
+}
+
+async function readSettings(
+  paths: Paths,
+): Promise<{ raw: string | null; settings: Record<string, unknown> }> {
+  const raw = await readFile(settingsFile(paths), 'utf8').catch(() => null);
+  if (raw === null) return { raw, settings: {} };
+  try {
+    return { raw, settings: JSON.parse(raw) as Record<string, unknown> };
+  } catch {
+    throw new CliError(
+      `${settingsFile(paths)} is not valid JSON, so Supercharge left it alone.`,
+      1,
+      'Fix the file (or run claude once so it rewrites it), then try again.',
+    );
+  }
+}
+
+async function writeSettings(paths: Paths, raw: string | null, settings: Record<string, unknown>) {
+  const file = settingsFile(paths);
+  const mode = await stat(file).then(
+    (st) => st.mode & 0o777,
+    () => 0o600,
+  );
+  if (raw !== null) await writeFileAtomic(`${file}.supercharge-backup`, raw, mode);
+  await writeFileAtomic(file, `${JSON.stringify(settings, null, 2)}\n`, mode);
+}
+
+/**
+ * Put Supercharge's status line in your Claude Code settings, so every Claude Code session you run
+ * (not only the ones Supercharge starts) records your 5-hour and weekly usage. A status line of your
+ * own is kept aside and still shown. The file is backed up next to itself first.
+ */
+export async function connectStatusLine(
+  paths: Paths,
+  command: string,
+): Promise<{ changed: boolean; keptYours: boolean; file: string }> {
+  const { raw, settings } = await readSettings(paths);
+  const cur = settings.statusLine as StatusLineSetting | undefined;
+  if (cur?.type === 'command' && cur.command === command)
+    return { changed: false, keptYours: false, file: settingsFile(paths) };
+  const keptYours = !!cur && !isOurs(cur.command);
+  if (keptYours) await writeFileAtomic(savedFile(paths), `${JSON.stringify({ previous: cur }, null, 2)}\n`);
+  await writeSettings(paths, raw, { ...settings, statusLine: { type: 'command', command, padding: 0 } });
+  return { changed: true, keptYours, file: settingsFile(paths) };
+}
+
+/** Take Supercharge's status line out of your settings again, putting yours back if you had one. */
+export async function disconnectStatusLine(paths: Paths): Promise<{ changed: boolean; file: string }> {
+  const { raw, settings } = await readSettings(paths);
+  const cur = settings.statusLine as StatusLineSetting | undefined;
+  if (!isOurs(cur?.command)) return { changed: false, file: settingsFile(paths) };
+  const previous = await readFile(savedFile(paths), 'utf8')
+    .then((t) => (JSON.parse(t) as { previous?: StatusLineSetting | null }).previous ?? null)
+    .catch(() => null);
+  const { statusLine: _ours, ...rest } = settings;
+  await writeSettings(paths, raw, previous ? { ...rest, statusLine: previous } : rest);
+  await rm(savedFile(paths), { force: true });
+  return { changed: true, file: settingsFile(paths) };
+}
+
+/** Whether your Claude Code settings run Supercharge's status line (every session reports usage). */
+export async function statusLineConnected(paths: Paths): Promise<boolean> {
+  const { settings } = await readSettings(paths).catch(() => ({ settings: {} as Record<string, unknown> }));
+  return isOurs((settings.statusLine as StatusLineSetting | undefined)?.command);
 }
 
 function runUserCommand(cmd: string, input: string, cwd: string | undefined): Promise<string | null> {

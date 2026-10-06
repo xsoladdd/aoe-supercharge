@@ -1,7 +1,9 @@
 import { readdirSync, readFileSync } from 'node:fs';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { defaultConfig } from '@aoe-supercharge/core/node';
+import { defaultConfig, resolvePaths } from '@aoe-supercharge/core/node';
 import type { MrState, NeedsYouItem, TaskRecord } from '@aoe-supercharge/core/shared';
 import {
   AoeAboutSchema,
@@ -11,6 +13,7 @@ import {
 } from '../src/aoe/schemas.ts';
 import { parseUpdateCheck, releaseAsset } from '../src/commands/aoe-upgrade.ts';
 import { claudeModelsCheck } from '../src/commands/doctor.ts';
+import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '../src/statusline.ts';
 import { renderCaddyfile } from '../src/commands/proxy.ts';
 import { MrWatcher } from '../src/daemon/mr-watcher.ts';
 import { countUnresolvedThreads, GitLabProvider, parseMrView } from '../src/mr/gitlab.ts';
@@ -268,5 +271,31 @@ describe('doctor: Claude Code knows the 5.5 models', () => {
     expect(claudeModelsCheck('2.2.0 (Claude Code)')).toMatchObject({ status: 'ok' });
     expect(claudeModelsCheck('3.0.1')).toMatchObject({ status: 'ok' });
     expect(claudeModelsCheck('unknown')).toBeNull();
+  });
+});
+
+describe('usage --connect: Supercharge status line in your Claude Code settings', () => {
+  it('keeps your other settings and your own status line, backs up, and undoes cleanly', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'sc-statusline-'));
+    try {
+      const paths = resolvePaths({ HOME: home }, home);
+      const file = join(paths.claudeDir, 'settings.json');
+      const mine = { type: 'command', command: '~/bin/my-status.sh' };
+      await mkdir(paths.claudeDir, { recursive: true });
+      await writeFile(file, JSON.stringify({ model: 'opus', statusLine: mine }));
+      const cmd = "'/usr/bin/node' '/opt/sc/dist/supercharge.mjs' statusline";
+      expect(await connectStatusLine(paths, cmd)).toMatchObject({ changed: true, keptYours: true });
+      const after = JSON.parse(await readFile(file, 'utf8'));
+      expect(after).toEqual({ model: 'opus', statusLine: { type: 'command', command: cmd, padding: 0 } });
+      expect(JSON.parse(await readFile(`${file}.supercharge-backup`, 'utf8')).statusLine).toEqual(mine);
+      expect(await statusLineConnected(paths)).toBe(true);
+      expect((await connectStatusLine(paths, cmd)).changed).toBe(false);
+      expect((await disconnectStatusLine(paths)).changed).toBe(true);
+      expect(JSON.parse(await readFile(file, 'utf8'))).toEqual({ model: 'opus', statusLine: mine });
+      expect(await statusLineConnected(paths)).toBe(false);
+      expect((await disconnectStatusLine(paths)).changed).toBe(false);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });
