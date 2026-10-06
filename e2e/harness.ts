@@ -30,7 +30,7 @@ export interface Demo {
 }
 
 /** Async on purpose: the fake AoE server lives in this process, so blocking calls would deadlock the shim. */
-function sc(
+export function sc(
   env: NodeJS.ProcessEnv,
   args: string[],
   cwd: string,
@@ -64,7 +64,7 @@ function repo(dir: string, name: string, remote: string): string {
   return path;
 }
 
-const mrJson = (
+export const mrJson = (
   iid: number,
   path: string,
   state: string,
@@ -81,7 +81,7 @@ const mrJson = (
     ...extra,
   });
 
-const unresolved = (n: number) =>
+export const unresolved = (n: number) =>
   JSON.stringify([
     ...Array.from({ length: n }, () => ({ notes: [{ resolvable: true, resolved: false }] })),
     { notes: [{ resolvable: false, resolved: null }] },

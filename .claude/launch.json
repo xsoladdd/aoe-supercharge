@@ -20,6 +20,18 @@
       ],
       "port": 4391,
       "url": "http://localhost:4391"
+    },
+    {
+      "name": "demo-live",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "demo:nobuild",
+        "--",
+        "--live"
+      ],
+      "port": 4391,
+      "url": "http://localhost:4391"
     }
   ]
 }
