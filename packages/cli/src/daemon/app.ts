@@ -13,11 +13,12 @@ import {
   patchConfig,
   safeEqual,
 } from '@aoe-supercharge/core/node';
-import type { PlanComment } from '@aoe-supercharge/core/shared';
+import type { PlanComment, SlashCommand } from '@aoe-supercharge/core/shared';
 import { VERSION, type Ctx } from '../context.ts';
 import { buildProjectStatus } from '../status.ts';
 import { CliError } from '../util/errors.ts';
 import { PromptReader } from '../prompt.ts';
+import { listSlashCommands } from '../slash.ts';
 import { MAX_UPLOAD_BYTES, readUpload, saveUpload } from '../uploads.ts';
 import type { TranscriptStore } from '../transcript.ts';
 import {
@@ -276,6 +277,20 @@ export function createApp(deps: AppDeps) {
     } catch (err) {
       return sendError(c, err, 'delete_failed');
     }
+  });
+
+  // What "/" can run in a session: Claude Code's commands plus your and the project's skills and
+  // commands. Read from disk, so it is cached briefly per project folder.
+  const slashCache = new Map<string, { at: number; commands: SlashCommand[] }>();
+  app.get('/api/sessions/:id/commands', async (c) => {
+    const session = store.sessions.find((s) => s.id === c.req.param('id'));
+    if (!session) return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    const key = session.projectPath ?? '';
+    const hit = slashCache.get(key);
+    if (hit && Date.now() - hit.at < 30_000) return c.json({ commands: hit.commands });
+    const commands = await listSlashCommands(ctx.paths, session.projectPath);
+    slashCache.set(key, { at: Date.now(), commands });
+    return c.json({ commands });
   });
 
   // The right-click menu: one action on one or more sessions, each done (and audited) on its own so

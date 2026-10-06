@@ -299,3 +299,59 @@ describe('usage --connect: Supercharge status line in your Claude Code settings'
     }
   });
 });
+
+describe('slash commands for the chat composer', () => {
+  it("lists Claude Code's commands, your and the project's skills and commands, and plugin skills", async () => {
+    const { listSlashCommands, frontmatter } = await import('../src/slash.ts');
+    const { symlink } = await import('node:fs/promises');
+    const home = await mkdtemp(join(tmpdir(), 'sc-slash-'));
+    try {
+      const paths = resolvePaths({ HOME: home }, home);
+      const md = (fm: string, body = '# Title\n') => `---\n${fm}\n---\n\n${body}`;
+      const put = async (file: string, text: string) => {
+        await mkdir(join(file, '..'), { recursive: true });
+        await writeFile(file, text);
+      };
+      // A personal skill linked in from elsewhere, and one hidden from the menu.
+      await put(join(home, 'elsewhere/smart-plan/SKILL.md'), md('name: smart-plan\ndescription: Plan first'));
+      await mkdir(join(paths.claudeDir, 'skills'), { recursive: true });
+      await symlink(join(home, 'elsewhere/smart-plan'), join(paths.claudeDir, 'skills/smart-plan'));
+      await put(
+        join(paths.claudeDir, 'skills/quiet/SKILL.md'),
+        md('name: quiet\ndescription: x\nuser-invocable: false'),
+      );
+      // The project: a grouped skill and a command named like a built-in.
+      const repo = join(home, 'code/app');
+      await put(
+        join(repo, '.claude/skills/planning/plan-feature/SKILL.md'),
+        md('name: plan-feature\ndescription: >\n  Plan a\n  feature'),
+      );
+      await put(
+        join(repo, '.claude/commands/compact.md'),
+        md('description: Our compact\nargument-hint: <why>'),
+      );
+      // A plugin installed for everyone.
+      const plugin = join(paths.claudeDir, 'plugins/cache/mkt/tools/1.0');
+      await put(join(plugin, '.claude-plugin/plugin.json'), JSON.stringify({ name: 'tools' }));
+      await put(join(plugin, 'skills/build/SKILL.md'), md('name: build\ndescription: Build it'));
+      await put(
+        join(paths.claudeDir, 'plugins/installed_plugins.json'),
+        JSON.stringify({ version: 2, plugins: { 'tools@mkt': [{ scope: 'user', installPath: plugin }] } }),
+      );
+
+      const cmds = await listSlashCommands(paths, join(repo, 'src'));
+      const find = (name: string, kind?: string) =>
+        cmds.find((c) => c.name === name && (!kind || c.kind === kind));
+      expect(find('clear', 'builtin')).toMatchObject({ source: 'claude' });
+      expect(find('smart-plan')).toMatchObject({ kind: 'skill', source: 'user', description: 'Plan first' });
+      expect(find('quiet')).toBeUndefined();
+      expect(find('plan-feature')).toMatchObject({ source: 'project', description: 'Plan a feature' });
+      expect(find('compact', 'command')).toMatchObject({ source: 'project', argumentHint: '<why>' });
+      expect(find('compact', 'builtin')).toBeDefined();
+      expect(find('tools:build')).toMatchObject({ kind: 'skill', source: 'plugin' });
+      expect(frontmatter('no frontmatter')).toEqual({});
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});

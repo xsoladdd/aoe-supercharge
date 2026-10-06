@@ -952,6 +952,19 @@ describe('daemon: security, live state and the MR watcher', () => {
     );
   });
 
+  it('lists the commands "/" can complete in a session', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const snap = (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const id = snap.projects[0]!.controlSessionId!;
+    const r = (await (await fetch(`${base()}/api/sessions/${id}/commands`, { headers: auth })).json()) as {
+      commands: { name: string; kind: string }[];
+    };
+    expect(r.commands.find((c) => c.name === 'compact')).toMatchObject({ kind: 'builtin' });
+    // The skills Supercharge installed for you are there too.
+    expect(r.commands.find((c) => c.name === 'supercharge-control')).toMatchObject({ kind: 'skill' });
+    expect((await fetch(`${base()}/api/sessions/nope/commands`, { headers: auth })).status).toBe(404);
+  });
+
   it('right-click actions: lock guards, archive and unarchive, pin, and delete to the trash takes the worker out until restored', async () => {
     const auth = { authorization: `Bearer ${bearer}` };
     type Results = { results: { id: string; ok: boolean; error?: string; locked?: boolean }[] };

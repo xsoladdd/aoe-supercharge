@@ -114,3 +114,16 @@ export function splitAttachments(text: string): { text: string; files: Attachmen
   });
   return { text: kept.join('\n').trim(), files };
 }
+
+/** Something you can run in a session by typing "/" (the chat composer completes these). */
+export interface SlashCommand {
+  /** Without the slash: "compact", "smart-plan", "mcp-server-dev:build-mcp-app". */
+  name: string;
+  description: string;
+  kind: 'builtin' | 'skill' | 'command';
+  /** Claude Code itself, your ~/.claude, the session's project, or a plugin. */
+  source: 'claude' | 'user' | 'project' | 'plugin';
+  argumentHint?: string;
+  /** Opens a full-screen view in the session; answer it from the Terminal tab. */
+  terminal?: boolean;
+}

@@ -36,6 +36,7 @@ import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
 import { AnnotateDialog } from '@/components/chat/annotate';
 import { ChatMarkdown } from '@/components/chat/markdown';
 import { ModelMenu } from '@/components/chat/model-menu';
+import { useSlashMenu } from '@/components/chat/slash-menu';
 import { ControlPanel } from '@/components/control-panel';
 import { shortPath, ToolCall } from '@/components/chat/tool-call';
 import { useChat } from '@/components/chat/use-chat';
@@ -479,6 +480,8 @@ function ChatComposer({
   onStartFresh: () => void;
 }) {
   const sessionId = session.id;
+  const [caret, setCaret] = useState(0);
+  const slash = useSlashMenu({ sessionId, value, caret, onChange, inputRef });
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [files, setFiles] = useState<PendingFile[]>([]);
@@ -564,11 +567,12 @@ function ChatComposer({
     >
       <div
         className={cn(
-          'rounded-2xl border border-border-strong bg-card shadow-float transition-shadow focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/25',
+          'relative rounded-2xl border border-border-strong bg-card shadow-float transition-shadow focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/25',
           error && 'border-st-red/60',
           dragging && 'border-ring ring-3 ring-ring/30',
         )}
       >
+        {slash.list}
         {files.length > 0 && (
           <ul aria-label="Attachments" className="flex flex-wrap gap-2 px-3 pt-3">
             {files.map((f) => (
@@ -614,10 +618,13 @@ function ChatComposer({
           placeholder="Reply to Claude…"
           aria-invalid={!!error || undefined}
           aria-describedby={error ? 'chat-error' : 'chat-help'}
+          {...slash.inputProps}
           onChange={(e) => {
             onChange(e.target.value);
+            setCaret(e.target.selectionStart);
             if (error) setError(null);
           }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onPaste={(e) => {
             const pasted = [...e.clipboardData.files];
             if (!pasted.length) return;
@@ -625,6 +632,7 @@ function ChatComposer({
             take(pasted);
           }}
           onKeyDown={(e) => {
+            if (slash.onKeyDown(e)) return;
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               if (!sending) void deliver(value);

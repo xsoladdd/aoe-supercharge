@@ -83,6 +83,22 @@ test.describe('overview', () => {
     expect(state.sent.some((s) => s.message === '/clear')).toBe(true);
   });
 
+  test('typing / suggests commands and skills; Tab completes', async ({ signedIn: page }) => {
+    await page.goto(`/chat/${await sessionId('flaky e2e triage')}`);
+    const box = page.getByLabel(/^Message /);
+    await box.fill('/comp');
+    const list = page.getByRole('listbox', { name: 'Commands and skills' });
+    await expect(list.getByRole('option', { name: /^\/compact/ })).toBeVisible();
+    await expect(box).toHaveAttribute('aria-activedescendant', 'slash-opt-0');
+    await axe(page, 'slash menu');
+    await box.press('Tab');
+    await expect(box).toHaveValue('/compact ');
+    await expect(list).toHaveCount(0);
+    await box.fill('/zzzz-nothing');
+    await expect(list).toHaveCount(0);
+    await box.fill('');
+  });
+
   test('old ?session= links still land on the chat', async ({ signedIn: page }) => {
     const id = await sessionId('flaky e2e triage');
     await page.goto(`/?session=${id}`);
