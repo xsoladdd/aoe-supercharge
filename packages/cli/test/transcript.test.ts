@@ -1,4 +1,4 @@
-import { mkdtemp, rm, truncate } from 'node:fs/promises';
+import { mkdtemp, rm, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -178,6 +178,21 @@ describe('TranscriptStore: finds and incrementally reads a session transcript', 
     t.user('fresh');
     const c = await store.read('aoe1', cwd);
     expect(c.messages.map((m) => (m.blocks[0] as { text: string }).text)).toEqual(['fresh']);
+  });
+
+  it('follows /clear at once through the per-launch hook file AoE 1.17 writes', async () => {
+    const store = new TranscriptStore(claudeDir, hooksDir, noCli);
+    const before = new FakeTranscript({ claudeDir, hooksDir }, 'aoe3', cwd);
+    before.user('old conversation');
+    expect((await store.read('aoe3', cwd)).messages).toHaveLength(1);
+    // /clear: Claude starts a new conversation and AoE writes its id under the launch's own name.
+    const after = new FakeTranscript({ claudeDir, hooksDir: join(dir, 'scratch') }, 'aoe3', cwd);
+    after.user('fresh start');
+    const launch = '0b6cdb1e-2c5a-4f0e-9b7a-6a4f6d3c9e21';
+    await new Promise((r) => setTimeout(r, 20));
+    await writeFile(join(hooksDir, 'aoe3', `session_id.${launch}`), after.claudeId);
+    const chat = await store.read('aoe3', cwd);
+    expect(chat.messages.map((m) => (m.blocks[0] as { text: string }).text)).toEqual(['fresh start']);
   });
 
   it('falls back to `aoe session show` and to scanning other project folders', async () => {

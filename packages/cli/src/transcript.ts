@@ -169,8 +169,8 @@ interface Cached {
 
 /**
  * Finds and incrementally reads the transcript for an AoE session. The Claude session id comes from
- * AoE's hook state (<hooksDir>/<aoe id>/session_id, written by its SessionStart hook, so it follows
- * /clear), falling back to `aoe session show --json`.
+ * AoE's hook state (<hooksDir>/<aoe id>/session_id[.<launch id>], written by its SessionStart hook, so
+ * it follows /clear at once), falling back to `aoe session show --json`.
  */
 export class TranscriptStore {
   private cache = new Map<string, Cached>();
@@ -182,13 +182,34 @@ export class TranscriptStore {
     private aoeCli: AoeCli,
   ) {}
 
+  /**
+   * The Claude session id AoE's SessionStart hook wrote for this session. AoE 1.17 names the file per
+   * launch (`session_id.<launch id>`; plain `session_id` before that) and rewrites it the moment Claude
+   * starts a new conversation (/clear), so the most recently written one is the live conversation.
+   */
+  private async idFromHooks(aoeId: string): Promise<string | null> {
+    const dir = join(this.hooksDir, aoeId);
+    const names = (await readdir(dir).catch(() => [] as string[])).filter(
+      (n) => n === 'session_id' || n.startsWith('session_id.'),
+    );
+    let best: { id: string; mtime: number } | null = null;
+    for (const n of names) {
+      const file = join(dir, n);
+      const [text, st] = await Promise.all([
+        readFile(file, 'utf8').catch(() => ''),
+        stat(file).catch(() => null),
+      ]);
+      const id = text.trim();
+      if (UUID.test(id) && st && (!best || st.mtimeMs > best.mtime)) best = { id, mtime: st.mtimeMs };
+    }
+    return best?.id ?? null;
+  }
+
   private async claudeSessionId(aoeId: string): Promise<string | null> {
-    const fromHook = (
-      await readFile(join(this.hooksDir, aoeId, 'session_id'), 'utf8').catch(() => '')
-    ).trim();
-    if (UUID.test(fromHook)) return fromHook;
+    const fromHook = await this.idFromHooks(aoeId);
+    if (fromHook) return fromHook;
     const cached = this.idCache.get(aoeId);
-    if (cached && Date.now() - cached.at < 30_000) return cached.id;
+    if (cached && Date.now() - cached.at < 5_000) return cached.id;
     const id = await this.aoeCli.agentSessionId(aoeId).catch(() => null);
     const valid = id && UUID.test(id) ? id : null;
     this.idCache.set(aoeId, { id: valid, at: Date.now() });
