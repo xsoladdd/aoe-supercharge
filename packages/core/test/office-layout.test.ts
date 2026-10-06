@@ -53,6 +53,8 @@ describe('office layout', () => {
       const l = officeLayout(teams);
       const goals = [
         l.door,
+        l.visitor,
+        l.room.doorway,
         ...l.queue,
         ...l.pantry.spots.map((s) => s.tile),
         ...l.teams.flatMap((t) => [t.leadSeat, ...t.spare, ...t.desks.map((d) => d.seat)]),
@@ -79,8 +81,28 @@ describe('office layout', () => {
     expect(big.teams[0]!.desks.map((d) => d.n).slice(0, 9)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(big.width * big.height).toBeGreaterThan(small.width * small.height);
     expect(Object.keys(big.areas).sort()).toEqual(['a', 'b', 'c', 'door', 'office', 'pantry']);
-    expect(big.queue[0]).toEqual({ x: big.door.x, y: 1 });
+    // The front of the line sits on the chair beside your door; the first few spots are chairs.
+    expect(big.queue[0]).toEqual({ x: big.door.x + 1, y: big.door.y });
+    expect(big.queueSeats).toBeGreaterThan(0);
     expect(big.pantry.spots.length).toBeGreaterThanOrEqual(16);
+  });
+
+  it('puts your office in the middle of the back wall, walled in glass with one door', () => {
+    const l = officeLayout([
+      { project: 'a', desks: 4 },
+      { project: 'b', desks: 4 },
+    ]);
+    const { area, doorway, walls } = l.room;
+    expect(area.y).toBe(0);
+    expect(Math.abs(area.x + area.w / 2 - l.width / 2)).toBeLessThanOrEqual(1);
+    // You can only get in through the doorway: every other front and side tile is wall.
+    expect(walls.some((t) => t.x === doorway.x && t.y === doorway.y)).toBe(false);
+    for (const t of walls) expect(l.grid.blocked(t.x, t.y)).toBe(true);
+    const path = findPath(l.grid, l.door, l.visitor)!;
+    expect(path.some((t) => t.x === doorway.x && t.y === doorway.y)).toBe(true);
+    // The teams sit in front of it, the pantry beside it.
+    for (const t of l.teams) expect(t.area.y).toBeGreaterThan(area.y + area.h);
+    expect(l.pantry.area.x + l.pantry.area.w).toBeLessThan(area.x);
   });
 
   it('is the same for the same teams', () => {

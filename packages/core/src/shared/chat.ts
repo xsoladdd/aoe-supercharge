@@ -92,14 +92,21 @@ export function toolSummary(name: string, input: unknown): string {
   const i = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
   const pick = (...keys: string[]) =>
     keys.map((k) => i[k]).find((v) => typeof v === 'string' && v.trim()) as string | undefined;
+  const command = pick('command');
+  const path = command ? undefined : pick('file_path', 'notebook_path', 'path');
   const value =
-    pick('command') ??
-    pick('file_path', 'notebook_path', 'path') ??
+    command ??
+    path ??
     pick('pattern', 'query') ??
     pick('url') ??
     pick('description', 'prompt', 'subject') ??
     Object.values(i).find((v) => typeof v === 'string');
-  return (typeof value === 'string' ? value : name).replace(/\s+/g, ' ').trim().slice(0, 200);
+  // A path is kept whole (deep worktrees run long), so the chat can show it relative to the session's
+  // folder and the file name is never what gets cut.
+  return (typeof value === 'string' ? value : name)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, path ? 2000 : 200);
 }
 
 /** "claude-opus-5-5" → "Opus 5.5", "claude-haiku-4-5-20251001" → "Haiku 4.5"; anything else as is. */

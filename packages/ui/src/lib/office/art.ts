@@ -51,8 +51,8 @@ function drawFloor(layout: OfficeLayout, p: Palette): Graphics {
           ? teamColor(p, teamIndex.get(f.team ?? '') ?? 0)
           : f?.kind === 'pantry'
             ? p.pantry
-            : f?.kind === 'lane'
-              ? p.lane
+            : f?.kind === 'office'
+              ? p.officeFloor
               : p.corridor;
       diamond(g, x, y, x + 1, y + 1).fill(pair[odd]!);
     }
@@ -66,21 +66,20 @@ function drawFloor(layout: OfficeLayout, p: Palette): Graphics {
       alpha: 0.9,
     });
   }
-  // The rope lane in front of your door.
-  const lane = layout.floors.find((f) => f.kind === 'lane')!.rect;
-  diamond(g, lane.x + 0.05, 0.05, lane.x + lane.w - 0.05, lane.y + lane.h - 0.05).stroke({
-    width: 1.5,
-    color: p.rope,
-    alpha: 0.5,
+  // A rug in your office, between your desk and the door.
+  const r = layout.room.area;
+  diamond(g, r.x + 1.6, 1.55, r.x + r.w - 1.6, r.h - 1.45)
+    .fill({ color: p.rug, alpha: 0.9 })
+    .stroke({ width: 2, color: tint(p.rug, 0.25), alpha: 0.8 });
+  diamond(g, r.x + 1.85, 1.8, r.x + r.w - 1.85, r.h - 1.7).stroke({
+    width: 1,
+    color: tint(p.rug, 0.35),
+    alpha: 0.6,
   });
   return g;
 }
 
-function drawWalls(
-  layout: OfficeLayout,
-  p: Palette,
-  doorLabel: string,
-): { walls: Container; door: StaticOffice['door'] } {
+function drawWalls(layout: OfficeLayout, p: Palette): { walls: Container } {
   const walls = new Container();
   const g = new Graphics();
   walls.addChild(g);
@@ -98,8 +97,8 @@ function drawWalls(
   quad(g, capB).fill(p.wallTop);
   quad(g, capA).fill(p.wallTop);
 
-  // Windows along the left wall, skipping the entrance.
-  for (let gy = 3.2; gy + 1.8 < H; gy += 3.4) {
+  // Windows along the left wall, up to the entrance near the front.
+  for (let gy = 1.2; gy + 1.8 < layout.entrance.y - 0.4; gy += 3.4) {
     const pts = [wallB(gy, 30), wallB(gy + 1.8, 30), wallB(gy + 1.8, 70), wallB(gy, 70)];
     quad(g, pts).fill(p.window).stroke({ width: 2.5, color: p.windowFrame });
     quad(g, [wallB(gy + 0.9, 30), wallB(gy + 0.9, 70), wallB(gy + 0.92, 70), wallB(gy + 0.92, 30)]).fill(
@@ -120,9 +119,9 @@ function drawWalls(
   quad(g, [wallB(e + 0.3, 66), wallB(e + 0.7, 66), wallB(e + 0.7, 74), wallB(e + 0.3, 74)]).fill(0x1f9d55);
   diamond(g, 0.04, e + 0.15, 0.7, e + 0.85).fill({ color: p.doorFrame, alpha: 0.55 });
 
-  // A whiteboard over the teams, with somebody's diagram.
-  const wb0 = 2;
-  const wb1 = Math.min(W - 14, 7);
+  // A whiteboard on the back wall, right of your office, with somebody's diagram.
+  const wb0 = layout.room.area.x + layout.room.area.w + 1;
+  const wb1 = Math.min(W - 2, wb0 + 5);
   if (wb1 - wb0 > 2) {
     quad(g, [wallA(wb0, 30), wallA(wb1, 30), wallA(wb1, 70), wallA(wb0, 70)])
       .fill(p.theme === 'dark' ? 0xd9dce2 : 0xffffff)
@@ -150,42 +149,9 @@ function drawWalls(
     g.moveTo(m.x, m.y).lineTo(n.x, n.y).stroke({ width: 1.5, color: p.wood.right });
   }
 
-  // Your door, its sign, and a clock beside it.
-  const q = layout.door.x;
-  const doorG = new Graphics();
-  const frame = [wallA(q + 0.1, 0), wallA(q + 0.9, 0), wallA(q + 0.9, 62), wallA(q + 0.1, 62)];
-  const setOpen = (open: boolean) => {
-    doorG.clear();
-    quad(doorG, frame)
-      .fill(open ? shade(p.wallRight, 0.6) : p.door)
-      .stroke({ width: 3, color: p.doorFrame });
-    if (open) {
-      // The door swung inwards: a sliver of it against the frame.
-      quad(doorG, [wallA(q + 0.1, 0), wallA(q + 0.24, 0), wallA(q + 0.24, 62), wallA(q + 0.1, 62)]).fill(
-        p.door,
-      );
-    } else {
-      quad(doorG, [wallA(q + 0.2, 34), wallA(q + 0.8, 34), wallA(q + 0.8, 54), wallA(q + 0.2, 54)]).stroke({
-        width: 1.2,
-        color: shade(p.door, 0.25),
-      });
-      const k = wallA(q + 0.78, 28);
-      doorG.circle(k.x, k.y, 2.4).fill(p.brass);
-    }
-  };
-  setOpen(false);
-  walls.addChild(doorG);
-  const signAt = wallA(q + 0.5, 74);
-  const text = label(doorLabel, 11, p.signText, '600');
-  const plateW = Math.min(Math.max(text.width + 16, 64), 190);
-  if (text.width > plateW - 12) text.scale.set((plateW - 12) / text.width);
-  const plate = new Graphics()
-    .roundRect(signAt.x - plateW / 2, signAt.y - 9, plateW, 18, 5)
-    .fill(p.sign)
-    .stroke({ width: 1.5, color: p.brass });
-  text.position.set(signAt.x, signAt.y);
-  walls.addChild(plate, text);
-  const clock = wallA(q - 1.3, 66);
+  // Inside your office: a clock and a framed picture on the back wall.
+  const room = layout.room;
+  const clock = wallA(room.seat.x - 1.2, 64);
   const cg = new Graphics()
     .circle(clock.x, clock.y, 8)
     .fill(0xf4f4f5)
@@ -196,8 +162,131 @@ function drawWalls(
     .lineTo(clock.x + 4, clock.y + 1)
     .stroke({ width: 1.4, color: p.ink });
   walls.addChild(cg);
+  const f0 = room.seat.x + 0.2;
+  const f1 = room.seat.x + 1.5;
+  quad(g, [wallA(f0, 36), wallA(f1, 36), wallA(f1, 70), wallA(f0, 70)])
+    .fill(p.wood.right)
+    .stroke({ width: 1, color: shade(p.wood.right, 0.3) });
+  quad(g, [wallA(f0 + 0.12, 40), wallA(f1 - 0.12, 40), wallA(f1 - 0.12, 66), wallA(f0 + 0.12, 66)]).fill(
+    p.theme === 'dark' ? 0x3d6b5a : 0x8fc4a8,
+  );
+  // Hills and a sun in the picture.
+  quad(g, [wallA(f0 + 0.12, 40), wallA(f0 + 0.7, 52), wallA(f1 - 0.12, 44), wallA(f1 - 0.12, 40)]).fill(
+    p.theme === 'dark' ? 0x2c5244 : 0x5f9f7f,
+  );
+  const sun = wallA(f1 - 0.4, 60);
+  g.circle(sun.x, sun.y, 3).fill(0xf2c94c);
 
-  return { walls, door: { graphics: doorG, hit: frame, setOpen } };
+  return { walls };
+}
+
+/** Glass partition heights, in px: a solid sill, then glass up to the frame. */
+const SILL_H = 12;
+const GLASS_H = 62;
+
+/**
+ * Your office: glass walls standing on the room's edge tiles, cut into one piece per tile so people
+ * inside and outside sort correctly against them, and the door in the front wall with your name over it.
+ */
+function drawRoom(
+  layout: OfficeLayout,
+  p: Palette,
+  doorLabel: string,
+): { pieces: Container[]; door: StaticOffice['door'] } {
+  const room = layout.room;
+  const { x: rx, w } = room.area;
+  const front = room.doorway.y + 0.5;
+  const pieces: Container[] = [];
+  const sill = { top: tint(p.wallTop, 0.05), left: p.wallLeft, right: p.wallRight };
+
+  /** A stretch of glass wall from grid point a to b (along one axis), drawn as one piece. */
+  const panel = (a: Pt, b: Pt, z: number) => {
+    const g = new Graphics();
+    const A = iso(a.x, a.y);
+    const B = iso(b.x, b.y);
+    const up = (q: Pt, h: number) => ({ x: q.x, y: q.y - h });
+    // Sill.
+    quad(g, [A, B, up(B, SILL_H), up(A, SILL_H)]).fill(a.x === b.x ? sill.left : sill.right);
+    // Glass, with a soft glint.
+    quad(g, [up(A, SILL_H), up(B, SILL_H), up(B, GLASS_H), up(A, GLASS_H)]).fill({
+      color: p.glass,
+      alpha: p.theme === 'dark' ? 0.16 : 0.28,
+    });
+    const g0 = { x: A.x + (B.x - A.x) * 0.15, y: A.y + (B.y - A.y) * 0.15 };
+    const g1 = { x: A.x + (B.x - A.x) * 0.35, y: A.y + (B.y - A.y) * 0.35 };
+    quad(g, [up(g0, GLASS_H - 8), up(g1, GLASS_H - 8), up(g1, SILL_H + 30), up(g0, SILL_H + 22)]).fill({
+      color: 0xffffff,
+      alpha: p.theme === 'dark' ? 0.06 : 0.22,
+    });
+    // Frame: the top rail and the posts at both ends.
+    g.moveTo(up(A, GLASS_H).x, up(A, GLASS_H).y)
+      .lineTo(up(B, GLASS_H).x, up(B, GLASS_H).y)
+      .stroke({ width: 3, color: p.glassFrame });
+    for (const q of [A, B])
+      g.moveTo(q.x, q.y - SILL_H)
+        .lineTo(q.x, q.y - GLASS_H)
+        .stroke({ width: 2, color: p.glassFrame });
+    pieces.push(piece(z, g));
+  };
+
+  // Side walls, back to front, then the front wall either side of the door.
+  for (const sx of [rx + 0.5, rx + w - 0.5])
+    for (let y = 0; y < room.doorway.y; y++)
+      panel({ x: sx, y }, { x: sx, y: Math.min(y + 1, front) }, depth(sx, y + 0.5));
+  for (let x = rx + 0.5; x < rx + w - 0.5; x += 0.5) {
+    const tile = Math.floor(x);
+    if (tile === room.doorway.x) continue;
+    const x1 = Math.min(x + 0.5, rx + w - 0.5);
+    panel({ x, y: front }, { x: x1, y: front }, depth(x + 0.25, front));
+  }
+
+  // The door: a glass leaf with a handle, open while you have someone in.
+  const dx = room.doorway.x;
+  const doorG = new Graphics();
+  const L0 = iso(dx, front);
+  const L1 = iso(dx + 1, front);
+  const up = (q: Pt, h: number) => ({ x: q.x, y: q.y - h });
+  const frame = [L0, L1, up(L1, GLASS_H), up(L0, GLASS_H)];
+  const setOpen = (open: boolean) => {
+    doorG.clear();
+    // The frame round the doorway.
+    for (const q of [L0, L1])
+      doorG
+        .moveTo(q.x, q.y)
+        .lineTo(q.x, q.y - GLASS_H)
+        .stroke({ width: 3, color: p.doorFrame });
+    doorG
+      .moveTo(up(L0, GLASS_H).x, up(L0, GLASS_H).y)
+      .lineTo(up(L1, GLASS_H).x, up(L1, GLASS_H).y)
+      .stroke({ width: 4, color: p.doorFrame });
+    if (open) {
+      // Swung into the room, against the wall beside the doorway.
+      const in1 = iso(dx, front - 0.9);
+      quad(doorG, [L0, in1, up(in1, GLASS_H - 4), up(L0, GLASS_H - 4)])
+        .fill({ color: p.glass, alpha: p.theme === 'dark' ? 0.22 : 0.35 })
+        .stroke({ width: 2, color: p.glassFrame });
+    } else {
+      quad(doorG, [L0, L1, up(L1, GLASS_H - 4), up(L0, GLASS_H - 4)])
+        .fill({ color: p.glass, alpha: p.theme === 'dark' ? 0.24 : 0.36 })
+        .stroke({ width: 2, color: p.glassFrame });
+      const k = iso(dx + 0.8, front);
+      doorG.roundRect(k.x - 1.5, k.y - 34, 3, 12, 1.5).fill(p.brass);
+    }
+  };
+  setOpen(false);
+  // Your name over the door.
+  const signAt = up(iso(dx + 0.5, front), GLASS_H + 13);
+  const text = label(doorLabel, 11, p.signText, '600');
+  const plateW = Math.min(Math.max(text.width + 16, 64), 190);
+  if (text.width > plateW - 12) text.scale.set((plateW - 12) / text.width);
+  const plate = new Graphics()
+    .roundRect(signAt.x - plateW / 2, signAt.y - 9, plateW, 18, 5)
+    .fill(p.sign)
+    .stroke({ width: 1.5, color: p.brass });
+  text.position.set(signAt.x, signAt.y);
+  pieces.push(piece(depth(dx + 0.5, front) - 1, doorG, plate, text));
+
+  return { pieces, door: { graphics: doorG, hit: frame, setOpen } };
 }
 
 function piece(z: number, ...gs: Container[]): Container {
@@ -267,6 +356,21 @@ function chairPiece(p: Palette, x: number, y: number): Graphics {
   return g;
 }
 
+/** Your chair: taller, padded, in leather. */
+function execChairPiece(p: Palette, x: number, y: number): Graphics {
+  const g = new Graphics();
+  const leather = p.theme === 'dark' ? 0x2a2c31 : 0x3a3d44;
+  const c = { top: tint(leather, 0.12), left: leather, right: shade(leather, 0.25) };
+  box(g, x + 0.46, y + 0.46, x + 0.54, y + 0.54, 8, {
+    top: p.metal.left,
+    left: p.metal.left,
+    right: p.metal.right,
+  });
+  box(g, x + 0.2, y + 0.24, x + 0.8, y + 0.78, 6, c, 8);
+  box(g, x + 0.18, y + 0.12, x + 0.82, y + 0.26, 30, c, 10);
+  return g;
+}
+
 function stoolPiece(p: Palette, x: number, y: number): Graphics {
   const g = new Graphics();
   box(g, x + 0.46, y + 0.46, x + 0.54, y + 0.54, 9, {
@@ -319,23 +423,12 @@ function signPiece(p: Palette, x: number, y: number, project: string, color: num
   return out;
 }
 
-function stanchion(p: Palette, a: Pt, b: Pt | null): Graphics {
-  const g = new Graphics();
-  g.ellipse(a.x, a.y, 4, 2).fill(shade(p.rope, 0.3));
-  g.rect(a.x - 1.2, a.y - 20, 2.4, 20).fill(shade(p.rope, 0.15));
-  g.circle(a.x, a.y - 21, 2.4).fill(p.rope);
-  if (b) {
-    g.moveTo(a.x, a.y - 18)
-      .quadraticCurveTo((a.x + b.x) / 2, (a.y + b.y) / 2 - 12, b.x, b.y - 18)
-      .stroke({ width: 2, color: p.theme === 'dark' ? 0x9b2c3a : 0xb23a48 });
-  }
-  return g;
-}
-
 export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string): StaticOffice {
   const floor = drawFloor(layout, p);
-  const { walls, door } = drawWalls(layout, p, doorLabel);
-  const pieces: Container[] = [];
+  const { walls } = drawWalls(layout, p);
+  const room = drawRoom(layout, p, doorLabel);
+  const door = room.door;
+  const pieces: Container[] = [...room.pieces];
   const awaySigns = new Map<string, Graphics>();
   const teamIndex = new Map(layout.teams.map((t, i) => [t.project, i]));
 
@@ -476,6 +569,69 @@ export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string)
           pieces.push(piece(zOf(f.x + i, f.y), g));
         }
         break;
+      case 'exec_desk':
+        for (let i = 0; i < f.w; i++) {
+          const g = deskPiece(f, p, f.x + i, f.y, i === 1);
+          // A lamp on one end, a stack of papers on the other.
+          if (i === 0) {
+            const c = iso(f.x + 0.35, f.y + 0.4);
+            g.rect(c.x - 1, c.y - 32, 2, 14).fill(p.metal.right);
+            g.poly([c.x - 8, c.y - 30, c.x + 8, c.y - 30, c.x + 5, c.y - 38, c.x - 5, c.y - 38]).fill(
+              p.brass,
+            );
+            g.ellipse(c.x, c.y - 19, 5, 2.5).fill(p.metal.right);
+          }
+          if (i === f.w - 1)
+            for (let k = 0; k < 3; k++)
+              box(
+                g,
+                f.x + i + 0.3,
+                f.y + 0.3,
+                f.x + i + 0.7,
+                f.y + 0.6,
+                1.5,
+                {
+                  top: k === 2 ? 0xffffff : 0xf1efe8,
+                  left: 0xe2ded3,
+                  right: 0xd6d1c4,
+                },
+                17 + k * 1.6,
+              );
+          pieces.push(piece(zOf(f.x + i, f.y), g));
+        }
+        break;
+      case 'bookshelf': {
+        const g = new Graphics();
+        box(g, f.x + 0.1, f.y + 0.05, f.x + 0.9, f.y + 0.55, 64, p.wood);
+        // Book spines on each shelf, on the face towards the room.
+        const spines = [0xb23a48, 0x3c6fb4, 0xe0a33a, 0x2f8f8a, 0x7b5ea7, 0xd9d4c7];
+        for (let shelf = 0; shelf < 3; shelf++) {
+          const h0 = 6 + shelf * 20;
+          for (let k = 0; k < 6; k++) {
+            const a = iso(f.x + 0.16 + k * 0.12, f.y + 0.55);
+            const tall = 11 + ((fnv1a(`${shelf}:${k}`) % 5) as number);
+            g.rect(a.x - 2.5, a.y - h0 - tall, 4.5, tall).fill(spines[(shelf * 2 + k) % spines.length]!);
+          }
+          const s0 = iso(f.x + 0.1, f.y + 0.55);
+          const s1 = iso(f.x + 0.9, f.y + 0.55);
+          g.moveTo(s0.x, s0.y - h0 + 1)
+            .lineTo(s1.x, s1.y - h0 + 1)
+            .stroke({ width: 2, color: p.wood.right });
+        }
+        pieces.push(piece(zOf(f.x, f.y), g));
+        break;
+      }
+      case 'armchair': {
+        const g = new Graphics();
+        const s0 = { top: p.sofa.seat, left: shade(p.sofa.seat, 0.12), right: shade(p.sofa.seat, 0.25) };
+        const b = { top: tint(p.sofa.back, 0.1), left: p.sofa.back, right: shade(p.sofa.back, 0.2) };
+        box(g, f.x + 0.1, f.y + 0.25, f.x + 0.9, f.y + 0.9, 10, s0);
+        box(g, f.x + 0.1, f.y + 0.08, f.x + 0.9, f.y + 0.28, 24, b);
+        box(g, f.x + 0.1, f.y + 0.25, f.x + 0.24, f.y + 0.9, 16, b);
+        box(g, f.x + 0.76, f.y + 0.25, f.x + 0.9, f.y + 0.9, 16, b);
+        pieces.push(piece(zOf(f.x, f.y, -20), g));
+        break;
+      }
       default:
         break;
     }
@@ -485,16 +641,11 @@ export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string)
   for (const s of layout.pantry.spots.filter((x) => x.seat === 'chair'))
     pieces.push(piece(zOf(s.tile.x, s.tile.y, -20), stoolPiece(p, s.tile.x, s.tile.y)));
 
-  // Stanchions down both sides of the lane.
-  const lane = layout.floors.find((f) => f.kind === 'lane')!.rect;
-  for (const side of [lane.x, lane.x + lane.w]) {
-    for (let y = 1; y < lane.h - 1; y += 2) {
-      const a = iso(side, y + 0.5);
-      const b = y + 2 < lane.h - 1 ? iso(side, y + 2.5) : null;
-      const g = stanchion(p, a, b);
-      pieces.push(piece(depth(side, y + 0.5) + 1, g));
-    }
-  }
+  // Your chair behind your desk, and the waiting chairs along the glass outside.
+  const seat = layout.room.seat;
+  pieces.push(piece(zOf(seat.x, seat.y, -20), execChairPiece(p, seat.x, seat.y)));
+  for (const t of layout.queue.slice(0, layout.queueSeats))
+    pieces.push(piece(zOf(t.x, t.y, -20), chairPiece(p, t.x, t.y)));
 
   return { floor, walls, pieces, door, awaySigns };
 }

@@ -5,6 +5,7 @@ import {
   modelMatches,
   prettyModel,
   runnableCommand,
+  toolSummary,
   versionAtLeast,
 } from '../src/shared/chat.ts';
 
@@ -59,5 +60,14 @@ describe('versionAtLeast and modelMatches: is a chat on the model and Claude Cod
     expect(modelFromDisplay('claude-sonnet-5-5')).toBe('claude-sonnet-5-5');
     expect(prettyModel(modelFromDisplay('Opus 5.5'))).toBe('Opus 5.5');
     expect(prettyModel('opusplan')).toBe('Opus Plan');
+  });
+});
+
+describe('toolSummary', () => {
+  it('keeps a deep path whole, so the file name survives; long commands are cut', () => {
+    const deep = `/Users/me/Dev/${'nested/'.repeat(30)}src/components/Header.tsx`;
+    expect(deep.length).toBeGreaterThan(200);
+    expect(toolSummary('Read', { file_path: deep })).toBe(deep);
+    expect(toolSummary('Bash', { command: `echo ${'x'.repeat(300)}` })).toHaveLength(200);
   });
 });

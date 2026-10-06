@@ -8,8 +8,11 @@ export interface Palette {
   theme: 'dark' | 'light';
   bg: number;
   corridor: [number, number];
-  lane: [number, number];
-  rope: number;
+  /** Your office's wood floor, and its glass walls. */
+  officeFloor: [number, number];
+  rug: number;
+  glass: number;
+  glassFrame: number;
   pantry: [number, number];
   /** Carpet under each team, picked per project. */
   carpets: [number, number][];
@@ -67,8 +70,10 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
       theme,
       bg: token('--background', 0x17191a),
       corridor: [0x2b2d33, 0x2f3238],
-      lane: [0x35302a, 0x3a342d],
-      rope: 0xc9a227,
+      officeFloor: [0x4a3a2c, 0x45362a],
+      rug: 0x2f4a5c,
+      glass: 0x7fb3d5,
+      glassFrame: 0x8a8f99,
       pantry: [0x3a3f47, 0x333840],
       carpets: [
         [0x2c3756, 0x303b5c],
@@ -110,8 +115,10 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
     theme,
     bg: token('--background', 0xeef0f2),
     corridor: [0xe4e6ea, 0xdfe1e6],
-    lane: [0xf1e8d4, 0xece2cc],
-    rope: 0xb08a1e,
+    officeFloor: [0xd9b88f, 0xd2b087],
+    rug: 0x7c9fb8,
+    glass: 0xa9d4ee,
+    glassFrame: 0x9aa1ab,
     pantry: [0xf6f6f3, 0xe8e9e4],
     carpets: [
       [0xcdd8f2, 0xc6d2ef],
