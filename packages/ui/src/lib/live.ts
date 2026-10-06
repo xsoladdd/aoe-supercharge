@@ -6,6 +6,7 @@ import type {
   SessionView,
   Snapshot,
   TaskRecord,
+  UsageReport,
 } from '@aoe-supercharge/core/shared';
 import { ApiError, getJson } from './api';
 
@@ -63,6 +64,7 @@ function connectEvents() {
   on<ProjectRecord[]>('projects', (projects) => patchSnapshot({ projects }));
   on<NeedsYouItem[]>('needs_you', (needsYou) => patchSnapshot({ needsYou }));
   on<Health>('health', (health) => patchSnapshot({ health }));
+  on<UsageReport>('usage', (usage) => patchSnapshot({ usage }));
   source.onopen = () => set({ connection: 'live' });
   source.onerror = async () => {
     set({ connection: 'reconnecting' });

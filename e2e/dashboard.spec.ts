@@ -57,6 +57,32 @@ test.describe('overview', () => {
     await expect(page.getByText(/aoe session attach [0-9a-f]{16}/)).toBeVisible();
   });
 
+  test('the sidebar shows your 5-hour and weekly usage and how many workers may run', async ({
+    signedIn: page,
+  }) => {
+    const usage = page.getByRole('region', { name: 'Claude usage' });
+    await expect(usage.getByRole('meter', { name: '5-hour usage' })).toHaveAttribute('aria-valuenow', '38');
+    await expect(usage.getByRole('meter', { name: 'Week usage' })).toHaveAttribute('aria-valuenow', '22');
+    await expect(usage).toContainText(/\d+ of 4 workers active/);
+    await expect(usage).toContainText(/5-hour resets \d{1,2}:\d{2}/);
+  });
+
+  test('Start fresh clears a conversation with /clear after saying what is kept', async ({
+    signedIn: page,
+  }) => {
+    await page.goto(`/chat/${await sessionId('flaky e2e triage')}`);
+    await page.getByRole('button', { name: 'More session actions' }).click();
+    await page.getByRole('menuitem', { name: 'Start fresh (/clear)…' }).click();
+    const dialog = page.getByRole('alertdialog', { name: 'Start a fresh conversation?' });
+    await expect(dialog).toContainText('types /clear into this session');
+    await expect(dialog).toContainText('not part of a Supercharge project');
+    await axe(page, 'start-fresh');
+    await dialog.getByRole('button', { name: 'Clear conversation' }).click();
+    await expect(page.getByText('Started a fresh conversation')).toBeVisible();
+    const state = (await fake('/__fake/state')) as { sent: { message: string }[] };
+    expect(state.sent.some((s) => s.message === '/clear')).toBe(true);
+  });
+
   test('old ?session= links still land on the chat', async ({ signedIn: page }) => {
     const id = await sessionId('flaky e2e triage');
     await page.goto(`/?session=${id}`);
@@ -100,6 +126,9 @@ test.describe('project', () => {
     await expect(page.getByText('Header, listing and detail templates')).toBeVisible();
     await expect(page.getByText('Watching MR', { exact: true }).first()).toBeVisible();
     await expect(page.getByText(/aoe session attach/)).toBeVisible();
+    const details = page.getByRole('complementary', { name: 'Task details' });
+    await expect(details.getByText('Started on')).toBeVisible();
+    await expect(details.getByText('Your Claude Code default')).toBeVisible();
     await axe(page, 'task overview');
     await tabs.getByRole('link', { name: 'Plan' }).click();
     await expect(page).toHaveURL(/\/t\/NW-0001\/plan$/);
@@ -340,7 +369,7 @@ test.describe('project', () => {
     await expect(trigger).toBeVisible();
     // A model change is also saved as the Claude Code default, and the dialog says so; cancel sends nothing.
     await trigger.click();
-    await page.getByRole('menuitem', { name: 'Sonnet' }).click();
+    await page.getByRole('menuitem', { name: 'Sonnet', exact: true }).click();
     const dialog = page.getByRole('alertdialog');
     await expect(dialog).toContainText('saves it as your default for new Claude Code sessions');
     const before = ((await fake('/__fake/state')) as { sent: unknown[] }).sent.length;

@@ -166,7 +166,9 @@ export async function startDemo(opts: {
   await sc(env, ['init', '--json'], nw);
   const tasks: Record<string, { id: string; branch: string; worktree: string; aoeSessionId: string }> = {};
   const add = async (key: string, cwd: string, title: string, brief: string) => {
-    tasks[key] = JSON.parse(await sc(env, ['task', 'new', title, '--brief', brief, '--json'], cwd));
+    tasks[key] = JSON.parse(
+      await sc(env, ['task', 'new', title, '--brief', brief, '--force', '--json'], cwd),
+    );
   };
   await add(
     'templates',
@@ -321,6 +323,19 @@ export async function startDemo(opts: {
   }
   const ratelimit = fake.state.sessions.find((s) => s.id === tasks.ratelimit!.aoeSessionId);
   if (ratelimit) seedPermissionWait(fake.transcripts!.for(ratelimit.id, ratelimit.project_path));
+
+  // What a Supercharge session's status line would have recorded: 5-hour and weekly usage.
+  const stateDir = join(opts.dir, '.local/state/supercharge');
+  mkdirSync(stateDir, { recursive: true });
+  const inMin = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
+  writeFileSync(
+    join(stateDir, 'usage.json'),
+    JSON.stringify({
+      fiveHour: { usedPercentage: 38, resetsAt: inMin(137) },
+      sevenDay: { usedPercentage: 22, resetsAt: inMin(3 * 1440 + 200) },
+      capturedAt: inMin(-2),
+    }),
+  );
 
   const daemon = spawn(process.execPath, [CLI, 'daemon'], {
     env: { ...env, SUPERCHARGE_LOG_STDERR: opts.log ? '1' : '0', SUPERCHARGE_DEMO: '1' },

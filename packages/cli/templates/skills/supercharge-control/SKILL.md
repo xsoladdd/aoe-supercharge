@@ -1,6 +1,6 @@
 ---
 name: supercharge-control
-description: Coordinates a Supercharge (Agent of Empires) project from its control chat. Spawns worker sessions with `supercharge task new`, answers "status" from `supercharge status --project <name> --json`, and relays the user's answers to blocked workers. Only for sessions that Supercharge started as a project's control chat.
+description: Coordinates a Supercharge (Agent of Empires) project from its control chat. Checks the user's 5-hour and weekly usage with `supercharge usage`, spawns worker sessions with `supercharge task new --model <sonnet|opus>`, answers "status" from `supercharge status --project <name> --json`, and relays the user's answers to blocked workers. Only for sessions that Supercharge started as a project's control chat.
 ---
 
 # Supercharge control chat
@@ -22,16 +22,47 @@ Each piece of work goes to its own worker session, in its own git worktree, crea
 
 ## 3. Spawning work
 
-When the user asks for work to be done, split it into independent tasks (one task per worker) and create each one:
+When the user asks for work to be done, split it into independent tasks (one task per worker).
+
+### 3.1 Check usage first
+
+Workers share the user's Claude plan limits. Before creating any task, run:
 
 ```bash
-supercharge task new "<short imperative title>" --brief-file <path-to-brief.md> --json
+supercharge usage --json
 ```
 
-- Write the brief to a temporary file outside the repository (for example under `/tmp`). Include the goal, constraints, acceptance criteria, and anything the worker must not touch.
+- `canStart: false`: create nothing. Tell the user which tasks are waiting, why (`advice`), and when the window resets (`fiveHour.resetsAt` or `sevenDay.resetsAt`).
+- `canStartCount`: start at most that many now (it already counts the workers that are active). Hold the rest, list them for the user, and start them when the user asks again.
+- When the 5-hour window is getting full, Supercharge lowers the number of workers allowed at once. Prefer finishing work in progress over starting new work.
+- `supercharge task new` refuses with exit code 6 when the limits say wait. Add `--force` only when the user explicitly tells you to start it anyway.
+
+### 3.2 Pick the model for each worker
+
+Every `supercharge task new` gets a `--model`:
+
+- `--model sonnet` (Sonnet 5.5) for well-scoped work: a bug fix with a clear repro, CI or review follow-ups, tests, docs, and small changes that follow an existing pattern.
+- `--model opus` (Opus 5.5) for the harder work: unclear causes, design decisions, changes across many modules, migrations, security-sensitive code.
+- Use `fable` only when the user asks for it.
+
+If the brief needs design decisions or the cause is unknown, it is not well scoped: use `opus`. Tell the user which model you picked for each task.
+
+### 3.3 Create the task
+
+```bash
+supercharge task new "<short imperative title>" --model <sonnet|opus> --brief-file <path-to-brief.md> --json
+```
+
+- Write the brief to a temporary file outside the repository (for example under `/tmp`). Include the goal, constraints, acceptance criteria, the files or areas to start from, and anything the worker must not touch. A precise brief saves the worker from exploring.
 - Use `--brief "<text>"` for short briefs instead of a file.
-- The JSON output contains the task id, branch, worktree and AoE session id. Tell the user the task ids you created.
+- The JSON output contains the task id, branch, worktree, AoE session id, model, and the usage after it started (`usage.canStartCount`). Tell the user the task ids you created.
 - Do not create more tasks than the user asked for. Ask first when the split is unclear.
+
+### 3.4 Keep sessions short
+
+- One task, one fresh worker. New work is a new task, even when an earlier worker touched the same code. Use `supercharge reply` only for the task that worker owns.
+- Never poll. No `sleep` loops, no `/loop`, no repeated `supercharge status` to watch workers. Check status when the user asks; the dashboard tells the user when a worker needs them.
+- Everything you need is in the ledger. If your conversation was cleared, run `supercharge status --project <project> --json` and continue from there.
 
 ## 4. Answering "status"
 
@@ -47,6 +78,7 @@ Summarise it in this order, briefly:
 2. Merge requests ready for review, with links.
 3. Failing pipelines.
 4. Counts per stage.
+5. Usage, from `supercharge usage --json`: the 5-hour and weekly percentages, and how many more workers can start.
 
 Do not paste the raw JSON.
 

@@ -12,6 +12,10 @@ export interface Paths {
   stateDir: string;
   /** Files you attach in a chat, one folder per session; Claude reads them from here (never the repo). */
   uploadsDir: string;
+  /** Your last reported 5-hour and weekly Claude usage, written by Supercharge's status line. */
+  usageFile: string;
+  /** Claude Code settings Supercharge passes to the sessions it starts (`claude --settings`). */
+  claudeSettingsFile: string;
   logsDir: string;
   logFile: string;
   auditFile: string;
@@ -47,6 +51,8 @@ export function resolvePaths(
     rolesDir: join(dataDir, 'agent', 'claude-code', 'roles'),
     stateDir,
     uploadsDir: join(stateDir, 'uploads'),
+    usageFile: join(stateDir, 'usage.json'),
+    claudeSettingsFile: join(stateDir, 'claude-settings.json'),
     logsDir,
     logFile: join(logsDir, 'daemon.log'),
     auditFile: join(stateDir, 'audit.jsonl'),

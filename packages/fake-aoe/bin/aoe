@@ -101,6 +101,7 @@ if (cmd === '--version' || cmd === '-V') {
       branch,
       base_branch: branch ? base : null,
       parent_session_id: parent,
+      extra_args: val('--extra-args') ?? null,
       group_path: parentSession?.group_path ?? val('-g', '--group') ?? '',
       status: has('-l') ? 'Running' : 'Idle',
     }),

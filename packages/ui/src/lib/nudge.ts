@@ -13,18 +13,28 @@ export function playNudge(): Promise<void> {
   });
 }
 
+/** An item that already nudged stays quiet this long, even if it drops out of Needs-you and returns. */
+const RENUDGE_AFTER_MS = 30 * 60_000;
+
 /**
  * Watches Needs-you for items that were not there before (not on first load) and nudges: plays the
  * sound when it is on, tells listeners (the control chat's status strip) which items are new, and
- * keeps the count in the tab title.
+ * keeps the count in the tab title. Items flicker out and back in (a session going briefly back to
+ * work, an AoE poll that failed), so each item nudges once per RENUDGE_AFTER_MS, not on every return.
  */
 export function useNeedsYouNudge(items: NeedsYouItem[] | undefined, sound: boolean) {
   const seen = useRef<Set<string> | null>(null);
+  const nudged = useRef(new Map<string, number>());
   useEffect(() => {
     if (!items) return;
     const ids = new Set(items.map((i) => i.id));
-    if (seen.current) {
-      const fresh = items.filter((i) => !seen.current!.has(i.id));
+    const now = Date.now();
+    if (!seen.current) for (const id of ids) nudged.current.set(id, now);
+    else {
+      const fresh = items.filter(
+        (i) => !seen.current!.has(i.id) && now - (nudged.current.get(i.id) ?? 0) > RENUDGE_AFTER_MS,
+      );
+      for (const i of fresh) nudged.current.set(i.id, now);
       if (fresh.length) {
         if (sound) void playNudge();
         window.dispatchEvent(new CustomEvent<NeedsYouItem[]>(NUDGE_EVENT, { detail: fresh }));

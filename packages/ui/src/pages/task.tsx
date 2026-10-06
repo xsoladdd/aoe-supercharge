@@ -10,6 +10,7 @@ import {
 } from '@phosphor-icons/react';
 import {
   ago,
+  prettyModel,
   STAGE_LABEL,
   type SessionView,
   type Snapshot,
@@ -48,6 +49,13 @@ const ChatMarkdown = lazy(() =>
 
 export type TaskTab = 'overview' | 'chat' | 'plan';
 
+/** The model a worker was started with, as Supercharge passed it (older tasks did not record one). */
+function startedOn(model: string | null | undefined): string {
+  if (!model) return 'Your Claude Code default';
+  if (model === 'opusplan') return 'Opus to plan, Sonnet to build';
+  if (/^claude-/.test(model)) return prettyModel(model);
+  return model.charAt(0).toUpperCase() + model.slice(1);
+}
 function Card({
   title,
   children,
@@ -285,6 +293,11 @@ function Overview({
               {session?.statusSince && (
                 <span className="text-sm text-muted-foreground">{ago(session.statusSince, now)}</span>
               )}
+            </dd>
+            <dt className="text-sm text-muted-foreground">Started on</dt>
+            <dd>
+              {startedOn(task.model)}
+              {task.effort && <span className="text-muted-foreground">, {task.effort} effort</span>}
             </dd>
             <dt className="text-sm text-muted-foreground">Merge request</dt>
             <dd>

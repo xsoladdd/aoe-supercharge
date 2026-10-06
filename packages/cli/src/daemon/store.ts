@@ -7,6 +7,7 @@ import {
   type Snapshot,
   type SnapshotEvent,
   type TaskRecord,
+  type UsageReport,
 } from '@aoe-supercharge/core/shared';
 
 export type SeqEvent = SnapshotEvent & { seq: number };
@@ -28,6 +29,7 @@ export class Store {
   projects: ProjectRecord[] = [];
   tasks: TaskRecord[] = [];
   needsYou: NeedsYouItem[] = [];
+  usage: UsageReport | null = null;
   ui: Snapshot['ui'] = { theme: 'dark', density: 'comfortable', scale: 'default', sound: true };
   sessionsLoaded = false;
   ledgerLoaded = false;
@@ -50,6 +52,7 @@ export class Store {
       projects: this.projects,
       tasks: this.tasks,
       needsYou: this.needsYou,
+      usage: this.usage,
       ui: this.ui,
     };
   }
@@ -119,6 +122,12 @@ export class Store {
     this.health = health;
     if (meaningful) this.emit({ type: 'health', data: health });
     if (prevReachable !== (health.aoe.state === 'ok')) this.recomputeNeedsYou();
+  }
+
+  setUsage(usage: UsageReport) {
+    if (same(usage, this.usage)) return;
+    this.usage = usage;
+    this.emit({ type: 'usage', data: usage });
   }
 
   setUi(ui: Snapshot['ui']) {

@@ -289,6 +289,71 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(refused.code).toBe(3);
     expect(refused.stderr).toMatch(/automatically/);
   });
+
+  const reset5 = Math.floor(Date.now() / 1000) + 3600;
+  const reset7 = Math.floor(Date.now() / 1000) + 3 * 86_400;
+  const statusInput = (fiveHour: number, extra: object = {}) =>
+    JSON.stringify({
+      ...extra,
+      rate_limits: {
+        five_hour: { used_percentage: fiveHour, resets_at: reset5 },
+        seven_day: { used_percentage: 10, resets_at: reset7 },
+      },
+    });
+
+  it('the status line records your usage; a stale lower reading never pulls it down', async () => {
+    const r = await sc(['statusline'], {
+      input: statusInput(40, {
+        model: { display_name: 'Sonnet 5.5' },
+        context_window: { used_percentage: 12.4 },
+      }),
+    });
+    expect(r.code, r.stderr).toBe(0);
+    expect(r.stdout.trim()).toBe('Sonnet 5.5 · context 12% · 5h 40% · week 10%');
+    expect((await sc(['statusline'], { input: statusInput(20) })).code).toBe(0);
+    const u = JSON.parse((await sc(['usage', '--json'])).stdout);
+    expect(u).toMatchObject({
+      known: true,
+      level: 'ok',
+      fiveHour: { usedPercentage: 40 },
+      sevenDay: { usedPercentage: 10 },
+      activeWorkers: 0,
+      canStart: true,
+      canStartCount: 4,
+    });
+  });
+
+  it('task new takes the model the control chat picked and passes the auto-compact and status line settings', async () => {
+    const bad = await sc(['task', 'new', 'Nope', '--model', 'opus;rm']);
+    expect(bad.code).toBe(2);
+    const r = await sc(['task', 'new', 'Fix footer typo', '--model', 'sonnet', '--brief', 'Typo.', '--json']);
+    expect(r.code, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout);
+    expect(out).toMatchObject({ model: 'sonnet', usage: { activeWorkers: 1, canStartCount: 3 } });
+    const settingsFile = join(home, '.local/state/supercharge/claude-settings.json');
+    const args = fake.state.sessions.find((s) => s.id === out.aoeSessionId)?.extra_args ?? '';
+    expect(args).toContain('--model sonnet');
+    expect(args).toContain(`--settings ${settingsFile}`);
+    const settings = JSON.parse(await readFile(settingsFile, 'utf8'));
+    expect(settings.autoCompactWindow).toBe(500_000);
+    expect(settings.statusLine).toMatchObject({ type: 'command', padding: 0 });
+    expect(settings.statusLine.command).toMatch(/supercharge\.mjs' statusline$/);
+    expect((await readTask(out.id)).model).toBe('sonnet');
+    expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+  });
+
+  it('holds new workers while the 5-hour window is nearly used, unless forced', async () => {
+    expect((await sc(['statusline'], { input: statusInput(90) })).code).toBe(0);
+    const held = await sc(['task', 'new', 'Another one', '--json']);
+    expect(held.code).toBe(6);
+    expect(held.stderr).toMatch(/5-hour limit at 90%/);
+    expect(held.stderr).toMatch(/--force/);
+    const forced = await sc(['task', 'new', 'Another one', '--force', '--json']);
+    expect(forced.code, forced.stderr).toBe(0);
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"action":"task_created".*"forced":"5-hour limit at 90%/);
+    expect((await sc(['stage', 'done'], { cwd: JSON.parse(forced.stdout).worktree })).code).toBe(0);
+  });
 });
 
 describe('daemon: security, live state and the MR watcher', () => {
@@ -332,6 +397,7 @@ describe('daemon: security, live state and the MR watcher', () => {
     const w = snap.sessions.find((s) => s.id === snap.tasks[0]!.aoeSessionId);
     expect(w?.parentId).toBe(snap.projects[0]!.controlSessionId);
     expect(snap.health.aoe.serveVersion).toBe('1.17.2');
+    expect(snap.usage).toMatchObject({ known: true, level: 'stop', fiveHour: { usedPercentage: 90 } });
   });
 
   it('one-time nonce → httpOnly cookie; cookie writes need CSRF + Origin', async () => {

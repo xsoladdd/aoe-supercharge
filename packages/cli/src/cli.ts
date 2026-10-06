@@ -7,6 +7,7 @@ import {
   ensureToken,
   getByPath,
   loadConfig,
+  resolvePaths,
   setConfigValue,
   ConfigValidationError,
 } from '@aoe-supercharge/core/node';
@@ -19,6 +20,7 @@ import {
   STAGES,
   type ProjectStatus,
   type SessionView,
+  type UsageReport,
 } from '@aoe-supercharge/core/shared';
 import { checkAoeCompat, createCtx, dashboardOrigin, VERSION, type Ctx } from './context.ts';
 import { aoeUpgrade } from './commands/aoe-upgrade.ts';
@@ -27,6 +29,7 @@ import { proxyCommand } from './commands/proxy.ts';
 import { runDaemon } from './daemon/index.ts';
 import { serviceManager, servicePathEnv } from './service/index.ts';
 import { installUserSkills, removeUserSkills } from './skills.ts';
+import { statusLine } from './statusline.ts';
 import { buildProjectStatus } from './status.ts';
 import { daemonHealth, daemonRequest, waitForDaemon } from './util/daemon-client.ts';
 import { CliError, EXIT } from './util/errors.ts';
@@ -41,6 +44,7 @@ import {
   replyToTask,
   savePlan,
   stageTask,
+  usageNow,
   whoami,
 } from './workflow.ts';
 
@@ -150,6 +154,16 @@ export function buildProgram(): Command {
       const x = await ctx();
       if (o.project) return statusProject(x, o.project, !!o.json);
       return statusOverview(x, !!o.json);
+    });
+
+  program
+    .command('usage')
+    .description('your 5-hour and weekly Claude usage, and whether another worker may start')
+    .option('--json', 'machine-readable output')
+    .action(async (o: { json?: boolean }) => {
+      const r = await usageNow(await ctx());
+      if (o.json) return json(r);
+      printUsage(r);
     });
 
   program
@@ -365,11 +379,23 @@ export function buildProgram(): Command {
     .option('--brief <text>', 'task brief')
     .option('--brief-file <path>', 'read the brief from a file')
     .option('--base <branch>', 'base branch')
+    .option('-m, --model <model>', 'model for this worker: sonnet, opus, opusplan, fable, haiku or a full id')
+    .option('--effort <level>', 'effort for this worker: low, medium, high, xhigh or max')
+    .option('--force', 'start even when your usage or the worker cap says to wait')
     .option('--json', 'machine-readable output')
     .action(
       async (
         title: string,
-        o: { project?: string; brief?: string; briefFile?: string; base?: string; json?: boolean },
+        o: {
+          project?: string;
+          brief?: string;
+          briefFile?: string;
+          base?: string;
+          model?: string;
+          effort?: string;
+          force?: boolean;
+          json?: boolean;
+        },
       ) => {
         const x = await ctx();
         const brief = o.briefFile ? await readFile(o.briefFile, 'utf8') : o.brief;
@@ -380,6 +406,9 @@ export function buildProgram(): Command {
           project: o.project,
           brief,
           base: o.base,
+          model: o.model,
+          effort: o.effort,
+          force: o.force,
           actor: who?.role === 'control' ? 'control' : 'user',
         });
         if (o.json)
@@ -390,6 +419,9 @@ export function buildProgram(): Command {
             worktree: t.worktreePath,
             aoeSessionId: t.aoeSessionId,
             stage: t.stage,
+            model: t.model ?? null,
+            effort: t.effort ?? null,
+            usage: t.usage ?? null,
             warnings: t.warnings ?? [],
           });
         for (const w of t.warnings ?? []) out(`${sym.warn} ${w}`);
@@ -397,6 +429,8 @@ export function buildProgram(): Command {
         out(`  branch   ${t.branch} (from ${t.baseBranch})`);
         out(`  worktree ${t.worktreePath}`);
         out(`  session  ${t.aoeSessionId}`);
+        out(`  model    ${t.model ?? 'Claude Code default'}${t.effort ? `, effort ${t.effort}` : ''}`);
+        if (t.usage) out(`  usage    ${t.usage.advice}`);
       },
     );
   task
@@ -494,6 +528,15 @@ export function buildProgram(): Command {
     });
 
   program
+    .command('statusline', { hidden: true })
+    .description('Claude Code status line for Supercharge sessions: records your usage limits')
+    .action(async () => {
+      // No ctx(): this runs after every Claude Code update, so it stays as light as it can.
+      const line = await statusLine(resolvePaths()).catch(() => '');
+      if (line) process.stdout.write(`${line}\n`);
+    });
+
+  program
     .command('daemon', { hidden: true })
     .description('run the daemon in the foreground')
     .action(async () => {
@@ -501,6 +544,24 @@ export function buildProgram(): Command {
     });
 
   return program;
+}
+
+function printUsage(r: UsageReport) {
+  const win = (label: string, w: UsageReport['fiveHour']) =>
+    w.usedPercentage === null
+      ? `${label} unknown`
+      : w.reset
+        ? `${label} reset since the last reading`
+        : `${label} ${w.usedPercentage}% (resets ${new Date(w.resetsAt!).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' })})`;
+  out(`${win('5-hour', r.fiveHour)}  ·  ${win('weekly', r.sevenDay)}`);
+  if (!r.known)
+    out(
+      c.dim(
+        '  No reading yet: sessions Supercharge starts report it through their status line (agent.statusLine).',
+      ),
+    );
+  else if (r.capturedAt) out(c.dim(`  read ${relativeTime(r.capturedAt)}`));
+  out(`${r.canStart ? sym.ok : sym.warn} ${r.advice}`);
 }
 
 async function statusProject(x: Ctx, name: string, asJson: boolean) {

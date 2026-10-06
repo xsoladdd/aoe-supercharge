@@ -10,6 +10,7 @@ import {
   AoeStatusCountsSchema,
 } from '../src/aoe/schemas.ts';
 import { parseUpdateCheck, releaseAsset } from '../src/commands/aoe-upgrade.ts';
+import { claudeModelsCheck } from '../src/commands/doctor.ts';
 import { renderCaddyfile } from '../src/commands/proxy.ts';
 import { MrWatcher } from '../src/daemon/mr-watcher.ts';
 import { countUnresolvedThreads, GitLabProvider, parseMrView } from '../src/mr/gitlab.ts';
@@ -244,5 +245,28 @@ describe('model and effort for new sessions', () => {
     c.agent.model = 'opus';
     c.agent.effort = 'high';
     expect(modelArgs(c)).toEqual(['--model', 'opus', '--effort', 'high']);
+  });
+  it("prefers the task's own model and effort over config", () => {
+    const c = defaultConfig();
+    c.agent.model = 'opus';
+    expect(modelArgs(c, { model: 'sonnet' })).toEqual(['--model', 'sonnet']);
+    expect(modelArgs(c, { model: 'sonnet', effort: 'medium' })).toEqual([
+      '--model',
+      'sonnet',
+      '--effort',
+      'medium',
+    ]);
+    expect(modelArgs(c, { effort: 'auto' })).toEqual(['--model', 'opus']);
+  });
+});
+
+describe('doctor: Claude Code knows the 5.5 models', () => {
+  it('warns below 2.1.284, where opus and sonnet still mean the 5.0 models', () => {
+    expect(claudeModelsCheck('2.1.236 (Claude Code)')).toMatchObject({ status: 'warn' });
+    expect(claudeModelsCheck('2.1.283 (Claude Code)')).toMatchObject({ status: 'warn' });
+    expect(claudeModelsCheck('2.1.284 (Claude Code)')).toMatchObject({ status: 'ok' });
+    expect(claudeModelsCheck('2.2.0 (Claude Code)')).toMatchObject({ status: 'ok' });
+    expect(claudeModelsCheck('3.0.1')).toMatchObject({ status: 'ok' });
+    expect(claudeModelsCheck('unknown')).toBeNull();
   });
 });

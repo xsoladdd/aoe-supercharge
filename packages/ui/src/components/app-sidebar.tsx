@@ -33,6 +33,7 @@ import {
   SidebarGroupAction,
 } from '@/components/ui/sidebar';
 import { AddProjectDialog, AdoptDialog } from '@/components/add-project';
+import { UsageMeter } from '@/components/usage';
 import { projectViews, sessionMap, unmanagedGroups } from '@/lib/derive';
 import { chatHref } from '@/lib/nav';
 import { useResolvedTheme } from '@/lib/theme';
@@ -255,6 +256,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
       </SidebarContent>
 
       <SidebarFooter className="gap-0.5 pb-2">
+        <UsageMeter usage={snap.usage ?? null} />
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton

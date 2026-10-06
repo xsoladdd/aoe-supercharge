@@ -34,6 +34,27 @@ export function aoeAppDir(env: NodeJS.ProcessEnv, home: string): string {
   return env.XDG_CONFIG_HOME || process.platform === 'linux' ? xdg : legacy;
 }
 
+/** Claude Code 2.1.284 added Sonnet 5.5; older builds resolve `opus` and `sonnet` to the 5.0 models. */
+export const MODELS_55_SINCE = [2, 1, 284] as const;
+
+export function claudeModelsCheck(versionLine: string): Check | null {
+  const m = /(\d+)\.(\d+)\.(\d+)/.exec(versionLine);
+  if (!m) return null;
+  const have = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const older = have.findIndex((n, i) => n !== MODELS_55_SINCE[i]);
+  const ok = older === -1 || have[older]! > MODELS_55_SINCE[older]!;
+  const since = MODELS_55_SINCE.join('.');
+  return {
+    group: 'Tools',
+    name: 'Claude models',
+    status: ok ? 'ok' : 'warn',
+    detail: ok
+      ? 'opus and sonnet start Opus 5.5 and Sonnet 5.5'
+      : `Claude Code ${have.join('.')} is older than ${since}: opus and sonnet start Opus 5 and Sonnet 5, not 5.5`,
+    fix: ok ? undefined : 'Update Claude Code (Homebrew: brew upgrade claude-code), then start new sessions.',
+  };
+}
+
 export async function runDoctor(ctx: Ctx): Promise<Check[]> {
   const checks: Check[] = [];
   const add = (c: Check) => checks.push(c);
@@ -70,6 +91,10 @@ export async function runDoctor(ctx: Ctx): Promise<Check[]> {
       detail: v ?? 'not found',
       fix: v ? undefined : fix,
     });
+    if (bin === 'claude' && v) {
+      const models = claudeModelsCheck(v);
+      if (models) add(models);
+    }
   }
 
   // AoE

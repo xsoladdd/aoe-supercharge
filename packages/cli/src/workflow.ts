@@ -1,6 +1,14 @@
 import { readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
-import { appendAudit, applyStage, SAFE_ARG, writeFileAtomic, type Config } from '@aoe-supercharge/core/node';
+import { fileURLToPath } from 'node:url';
+import {
+  appendAudit,
+  applyStage,
+  readUsage,
+  SAFE_ARG,
+  writeFileAtomic,
+  type Config,
+} from '@aoe-supercharge/core/node';
 import {
   derivePrefix,
   isSlug,
@@ -15,7 +23,11 @@ import {
   type TaskRecord,
   EFFORT_LEVELS,
   MODEL_ALIASES,
+  countActiveWorkers,
+  normalizeAoeStatus,
+  usageReport,
   type PlanComment,
+  type UsageReport,
 } from '@aoe-supercharge/core/shared';
 import type { AoeCliListEntry } from './aoe/schemas.ts';
 import { VERSION, type Ctx } from './context.ts';
@@ -50,7 +62,12 @@ export interface WhoAmI {
   project: string | null;
   sessionId: string | null;
   branch: string | null;
-  task: Pick<TaskRecord, 'id' | 'title' | 'stage' | 'branch' | 'baseBranch' | 'blockedFrom'> | null;
+  task:
+    | (Pick<TaskRecord, 'id' | 'title' | 'stage' | 'branch' | 'baseBranch' | 'blockedFrom'> & {
+        /** The saved plan, so a worker whose conversation was cleared can pick up where it was. */
+        planFile: string | null;
+      })
+    | null;
   /** Actor used for stage changes: the worker itself, or a human running the CLI in the worktree. */
   actor: Actor;
 }
@@ -98,6 +115,7 @@ export async function whoami(
       branch: task.branch,
       baseBranch: task.baseBranch,
       blockedFrom: task.blockedFrom,
+      planFile: task.plan ? ctx.ledger.planFile(project.name, task.id) : null,
     },
     actor: sessionId ? 'worker' : 'user',
     record: task,
@@ -227,6 +245,7 @@ export async function initProject(
       '--append-system-prompt-file',
       promptFile,
       ...modelArgs(ctx.config),
+      ...(await claudeSettingsArgs(ctx)),
       ...uploadArgs(ctx.paths),
       ...ctx.config.agent.extraArgs,
     ];
@@ -303,16 +322,48 @@ export async function resolveProject(ctx: Ctx, cwd: string, name?: string): Prom
 
 export async function newTask(
   ctx: Ctx,
-  opts: { cwd: string; title: string; project?: string; brief?: string; base?: string; actor?: Actor },
-): Promise<TaskRecord & { warnings?: string[] }> {
+  opts: {
+    cwd: string;
+    title: string;
+    project?: string;
+    brief?: string;
+    base?: string;
+    actor?: Actor;
+    /** claude --model for this worker; defaults to agent.model. */
+    model?: string;
+    effort?: string;
+    /** Start even when your usage or the worker cap says to wait (only when the user says so). */
+    force?: boolean;
+  },
+): Promise<TaskRecord & { warnings?: string[]; usage?: UsageReport }> {
   const title = opts.title.trim();
   if (!title) throw new CliError('A task needs a title.', EXIT.usage);
+  if (opts.model !== undefined && !MODEL_ID.test(opts.model))
+    throw new CliError(
+      `"${opts.model}" is not a model.`,
+      EXIT.usage,
+      `Use an alias (${MODEL_ALIASES.join(', ')}) or a full model id.`,
+    );
+  if (opts.effort !== undefined && !(EFFORT_LEVELS as readonly string[]).includes(opts.effort))
+    throw new CliError(
+      `Unknown effort "${opts.effort}".`,
+      EXIT.usage,
+      `Use one of: ${EFFORT_LEVELS.join(', ')}.`,
+    );
   const project = await resolveProject(ctx, opts.cwd, opts.project);
   if (!project.controlSessionId)
     throw new CliError(
       `Project "${project.name}" has no control session.`,
       EXIT.usage,
       'Run "supercharge init" in its repository first.',
+    );
+  const sessionsBefore = await listAoe(ctx);
+  const usage = await usageNow(ctx, sessionsBefore);
+  if (!usage.canStart && !opts.force)
+    throw new CliError(
+      `Not starting "${title}": ${usage.advice}`,
+      EXIT.limited,
+      'Tell the user which tasks are waiting and why. Start it later, or add --force if the user says to start it anyway.',
     );
   const overrides = ctx.config.projects[project.name] ?? {};
   const id = await ctx.ledger.allocateTaskId(project.name);
@@ -336,7 +387,9 @@ export async function newTask(
     }),
   );
 
-  const before = new Set((await listAoe(ctx)).map((s) => s.id));
+  const before = new Set(sessionsBefore.map((s) => s.id));
+  const model = opts.model ?? (ctx.config.agent.model || null);
+  const effort = opts.effort ?? (ctx.config.agent.effort === 'default' ? null : ctx.config.agent.effort);
   const r = await ctx.aoeCli.add({
     path: project.repoPath,
     title: `${id} ${title}`,
@@ -348,7 +401,8 @@ export async function newTask(
     extraArgs: [
       '--append-system-prompt-file',
       promptFile,
-      ...modelArgs(ctx.config),
+      ...modelArgs(ctx.config, { model, effort }),
+      ...(await claudeSettingsArgs(ctx)),
       ...uploadArgs(ctx.paths),
       '--permission-mode',
       ctx.config.agent.workerPermissionMode,
@@ -386,6 +440,8 @@ export async function newTask(
     openQuestion: null,
     plan: null,
     mr: null,
+    model,
+    effort,
     createdAt: at,
     updatedAt: at,
     history: [{ at, from: null, to: 'planning', by: opts.actor ?? 'control', note: 'Task created' }],
@@ -402,9 +458,32 @@ export async function newTask(
     project: project.name,
     taskId: id,
     sessionId: created.id,
-    details: { branch, baseBranch },
+    details: {
+      branch,
+      baseBranch,
+      model,
+      effort,
+      ...(usage.canStart ? {} : { forced: usage.advice }),
+    },
   });
-  return launchWarn ? { ...task, warnings: [launchWarn] } : task;
+  // Counting the worker that just started, for the control chat's next decision.
+  const after = usageReport(await readUsage(ctx.paths), usage.activeWorkers + 1, ctx.config.limits);
+  return { ...task, usage: after, ...(launchWarn ? { warnings: [launchWarn] } : {}) };
+}
+
+/** Your usage right now, from the status line's last reading and the workers already active. */
+export async function usageNow(ctx: Ctx, sessions?: AoeCliListEntry[]): Promise<UsageReport> {
+  // Run status comes from the REST list; `aoe list` only says a session exists (its `state` is
+  // live/archived), so without the daemon every existing worker counts as running.
+  const rest = await ctx.aoe.listSessions().catch(() => null);
+  const status = new Map<string, string>(
+    rest
+      ? rest.map((s) => [s.id, normalizeAoeStatus(s.status)])
+      : (sessions ?? (await listAoe(ctx))).map((s) => [s.id, 'unknown']),
+  );
+  const tasks = await ctx.ledger.listTasks();
+  const active = countActiveWorkers(tasks, (id) => status.get(id) ?? null);
+  return usageReport(await readUsage(ctx.paths), active, ctx.config.limits);
 }
 
 // ── stage / ask / plan ────────────────────────────────────────────────────────
@@ -836,12 +915,49 @@ export async function sendPlanComments(
   );
 }
 
-/** `--model` / `--effort` for a new session from config: session-only, unlike /model typed later. */
-export function modelArgs(config: Config): string[] {
+/** An alias or a full model id; it lands on AoE's shell line, so nothing else. */
+const MODEL_ID = /^[A-Za-z0-9._-]{1,80}$/;
+
+/**
+ * `--model` / `--effort` for a new session: the task's own choice, else config. Session-only, unlike
+ * a /model typed later.
+ */
+export function modelArgs(
+  config: Config,
+  pick: { model?: string | null; effort?: string | null } = {},
+): string[] {
   const args: string[] = [];
-  if (config.agent.model) args.push('--model', config.agent.model);
-  if (config.agent.effort !== 'default') args.push('--effort', config.agent.effort);
+  const model = pick.model ?? config.agent.model;
+  const effort = pick.effort ?? (config.agent.effort === 'default' ? null : config.agent.effort);
+  if (model) args.push('--model', model);
+  if (effort && effort !== 'default' && effort !== 'auto') args.push('--effort', effort);
   return args;
+}
+
+/** Where `supercharge statusline` lives: next to this bundle (dist/supercharge.mjs). */
+const CLI_SCRIPT = fileURLToPath(import.meta.url);
+
+/**
+ * `--settings <file>` for a new session: the auto-compact window and the status line that records
+ * your usage (agent.autoCompactWindow, agent.statusLine). Claude Code layers these over your own
+ * settings for that session only. The file is rewritten each time, so it follows upgrades.
+ */
+export async function claudeSettingsArgs(ctx: Ctx): Promise<string[]> {
+  const settings: Record<string, unknown> = {};
+  if (ctx.config.agent.autoCompactWindow) settings.autoCompactWindow = ctx.config.agent.autoCompactWindow;
+  if (ctx.config.agent.statusLine) {
+    const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+    settings.statusLine = {
+      type: 'command',
+      command: `${q(process.execPath)} ${q(CLI_SCRIPT)} statusline`,
+      padding: 0,
+    };
+  }
+  if (!Object.keys(settings).length) return [];
+  const file = ctx.paths.claudeSettingsFile;
+  assertSafeArg(file, 'The Claude settings path');
+  await writeFileAtomic(file, `${JSON.stringify(settings, null, 2)}\n`);
+  return ['--settings', file];
 }
 
 /**

@@ -362,6 +362,11 @@ export class FakeTranscripts {
 
   /** The prompt lands at once; the reply follows a moment later. Statuses are left alone on purpose. */
   converse(aoeId: string, cwd: string, message: string, delayMs = 900) {
+    // /clear starts a new conversation under a new session id, like Claude Code.
+    if (message.trim() === '/clear') {
+      if (this.byId.delete(aoeId)) this.for(aoeId, cwd);
+      return;
+    }
     const t = this.for(aoeId, cwd);
     // /model and /effort answer at once, like Claude Code's local commands.
     const slash = /^\/(model|effort)\s+(\S+)/.exec(message.trim());

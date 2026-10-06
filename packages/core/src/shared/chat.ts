@@ -21,7 +21,8 @@ export interface ChatMessage {
 }
 
 /** Choices the dashboard offers for a running session (short enough for AoE to type as a command). */
-export const MODEL_ALIASES = ['fable', 'opus', 'sonnet', 'haiku', 'default'] as const;
+/** Claude Code's model aliases; `opusplan` runs Opus in plan mode and Sonnet otherwise. */
+export const MODEL_ALIASES = ['fable', 'opus', 'opusplan', 'sonnet', 'haiku', 'default'] as const;
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max', 'auto'] as const;
 export type ModelAlias = (typeof MODEL_ALIASES)[number];
 export type EffortLevel = (typeof EFFORT_LEVELS)[number];

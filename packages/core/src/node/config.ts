@@ -65,12 +65,76 @@ export const ConfigSchema = z.strictObject({
         .regex(/^[A-Za-z0-9._-]*$/, 'An alias like opus or sonnet, or a full model id')
         .default('')
         .describe(
-          'Model for new sessions (claude --model): fable, opus, sonnet, haiku or a full id. Empty uses your Claude Code default.',
+          'Model for new control chats, and for workers started without --model (the control chat picks sonnet or opus per task). An alias (fable, opus, opusplan, sonnet, haiku) or a full id. Empty uses your Claude Code default.',
         ),
       effort: z
         .enum(['default', 'low', 'medium', 'high', 'xhigh', 'max'])
         .default('default')
         .describe('Effort for new sessions (claude --effort). Applies to that session only.'),
+      autoCompactWindow: z
+        .number()
+        .int()
+        .refine((n) => n === 0 || (n >= 100_000 && n <= 1_000_000), '0, or 100000 to 1000000')
+        .default(500_000)
+        .describe(
+          'Tokens before Claude Code compacts the conversation, for new sessions (like /autocompact). Lower keeps every turn cheaper. 0 uses your Claude Code setting.',
+        ),
+      statusLine: z
+        .boolean()
+        .default(true)
+        .describe(
+          "Give new sessions Supercharge's status line, which records your 5-hour and weekly usage for the limits below. Your own status line, if you have one, still shows.",
+        ),
+    })
+    .prefault({}),
+  limits: z
+    .strictObject({
+      enabled: z
+        .boolean()
+        .default(true)
+        .describe('Check your 5-hour and weekly usage before a new worker starts.'),
+      maxWorkers: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .default(4)
+        .describe('Workers that may be active at once (planning, implementing, verifying or blocked).'),
+      busyMaxWorkers: z
+        .number()
+        .int()
+        .min(1)
+        .max(50)
+        .default(2)
+        .describe('Workers that may be active at once while a limit is getting full.'),
+      fiveHourBusyAt: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .default(50)
+        .describe('5-hour usage (%) at which fewer workers run at once.'),
+      fiveHourStopAt: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .default(85)
+        .describe('5-hour usage (%) at which no new worker starts until the window resets.'),
+      weeklyBusyAt: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .default(75)
+        .describe('Weekly usage (%) at which fewer workers run at once.'),
+      weeklyStopAt: z
+        .number()
+        .int()
+        .min(1)
+        .max(100)
+        .default(95)
+        .describe('Weekly usage (%) at which no new worker starts until the week resets.'),
     })
     .prefault({}),
   remoteControl: z

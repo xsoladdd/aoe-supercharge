@@ -32,6 +32,7 @@ import { ApiError, sendJson } from '@/lib/api';
 const MODEL_LABEL: Record<ModelAlias, string> = {
   fable: 'Fable',
   opus: 'Opus',
+  opusplan: 'Opus to plan, Sonnet to build',
   sonnet: 'Sonnet',
   haiku: 'Haiku',
   default: 'Your default',

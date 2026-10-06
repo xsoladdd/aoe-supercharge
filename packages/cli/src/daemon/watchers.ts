@@ -4,11 +4,14 @@ import {
   checkCompat,
   loadConfig,
   readLocalCompat,
+  readUsage,
   restartRequiredFor,
   type Config,
 } from '@aoe-supercharge/core/node';
 import {
+  countActiveWorkers,
   normalizeAoeStatus,
+  usageReport,
   type AoeState,
   type Health,
   type LiveStatus,
@@ -158,6 +161,7 @@ export class AoeWatcher {
     }
     this.store.setSessions(views);
     for (const id of [...this.since.keys()]) if (!live.some((s) => s.id === id)) this.since.delete(id);
+    await this.refreshUsage();
     this.setAoe({
       state: 'ok',
       origin: this.ctx.aoe.currentOrigin,
@@ -165,6 +169,13 @@ export class AoeWatcher {
       fix: null,
       lastPollAt: nowIso(),
     });
+  }
+
+  /** Re-read usage.json (the status line writes it) against the workers active now. */
+  async refreshUsage(): Promise<void> {
+    const status = new Map(this.store.sessions.map((v) => [v.id, v.status]));
+    const active = countActiveWorkers(this.store.tasks, (id) => status.get(id) ?? null);
+    this.store.setUsage(usageReport(await readUsage(this.ctx.paths), active, this.ctx.config.limits));
   }
 
   private toView(s: AoeSession): SessionView {

@@ -31,6 +31,8 @@ export interface FakeSession {
   parent_session_id: string | null;
   /** Fake only: a Claude Code menu drawn at the bottom of the pane (see PLAN_MENU). Never sent over REST. */
   menu?: string | null;
+  /** Fake only: the `aoe add --extra-args` string, so tests can see the claude flags. Never sent over REST. */
+  extra_args?: string | null;
 }
 
 /** Claude Code 2.1's plan approval, as it appears in the pane. */
@@ -120,7 +122,7 @@ export function makeSession(p: Partial<FakeSession> & { title: string; project_p
 
 /** REST shape: AoE 1.17.2 omits the parent link from SessionResponse. */
 function toRest(s: FakeSession) {
-  const { parent_session_id: _p, menu: _m, ...rest } = s;
+  const { parent_session_id: _p, menu: _m, extra_args: _x, ...rest } = s;
   return {
     ...rest,
     artifact_dir: `/tmp/fake-aoe/${s.id}`,

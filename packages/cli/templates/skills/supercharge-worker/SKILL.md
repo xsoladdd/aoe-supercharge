@@ -67,3 +67,6 @@ Then **stop and wait**. Do not keep working while blocked. When the answer arriv
 - One task per session. Stay inside this worktree and branch.
 - Never write Supercharge files into the repository.
 - If a `supercharge` command rejects a move, follow the hint it prints.
+- Never wait in a loop. Do not `sleep` and re-check pipelines, merge requests or anything else; after `mr_raised`, stop. Supercharge watches the MR and the user brings you review feedback.
+- Keep your context small: search for the code you need instead of reading whole large files or directories.
+- If your conversation was cleared, run `supercharge whoami --json`: it shows your task and stage, and `task.planFile` is your approved plan. Read it and continue.

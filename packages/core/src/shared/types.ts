@@ -1,5 +1,6 @@
 import type { SessionPrompt } from './prompt.ts';
 import type { Stage } from './stages.ts';
+import type { UsageReport } from './usage.ts';
 
 export type Actor = 'worker' | 'daemon' | 'user' | 'control';
 
@@ -80,6 +81,9 @@ export interface TaskRecord {
   openQuestion: OpenQuestion | null;
   plan: PlanRef | null;
   mr: MrState | null;
+  /** The model and effort the worker was started with (null: Claude Code's default). Older tasks lack them. */
+  model?: string | null;
+  effort?: string | null;
   createdAt: string;
   updatedAt: string;
   history: HistoryEntry[];
@@ -185,6 +189,8 @@ export interface Snapshot {
   projects: ProjectRecord[];
   tasks: TaskRecord[];
   needsYou: NeedsYouItem[];
+  /** Your 5-hour and weekly usage and whether another worker may start (null until the daemon has read it). */
+  usage: UsageReport | null;
   ui: {
     theme: 'dark' | 'light' | 'system';
     density: 'comfortable' | 'compact';
@@ -199,6 +205,7 @@ export type SnapshotEvent =
   | { type: 'tasks'; data: TaskRecord[] }
   | { type: 'projects'; data: ProjectRecord[] }
   | { type: 'needs_you'; data: NeedsYouItem[] }
+  | { type: 'usage'; data: UsageReport }
   | { type: 'health'; data: Health };
 
 export interface ProjectStatus {

@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+Spend less of your Claude plan limits.
+
+- The control chat picks a model per worker: `supercharge task new --model sonnet` for well-scoped work
+  (bug fixes with a clear repro, CI and review follow-ups, tests, docs), `--model opus` for the harder
+  work. `--effort` and `opusplan` (Opus plans, Sonnet builds) work too; the task page shows what a worker
+  started on.
+- Usage limits: sessions Supercharge starts get a status line that records your 5-hour and weekly usage
+  (your own status line still shows). `supercharge usage` and the sidebar show it. `task new` refuses
+  (exit 6) when the worker cap is reached or a window is nearly used, and allows fewer workers at once
+  while a window fills up (`[limits]` in Settings). `--force` overrides it when you say so.
+- New sessions auto-compact at 500k tokens instead of the model's full window (`agent.autoCompactWindow`).
+- Start fresh: the chat menu clears a conversation with `/clear`; the task, plan and stage stay in
+  Supercharge, and workers find their plan again with `supercharge whoami`.
+- The skills tell the control chat to check usage before spawning, keep one fresh worker per story and
+  never poll in loops, and tell workers not to wait on pipelines in a loop.
+- `supercharge doctor` warns when Claude Code is older than 2.1.284, where `opus` and `sonnet` still start
+  the 5.0 models.
+- The "needs you" sound plays once per item instead of every time an item drops out and comes back.
+
 ## 0.2.0 (2026-10-05)
 
 The dashboard becomes the place you work from: chats rendered like Claude, answers to whatever a worker is

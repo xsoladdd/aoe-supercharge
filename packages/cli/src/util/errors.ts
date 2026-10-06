@@ -6,6 +6,8 @@ export const EXIT = {
   invalidTransition: 3,
   notInTask: 4,
   aoeIncompatible: 5,
+  /** `task new` held back by your 5-hour or weekly usage, or the worker cap. */
+  limited: 6,
   configInvalid: 78,
 } as const;
 

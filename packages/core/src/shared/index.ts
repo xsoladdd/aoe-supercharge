@@ -6,3 +6,4 @@ export * from './needs-you.ts';
 export * from './util.ts';
 export * from './chat.ts';
 export * from './prompt.ts';
+export * from './usage.ts';

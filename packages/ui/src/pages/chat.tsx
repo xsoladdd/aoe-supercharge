@@ -16,6 +16,7 @@ import {
   PaperclipIcon,
   XIcon,
   SidebarSimpleIcon,
+  BroomIcon,
 } from '@phosphor-icons/react';
 import {
   LIVE_STATUS_LABEL,
@@ -40,6 +41,16 @@ import { useChat } from '@/components/chat/use-chat';
 import { CommandLine, copyText } from '@/components/copy';
 import { Conversation, useSessionOutput } from '@/components/session-chat';
 import { LiveStatus } from '@/components/status';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -667,6 +678,70 @@ function ChatComposer({
   );
 }
 
+/**
+ * Clear the conversation with /clear. Long conversations resend everything with each message, so a
+ * fresh one per story keeps your usage down; Supercharge keeps the task, plan and stage either way.
+ */
+function StartFresh({
+  session,
+  role,
+  open,
+  onOpenChange,
+}: {
+  session: SessionView;
+  role: Role;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const clear = async () => {
+    setBusy(true);
+    try {
+      await sendJson('POST', `/api/sessions/${encodeURIComponent(session.id)}/send`, { message: '/clear' });
+      toast.success('Started a fresh conversation');
+      onOpenChange(false);
+    } catch (e) {
+      toast.error('Could not clear the conversation', {
+        description: e instanceof ApiError ? e.message : undefined,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+  const kept =
+    role.kind === 'control'
+      ? 'Your tasks, workers, plans and notes stay in Supercharge, and the control chat catches up from them when you next ask it something.'
+      : role.kind === 'worker'
+        ? `${role.taskId}'s brief, stage and approved plan stay in Supercharge; the worker reads them back with supercharge whoami.`
+        : 'Nothing is kept for this session: it is not part of a Supercharge project.';
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Start a fresh conversation?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Supercharge types /clear into this session. Claude forgets this conversation, so every message
+            after that costs less of your limit. {kept}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            disabled={busy || session.status === 'working'}
+            onClick={(e) => {
+              e.preventDefault();
+              void clear();
+            }}
+          >
+            {busy ? <CircleNotchIcon className="animate-spin" /> : <BroomIcon />}
+            {session.status === 'working' ? 'Wait until Claude is done' : 'Clear conversation'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 function ChatHeader({
   session,
   title,
@@ -691,6 +766,7 @@ function ChatHeader({
   panel?: { open: boolean; toggle: () => void };
 }) {
   const attach = `aoe session attach ${session.id}`;
+  const [fresh, setFresh] = useState(false);
   return (
     <HeaderActions>
       {!embedded && (
@@ -780,8 +856,14 @@ function ChatHeader({
             <CopyIcon />
             Copy session id
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setFresh(true)}>
+            <BroomIcon />
+            Start fresh (/clear)…
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+      <StartFresh session={session} role={role} open={fresh} onOpenChange={setFresh} />
     </HeaderActions>
   );
 }
