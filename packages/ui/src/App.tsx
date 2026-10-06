@@ -87,13 +87,23 @@ function CenterCard({ children }: { children: React.ReactNode }) {
 }
 
 function SignedOut() {
+  // The demo signs in from its own folder; your installed `supercharge open` opens your real dashboard.
+  const [demo, setDemo] = useState(false);
+  useEffect(() => {
+    fetch('/healthz')
+      .then((r) => r.json() as Promise<{ demo?: boolean }>)
+      .then((h) => setDemo(h.demo === true))
+      .catch(() => {});
+  }, []);
   return (
     <CenterCard>
       <h1 className="text-[1.375rem] font-semibold">Sign in from your terminal</h1>
       <p className="mt-2 text-[0.9375rem] text-muted-foreground">
-        The dashboard only accepts this machine’s local token. Run this to open a signed-in tab:
+        {demo
+          ? 'This is the demo. In the Supercharge folder, run this to open a signed-in tab:'
+          : 'The dashboard only accepts this machine’s local token. Run this to open a signed-in tab:'}
       </p>
-      <CommandLine command="supercharge open" className="mt-4" />
+      <CommandLine command={demo ? 'npm run demo:open' : 'supercharge open'} className="mt-4" />
     </CenterCard>
   );
 }

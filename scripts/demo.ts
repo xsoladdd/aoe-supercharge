@@ -34,7 +34,7 @@ const demo = await startDemo({ dir, port, aoePort: port + 1 });
 process.stdout.write(`\nSupercharge demo running on ${demo.baseUrl}\n`);
 process.stdout.write(`Sign in (one-time link, valid 60s):\n  ${await demo.signInUrl()}\n`);
 process.stdout.write(
-  `New link any time: HOME=${demo.dir} XDG_CONFIG_HOME=${demo.dir}/.config node packages/cli/dist/supercharge.mjs open --print\n\n`,
+  'Open it signed in any time (from this folder, in another terminal): npm run demo:open\n\n',
 );
 const stopLife = process.argv.includes('--live') ? startLife(demo) : () => {};
 const stop = async () => {

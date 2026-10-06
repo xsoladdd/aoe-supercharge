@@ -19,6 +19,7 @@
     "dev:ui": "npm run dev -w @aoe-supercharge/ui",
     "demo": "npm run build && tsx scripts/demo.ts",
     "demo:nobuild": "tsx scripts/demo.ts",
+    "demo:open": "tsx scripts/demo-open.ts",
     "dev": "tsx scripts/dev.ts"
   },
   "devDependencies": {

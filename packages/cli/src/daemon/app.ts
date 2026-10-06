@@ -153,7 +153,8 @@ export function createApp(deps: AppDeps) {
     c.header('Cross-Origin-Resource-Policy', 'same-origin');
   });
 
-  app.get('/healthz', (c) => c.json({ ok: true, version: VERSION }));
+  // `demo` lets the signed-out page name the demo's own sign-in command.
+  app.get('/healthz', (c) => c.json({ ok: true, version: VERSION, demo: store.health.daemon.demo }));
 
   app.get('/auth/callback', (c) => {
     const nonce = c.req.query('nonce') ?? '';

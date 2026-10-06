@@ -14,7 +14,8 @@ test.describe('auth', () => {
   test('without the cookie the dashboard shows the sign-in instructions', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: 'Sign in from your terminal' })).toBeVisible();
-    await expect(page.getByText('supercharge open')).toBeVisible();
+    // The test daemon is a demo, so it names the demo's own sign-in command.
+    await expect(page.getByText('npm run demo:open')).toBeVisible();
   });
 
   test('a used sign-in link is rejected', async ({ page, request }) => {
