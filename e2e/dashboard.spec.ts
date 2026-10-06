@@ -144,7 +144,8 @@ test.describe('project', () => {
     await expect(page.getByText(/aoe session attach/)).toBeVisible();
     const details = page.getByRole('complementary', { name: 'Task details' });
     await expect(details.getByText('Started on')).toBeVisible();
-    await expect(details.getByText('Your Claude Code default')).toBeVisible();
+    // Started without --model in plan mode: it plans with Opus and builds with Sonnet.
+    await expect(details.getByText('Opus to plan, then Sonnet once the plan is approved')).toBeVisible();
     await axe(page, 'task overview');
     await tabs.getByRole('link', { name: 'Plan' }).click();
     await expect(page).toHaveURL(/\/t\/NW-0001\/plan$/);
@@ -795,6 +796,8 @@ test.describe('right-click', () => {
     await expect(menu.getByRole('menuitem', { name: /Delete/ })).toHaveAttribute('data-disabled', '');
     await menu.getByRole('menuitem', { name: 'Unlock' }).click();
     await expect(row(names[0]!).getByRole('img', { name: 'Locked' })).toHaveCount(0, { timeout: 15_000 });
+    // Let the closing menu finish leaving, so the next one is the only menu on the page.
+    await expect(menu).toHaveCount(0);
 
     // Both at once: archive, and they move to the Archived list.
     await row(names[0]!).click({ modifiers: ['ControlOrMeta'] });

@@ -54,7 +54,7 @@ export type TaskTab = 'overview' | 'chat' | 'plan';
 /** The model a worker was started with, as Supercharge passed it (older tasks did not record one). */
 function startedOn(model: string | null | undefined): string {
   if (!model) return 'Your Claude Code default';
-  if (model === 'opusplan') return 'Opus in plan mode, else Sonnet';
+  if (model === 'opusplan') return 'Opus to plan, then Sonnet once the plan is approved';
   if (/^claude-/.test(model)) return prettyModel(model);
   return model.charAt(0).toUpperCase() + model.slice(1);
 }

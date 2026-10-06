@@ -25,6 +25,12 @@
   it, which resumes the same conversation on the 5.5 models.
 - Settings: the agent settings say they apply to chats started from now on, instead of asking for a
   daemon restart that would not change a running chat. The model menu marks the current model.
+- **Workers always plan with Opus.** A worker for Sonnet-level work (or started without `--model`)
+  starts on `opusplan`: Claude Code runs it on Opus while it is in plan mode and on Sonnet once you
+  approve the plan. `--model opus` plans and builds on Opus. The control skill picks the build model.
+- The chat shows a `/model` switch at once. Claude Code prints the new model's display name in colour,
+  sometimes in a different record, so the chat used to keep showing the last reply's model. `opusplan`
+  shows as Opus Plan, and a control chat on it is flagged, since it answers with Sonnet outside plan mode.
 
 ## 0.2.1 (2026-10-06)
 

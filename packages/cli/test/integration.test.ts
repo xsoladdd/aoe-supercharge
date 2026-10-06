@@ -334,16 +334,18 @@ describe('workflow through the real CLI against fake AoE', () => {
     const r = await sc(['task', 'new', 'Fix footer typo', '--model', 'sonnet', '--brief', 'Typo.', '--json']);
     expect(r.code, r.stderr).toBe(0);
     const out = JSON.parse(r.stdout);
-    expect(out).toMatchObject({ model: 'sonnet', usage: { activeWorkers: 1, canStartCount: 3 } });
+    // Workers start in plan mode and plan with Opus: Sonnet-level work starts on opusplan.
+    expect(out).toMatchObject({ model: 'opusplan', usage: { activeWorkers: 1, canStartCount: 3 } });
     const settingsFile = join(home, '.local/state/supercharge/claude-settings.json');
     const args = fake.state.sessions.find((s) => s.id === out.aoeSessionId)?.extra_args ?? '';
-    expect(args).toContain('--model sonnet');
+    expect(args).toContain('--model opusplan');
+    expect(args).toContain('--permission-mode plan');
     expect(args).toContain(`--settings ${settingsFile}`);
     const settings = JSON.parse(await readFile(settingsFile, 'utf8'));
     expect(settings.autoCompactWindow).toBe(500_000);
     expect(settings.statusLine).toMatchObject({ type: 'command', padding: 0 });
     expect(settings.statusLine.command).toMatch(/supercharge\.mjs' statusline$/);
-    expect((await readTask(out.id)).model).toBe('sonnet');
+    expect((await readTask(out.id)).model).toBe('opusplan');
     expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
   });
 

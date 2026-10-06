@@ -39,13 +39,13 @@ supercharge usage --json
 
 ### 3.2 Pick the model for each worker
 
-Every `supercharge task new` gets a `--model`:
+Workers always plan with Opus, so the plan is never where usage is saved. What you pick is the model that builds once the user approves the plan. Every `supercharge task new` gets a `--model`:
 
-- `--model sonnet` (Sonnet 5.5) for well-scoped work: a bug fix with a clear repro, CI or review follow-ups, tests, docs, and small changes that follow an existing pattern.
-- `--model opus` (Opus 5.5) for the harder work: unclear causes, design decisions, changes across many modules, migrations, security-sensitive code.
+- `--model sonnet` for well-scoped work: a bug fix with a clear repro, CI or review follow-ups, tests, docs, and small changes that follow an existing pattern. Supercharge starts these workers on `opusplan`: Opus 5.5 while they plan, Sonnet 5.5 once the plan is approved.
+- `--model opus` for the harder work: unclear causes, design decisions, changes across many modules, migrations, security-sensitive code. Opus 5.5 plans and builds.
 - Use `fable` only when the user asks for it.
 
-If the brief needs design decisions or the cause is unknown, it is not well scoped: use `opus`. Tell the user which model you picked for each task.
+If the brief needs design decisions or the cause is unknown, it is not well scoped: use `opus`. Tell the user which model builds each task.
 
 ### 3.3 Create the task
 

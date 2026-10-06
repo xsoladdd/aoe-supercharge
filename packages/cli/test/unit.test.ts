@@ -22,7 +22,7 @@ import { renderLaunchdPlist, renderSystemdUnit } from '../src/service/index.ts';
 import { removeManagedBlock, upsertManagedBlock } from '../src/skills.ts';
 import { parseRemote } from '../src/util/git.ts';
 import { redact } from '../src/util/logger.ts';
-import { modelArgs } from '../src/workflow.ts';
+import { modelArgs, workerModel } from '../src/workflow.ts';
 
 const FIXTURES = join(import.meta.dirname, '../../../fixtures/aoe');
 
@@ -242,6 +242,17 @@ describe('aoe upgrade helpers', () => {
 });
 
 describe('model and effort for new sessions', () => {
+  it('workers that start in plan mode always plan with Opus', () => {
+    expect(workerModel('sonnet', 'plan')).toBe('opusplan');
+    expect(workerModel('claude-sonnet-5-5', 'plan')).toBe('opusplan');
+    expect(workerModel(null, 'plan')).toBe('opusplan');
+    expect(workerModel('opus', 'plan')).toBe('opus');
+    expect(workerModel('opusplan', 'plan')).toBe('opusplan');
+    expect(workerModel('fable', 'plan')).toBe('fable');
+    // Without a plan step there is nothing to plan with Opus.
+    expect(workerModel('sonnet', 'auto')).toBe('sonnet');
+    expect(workerModel(null, 'acceptEdits')).toBeNull();
+  });
   it('adds --model / --effort only when set (session-only launch flags)', () => {
     const c = defaultConfig();
     expect(modelArgs(c)).toEqual([]);

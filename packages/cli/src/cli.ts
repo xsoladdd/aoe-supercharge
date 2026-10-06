@@ -409,7 +409,10 @@ export function buildProgram(): Command {
     .option('--brief <text>', 'task brief')
     .option('--brief-file <path>', 'read the brief from a file')
     .option('--base <branch>', 'base branch')
-    .option('-m, --model <model>', 'model for this worker: sonnet, opus, opusplan, fable, haiku or a full id')
+    .option(
+      '-m, --model <model>',
+      'model for this worker: opus, sonnet, fable, haiku or a full id. Workers plan with Opus: sonnet (or none) starts on opusplan, Opus while planning and Sonnet once the plan is approved',
+    )
     .option('--effort <level>', 'effort for this worker: low, medium, high, xhigh or max')
     .option('--force', 'start even when your usage or the worker cap says to wait')
     .option('--json', 'machine-readable output')
@@ -460,7 +463,9 @@ export function buildProgram(): Command {
         out(`  branch   ${t.branch} (from ${t.baseBranch})`);
         out(`  worktree ${t.worktreePath}`);
         out(`  session  ${t.aoeSessionId}`);
-        out(`  model    ${t.model ?? 'Claude Code default'}${t.effort ? `, effort ${t.effort}` : ''}`);
+        out(
+          `  model    ${t.model === 'opusplan' ? 'opusplan (plans with Opus, builds with Sonnet)' : (t.model ?? 'Claude Code default')}${t.effort ? `, effort ${t.effort}` : ''}`,
+        );
         if (t.usage) out(`  usage    ${t.usage.advice}`);
       },
     );

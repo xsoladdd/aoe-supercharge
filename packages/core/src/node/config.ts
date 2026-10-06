@@ -72,7 +72,7 @@ export const ConfigSchema = z.strictObject({
         .regex(/^[A-Za-z0-9._-]*$/, 'An alias like opus or sonnet, or a full model id')
         .default('')
         .describe(
-          'Model for workers started without --model. The control chat picks one per task (sonnet for well-scoped work, opus for harder work), so this is only the fallback. Empty uses your Claude Code default.',
+          'Model for workers started without --model. The control chat picks one per task (sonnet for well-scoped work, opus for harder work), so this is only the fallback. Workers that start in plan mode always plan with Opus: sonnet, or nothing here, starts them on opusplan (Opus while planning, Sonnet once the plan is approved).',
         ),
       effort: z
         .enum(['default', 'low', 'medium', 'high', 'xhigh', 'max'])

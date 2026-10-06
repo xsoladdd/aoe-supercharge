@@ -389,7 +389,10 @@ export async function newTask(
   );
 
   const before = new Set(sessionsBefore.map((s) => s.id));
-  const model = opts.model ?? (ctx.config.agent.model || null);
+  const model = workerModel(
+    opts.model ?? (ctx.config.agent.model || null),
+    ctx.config.agent.workerPermissionMode,
+  );
   const effort = opts.effort ?? (ctx.config.agent.effort === 'default' ? null : ctx.config.agent.effort);
   const r = await ctx.aoeCli.add({
     path: project.repoPath,
@@ -1034,6 +1037,17 @@ export async function sendPlanComments(
   return ctx.ledger.updateComments(opts.project, opts.taskId, (cur) =>
     cur.map((c) => (ids.has(c.id) ? { ...c, sentAt: at } : c)),
   );
+}
+
+/**
+ * The model a worker starts on. Workers start in plan mode, and planning is always Opus: Sonnet-level work
+ * (or no model at all) starts on `opusplan`, which Claude Code runs as Opus while in plan mode and as
+ * Sonnet once the plan is approved (2.1.285: `opusplan` swaps to Opus only in plan mode, and stays on
+ * Sonnet past 200k tokens). Opus, or anything else asked for, stays as it is.
+ */
+export function workerModel(model: string | null, permissionMode: string): string | null {
+  if (permissionMode !== 'plan') return model;
+  return model === null || /^(claude-)?sonnet\b/i.test(model) ? 'opusplan' : model;
 }
 
 /** An alias or a full model id; it lands on AoE's shell line, so nothing else. */
