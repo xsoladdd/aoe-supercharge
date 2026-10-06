@@ -643,6 +643,113 @@ test.describe('project', () => {
   });
 });
 
+test.describe('right-click', () => {
+  test('Ctrl/⌘ and Shift select sidebar rows; right-click acts on the selection; Escape clears it', async ({
+    signedIn: page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 860 });
+    await page.goto('/p/northwind-web');
+    const rows = page
+      .locator('[data-sidebar="menu-item"]', { has: page.getByRole('link', { name: 'northwind-web' }) })
+      .locator('[data-sidebar="menu-sub-item"]')
+      .filter({ hasNotText: 'Control chat' });
+    await rows.nth(0).click({ modifiers: ['ControlOrMeta'] });
+    await rows.nth(2).click({ modifiers: ['Shift'] });
+    await expect(page).toHaveURL(/\/p\/northwind-web$/);
+    await expect(page.locator('[data-sidebar="menu-sub-item"][data-selected]')).toHaveCount(3);
+    await expect(page.getByRole('status').filter({ hasText: '3 selected' })).toBeVisible();
+    await rows.nth(1).click({ button: 'right' });
+    const menu = page.getByRole('menu', { name: 'Session actions' });
+    await expect(menu.getByText('3 sessions')).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Archive' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: 'Open', exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(page.locator('[data-sidebar="menu-sub-item"][data-selected]')).toHaveCount(3);
+    await page.keyboard.press('Escape');
+    await expect(page.locator('[data-sidebar="menu-sub-item"][data-selected]')).toHaveCount(0);
+    // A right-click on a row outside the selection acts on that row alone.
+    await rows.nth(0).click({ button: 'right' });
+    await expect(page.getByRole('menuitem', { name: 'Open', exact: true })).toBeVisible();
+    await axe(page, 'session menu');
+    await page.keyboard.press('Escape');
+  });
+
+  test('lock, archive, unarchive and delete sessions from the menu, one or several at once', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    const names = [`rc ${browserName} one`, `rc ${browserName} two`];
+    for (const title of names)
+      await fake('/__fake/sessions', {
+        method: 'POST',
+        body: JSON.stringify({ title, project_path: `/tmp/${title.replace(/ /g, '-')}`, status: 'Idle' }),
+      });
+    await page.goto('/');
+    const row = (name: string) => page.locator('li', { hasText: name });
+    await expect(row(names[0]!)).toBeVisible({ timeout: 15_000 });
+    const menu = page.getByRole('menu', { name: 'Session actions' });
+
+    // Lock: archive and delete are refused until it is unlocked.
+    await row(names[0]!).click({ button: 'right' });
+    await menu.getByRole('menuitem', { name: 'Lock' }).click();
+    await expect(row(names[0]!).getByRole('img', { name: 'Locked' })).toBeVisible({ timeout: 15_000 });
+    await row(names[0]!).click({ button: 'right' });
+    await expect(menu.getByRole('menuitem', { name: /Archive/ })).toHaveAttribute('data-disabled', '');
+    await expect(menu.getByRole('menuitem', { name: /Delete/ })).toHaveAttribute('data-disabled', '');
+    await menu.getByRole('menuitem', { name: 'Unlock' }).click();
+    await expect(row(names[0]!).getByRole('img', { name: 'Locked' })).toHaveCount(0, { timeout: 15_000 });
+
+    // Both at once: archive, and they move to the Archived list.
+    await row(names[0]!).click({ modifiers: ['ControlOrMeta'] });
+    await row(names[1]!).click({ modifiers: ['ControlOrMeta'] });
+    await row(names[1]!).click({ button: 'right' });
+    await expect(menu.getByText('2 sessions')).toBeVisible();
+    await menu.getByRole('menuitem', { name: 'Archive' }).click();
+    await expect(page.getByText('Archived 2 sessions')).toBeVisible();
+    const archived = page.locator('details', { hasText: 'Archived' });
+    await expect(archived).toContainText(names[0]!, { timeout: 15_000 });
+    await archived.locator('summary').click();
+
+    // An archived chat says so, and unarchives in place.
+    await archived.getByRole('link', { name: new RegExp(names[1]!) }).click();
+    await expect(page.getByText('This session is archived')).toBeVisible();
+    await page.getByRole('button', { name: 'Unarchive' }).click();
+    await expect(page.getByText('Unarchived')).toBeVisible();
+    await expect(page.getByLabel(/^Message /)).toBeVisible({ timeout: 15_000 });
+
+    // Delete: to AoE's trash, after saying so.
+    await page.goto('/');
+    await archived.locator('summary').click();
+    await row(names[0]!).click({ button: 'right' });
+    await menu.getByRole('menuitem', { name: 'Delete…' }).click();
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toContainText('AoE’s trash');
+    await dialog.getByRole('button', { name: 'Move to trash' }).click();
+    await expect(page.getByText('Deleted', { exact: true })).toBeVisible();
+    await expect(row(names[0]!)).toHaveCount(0, { timeout: 15_000 });
+    const state = (await fake('/__fake/state')) as {
+      sessions: { title: string; trashed_at?: string | null }[];
+    };
+    expect(state.sessions.find((s) => s.title === names[0])?.trashed_at).toBeTruthy();
+  });
+
+  test("the browser's own menu stays away except on text, fields and selections", async ({
+    signedIn: page,
+  }) => {
+    await page.goto('/settings');
+    const prevented = (selector: string) =>
+      page.evaluate((sel) => {
+        const el = document.querySelector(sel)!;
+        const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, button: 2 });
+        el.dispatchEvent(e);
+        return e.defaultPrevented;
+      }, selector);
+    expect(await prevented('main h1')).toBe(true);
+    expect(await prevented('main input')).toBe(false);
+  });
+});
+
 test.describe('settings', () => {
   test('validates, saves, and keeps comments in config.toml', async ({ signedIn: page }) => {
     await page.goto('/settings');

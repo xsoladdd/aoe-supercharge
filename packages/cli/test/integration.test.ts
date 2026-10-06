@@ -944,6 +944,92 @@ describe('daemon: security, live state and the MR watcher', () => {
     );
   });
 
+  it('right-click actions: lock guards, archive and unarchive, pin, and delete to the trash takes the worker out until restored', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    type Results = { results: { id: string; ok: boolean; error?: string; locked?: boolean }[] };
+    const act = async (action: string, ids: string[], extra: object = {}) =>
+      (await (
+        await fetch(`${base()}/api/sessions/actions`, {
+          method: 'POST',
+          headers: { ...auth, 'content-type': 'application/json' },
+          body: JSON.stringify({ action, ids, ...extra }),
+        })
+      ).json()) as Results;
+    const snapshot = async () =>
+      (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const view = async (id: string) => (await snapshot()).sessions.find((s) => s.id === id);
+    const made = JSON.parse(
+      (await sc(['task', 'new', 'Right-click target', '--force', '--json'])).stdout,
+    ) as {
+      id: string;
+      aoeSessionId: string;
+      worktree: string;
+    };
+    const id = made.aoeSessionId;
+    await until(async () => (await view(id)) ?? null);
+
+    expect((await act('lock', [id])).results[0]).toMatchObject({ ok: true });
+    await until(async () => (await view(id))?.locked);
+    for (const guarded of ['archive', 'delete', 'stop'])
+      expect((await act(guarded, [id])).results[0]).toMatchObject({ ok: false, locked: true });
+    expect((await act('unlock', [id])).results[0]!.ok).toBe(true);
+
+    expect((await act('archive', [id])).results[0]!.ok).toBe(true);
+    expect(fake.state.sessions.find((s) => s.id === id)?.status).toBe('Stopped');
+    await until(async () => (await view(id))?.archived);
+    expect((await act('unarchive', [id])).results[0]!.ok).toBe(true);
+    expect(fake.state.sessions.find((s) => s.id === id)).toMatchObject({ archived_at: null, status: 'Idle' });
+
+    expect((await act('pin', [id])).results[0]!.ok).toBe(true);
+    await until(async () => (await view(id))?.pinned);
+
+    const control = (await snapshot()).projects.find((p) => p.name === 'northwind')!.controlSessionId!;
+    expect((await act('delete', [control])).results[0]).toMatchObject({ ok: false });
+    expect(fake.state.sessions.find((s) => s.id === control)?.trashed_at ?? null).toBeNull();
+
+    expect((await act('delete', [id])).results[0]!.ok).toBe(true);
+    expect(fake.state.sessions.find((s) => s.id === id)?.trashed_at).toBeTruthy();
+    expect(existsSync(taskFile(made.id))).toBe(false);
+    const removed = join(home, '.local/share/supercharge/projects/northwind/removed', made.id, 'task.json');
+    expect(existsSync(removed)).toBe(true);
+    await until(async () => !(await snapshot()).tasks.some((t) => t.id === made.id));
+
+    // Restored from AoE's trash: the worker comes back with its plan and history.
+    await fetch(`${fake.url}/__fake/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ trashed_at: null, status: 'Idle' }),
+    });
+    await until(async () => (await snapshot()).tasks.some((t) => t.id === made.id), 30_000);
+    expect(existsSync(removed)).toBe(false);
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"action":"session_action".*"action":"lock"/);
+    expect(audit).toMatch(new RegExp(`"action":"task_restored","project":"northwind","taskId":"${made.id}"`));
+    expect((await sc(['stage', 'done'], { cwd: made.worktree })).code).toBe(0);
+  }, 60_000);
+
+  it('a worker whose session is trashed in AoE leaves the dashboard (kept under removed/)', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const snapshot = async () =>
+      (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const made = JSON.parse((await sc(['task', 'new', 'Trashed in AoE', '--force', '--json'])).stdout) as {
+      id: string;
+      aoeSessionId: string;
+    };
+    await until(async () => (await snapshot()).tasks.some((t) => t.id === made.id));
+    await fetch(`${fake.url}/__fake/sessions/${made.aoeSessionId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ trashed_at: new Date().toISOString(), status: 'Stopped' }),
+    });
+    const snap = await until(async () => {
+      const s = await snapshot();
+      return s.tasks.some((t) => t.id === made.id) ? null : s;
+    });
+    expect(snap.needsYou.some((n) => n.taskId === made.id)).toBe(false);
+    expect(existsSync(join(home, '.local/share/supercharge/projects/northwind/removed', made.id))).toBe(true);
+  });
+
   it('deletes a project only after its name is typed; optionally its AoE sessions too', async () => {
     const auth = { authorization: `Bearer ${bearer}` };
     const json = { ...auth, 'content-type': 'application/json' };

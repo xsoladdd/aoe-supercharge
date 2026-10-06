@@ -33,6 +33,10 @@ export interface FakeSession {
   menu?: string | null;
   /** Fake only: the `aoe add --extra-args` string, so tests can see the claude flags. Never sent over REST. */
   extra_args?: string | null;
+  /** Lifecycle marks, as AoE keeps them; REST leaves each out while it is unset. */
+  pinned_at?: string | null;
+  archived_at?: string | null;
+  trashed_at?: string | null;
 }
 
 /** Claude Code 2.1's plan approval, as it appears in the pane. */
@@ -120,11 +124,29 @@ export function makeSession(p: Partial<FakeSession> & { title: string; project_p
   };
 }
 
+/** `?state=` like AoE: live leaves out archived and trashed; trashed is only those; all (or none) is every one. */
+function inScope(s: FakeSession, scope: string | undefined): boolean {
+  if (scope === 'live') return !s.archived_at && !s.trashed_at;
+  if (scope === 'trashed') return !!s.trashed_at;
+  return true;
+}
+
 /** REST shape: AoE 1.17.2 omits the parent link from SessionResponse. */
 function toRest(s: FakeSession) {
-  const { parent_session_id: _p, menu: _m, extra_args: _x, ...rest } = s;
+  const {
+    parent_session_id: _p,
+    menu: _m,
+    extra_args: _x,
+    pinned_at: pinned,
+    archived_at: archived,
+    trashed_at: trashed,
+    ...rest
+  } = s;
   return {
     ...rest,
+    ...(pinned ? { pinned_at: pinned } : {}),
+    ...(archived ? { archived_at: archived } : {}),
+    ...(trashed ? { trashed_at: trashed } : {}),
     artifact_dir: `/tmp/fake-aoe/${s.id}`,
     dormant: false,
     yolo_mode: false,
@@ -158,7 +180,7 @@ export function toCliEntry(s: FakeSession) {
     group: s.group_path,
     tool: s.tool,
     profile: s.profile,
-    state: 'live',
+    state: s.trashed_at ? 'trashed' : s.archived_at ? 'archived' : 'live',
     created_at: s.created_at,
     workspace_repos: [],
     worktree: s.branch
@@ -197,7 +219,9 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
 
   // ── test/shim control plane (no auth; loopback only) ──
   app.get('/__fake/state', (c) => c.json(state));
-  app.get('/__fake/cli/list', (c) => c.json(state.sessions.map(toCliEntry)));
+  app.get('/__fake/cli/list', (c) =>
+    c.json(state.sessions.filter((s) => inScope(s, c.req.query('state'))).map(toCliEntry)),
+  );
   app.post('/__fake/sessions', async (c) => {
     const body = (await c.req.json()) as Partial<FakeSession> & { title: string; project_path: string };
     const s = makeSession(body);
@@ -254,7 +278,7 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
   });
   app.get('/api/sessions', (c) =>
     c.json({
-      sessions: state.sessions.map(toRest),
+      sessions: state.sessions.filter((s) => inScope(s, c.req.query('state'))).map(toRest),
       workspace_ordering: state.sessions.map((s) => s.group_path).filter(Boolean),
     }),
   );
@@ -298,6 +322,49 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
       format: 'text',
       content: lines.join('\n'),
     });
+  });
+  // Lifecycle, as AoE 1.17.2 does it (src/server/api/sessions/lifecycle.rs, ensure.rs).
+  const lifecycle = (
+    method: 'patch' | 'post',
+    action: string,
+    apply: (s: FakeSession, body: Record<string, unknown>) => unknown,
+  ) =>
+    app[method](`/api/sessions/:id/${action}`, async (c) => {
+      const s = state.sessions.find((x) => x.id === c.req.param('id'));
+      if (!s) return c.json({ error: 'not_found', message: 'Session not found' }, 404);
+      const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+      const out = apply(s, body);
+      return c.json(out ?? toRest(s));
+    });
+  const now = () => new Date().toISOString();
+  lifecycle('patch', 'pin', (s, b) => {
+    s.pinned_at = b.pinned ? now() : null;
+    if (b.pinned) s.archived_at = null;
+  });
+  lifecycle('patch', 'archive', (s, b) => {
+    s.archived_at = b.archived ? now() : null;
+    if (b.archived) s.status = 'Stopped';
+  });
+  lifecycle('patch', 'unread', (s, b) => {
+    s.unread = !!b.unread;
+  });
+  lifecycle('post', 'trash', (s) => {
+    s.trashed_at = now();
+    s.status = 'Stopped';
+  });
+  lifecycle('post', 'restore', (s) => {
+    s.trashed_at = null;
+  });
+  lifecycle('post', 'stop', (s) => {
+    s.status = 'Stopped';
+  });
+  lifecycle('post', 'start', (s) => {
+    if (s.status === 'Stopped') s.status = 'Idle';
+  });
+  lifecycle('post', 'ensure', (s) => {
+    const dead = s.status === 'Stopped';
+    if (dead) s.status = 'Idle';
+    return { status: dead ? 'restarted' : 'alive' };
   });
   app.delete('/api/sessions/:id', (c) => {
     const before = state.sessions.length;

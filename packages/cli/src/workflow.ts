@@ -677,7 +677,12 @@ export async function deleteProject(
       ...tasks.map((t) => t.aoeSessionId),
       ...(project.controlSessionId ? [project.controlSessionId] : []),
     ];
+    const locks = new Set(await ctx.ledger.readLocks());
     for (const id of ids) {
+      if (locks.has(id)) {
+        failed.push({ sessionId: id, error: 'Locked: unlock it to delete it.' });
+        continue;
+      }
       try {
         await ctx.aoe.deleteSession(id, {
           deleteWorktree: opts.deleteWorktrees,
@@ -704,6 +709,118 @@ export async function deleteProject(
     },
   });
   return { project: project.name, tasks: tasks.length, deleted, failed };
+}
+
+export const SESSION_ACTIONS = [
+  'pin',
+  'unpin',
+  'lock',
+  'unlock',
+  'read',
+  'unread',
+  'stop',
+  'start',
+  'archive',
+  'unarchive',
+  'delete',
+] as const;
+export type SessionAction = (typeof SESSION_ACTIONS)[number];
+
+/** Actions a lock refuses: anything that stops a session or throws its conversation away. */
+const GUARDED: readonly SessionAction[] = ['stop', 'archive', 'delete'];
+
+export class SessionLockedError extends CliError {
+  constructor(id: string) {
+    super(`Session ${id} is locked.`, EXIT.usage, 'Unlock it first.');
+  }
+}
+
+/**
+ * One right-click action on one AoE session, audited. Lock is Supercharge's own; the rest go to AoE.
+ * Delete moves the session to AoE's trash (restorable from AoE) unless `permanent`, which purges it
+ * with optional worktree and branch, and either way takes a worker's task out of the ledger (kept
+ * under removed/, so a restored session brings it back). A project's control chat is deleted with
+ * the project, from its settings, not from here.
+ */
+export async function sessionAction(
+  ctx: Ctx,
+  opts: {
+    sessionId: string;
+    action: SessionAction;
+    permanent?: boolean;
+    deleteWorktree?: boolean;
+    deleteBranch?: boolean;
+    actor: 'cli' | 'ui';
+  },
+): Promise<void> {
+  const id = opts.sessionId;
+  if (GUARDED.includes(opts.action) && (await ctx.ledger.readLocks()).includes(id))
+    throw new SessionLockedError(id);
+  const task = await ctx.ledger.findTaskBySession(id);
+  const project =
+    task?.project ?? (await ctx.ledger.listProjects()).find((p) => p.controlSessionId === id)?.name ?? null;
+  if (opts.action === 'delete' && !task && project)
+    throw new CliError(
+      'A control chat is deleted with its project.',
+      EXIT.usage,
+      `Delete the project from its settings, or archive the control chat instead.`,
+    );
+  const aoe = ctx.aoe;
+  switch (opts.action) {
+    case 'pin':
+    case 'unpin':
+      await aoe.setPinned(id, opts.action === 'pin');
+      break;
+    case 'lock':
+    case 'unlock':
+      await ctx.ledger.setLocked([id], opts.action === 'lock');
+      break;
+    case 'read':
+    case 'unread':
+      await aoe.setUnread(id, opts.action === 'unread');
+      break;
+    case 'stop':
+      await aoe.stopSession(id);
+      break;
+    case 'start':
+      await aoe.startSession(id);
+      break;
+    case 'archive':
+      await aoe.setArchived(id, true);
+      break;
+    case 'unarchive':
+      await aoe.setArchived(id, false);
+      // Archiving killed the pane; AoE brings it back (resuming the conversation) on ensure.
+      await aoe.ensureSession(id);
+      break;
+    case 'delete':
+      if (opts.permanent)
+        await aoe.deleteSession(id, {
+          deleteWorktree: !!opts.deleteWorktree,
+          deleteBranch: !!opts.deleteBranch,
+        });
+      else await aoe.trashSession(id);
+      if (task) await ctx.ledger.removeTask(task.project, task.id);
+      if (opts.permanent) await rm(join(ctx.paths.uploadsDir, id), { recursive: true, force: true });
+      break;
+  }
+  await appendAudit(ctx.paths, {
+    actor: opts.actor,
+    action: 'session_action',
+    project,
+    taskId: task?.id ?? null,
+    sessionId: id,
+    details: {
+      action: opts.action,
+      ...(opts.action === 'delete'
+        ? {
+            permanent: !!opts.permanent,
+            deleteWorktree: !!opts.deleteWorktree,
+            deleteBranch: !!opts.deleteBranch,
+          }
+        : {}),
+    },
+  });
 }
 
 export interface AdoptResult {

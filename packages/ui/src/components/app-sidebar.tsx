@@ -7,10 +7,12 @@ import {
   SunIcon,
   TerminalWindowIcon,
   PlusIcon,
+  PushPinIcon,
+  LockSimpleIcon,
 } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
-import { STAGE_LABEL, type Snapshot } from '@aoe-supercharge/core/shared';
+import { STAGE_LABEL, type SessionView, type Snapshot } from '@aoe-supercharge/core/shared';
 import { Wordmark } from '@/components/brand';
 import { LiveStatus, STAGE_META } from '@/components/status';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -33,11 +35,53 @@ import {
   SidebarGroupAction,
 } from '@/components/ui/sidebar';
 import { AddProjectDialog, AdoptDialog } from '@/components/add-project';
+import { SessionMenu } from '@/components/session-menu';
 import { UsageMeter } from '@/components/usage';
-import { projectViews, sessionMap, unmanagedGroups } from '@/lib/derive';
+import { pinnedFirst, projectViews, sessionMap, unmanagedGroups } from '@/lib/derive';
 import { chatHref } from '@/lib/nav';
 import { useResolvedTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
+
+/** A row picked for a bulk action (Ctrl, ⌘ or Shift click). */
+const SELECTED =
+  'rounded-md data-[state=open]:bg-sidebar-accent data-selected:bg-primary/15 data-selected:ring-1 data-selected:ring-primary/40';
+
+/** Pinned and locked marks for a session row. */
+function Marks({ session }: { session: SessionView | null | undefined }) {
+  if (!session?.pinned && !session?.locked) return null;
+  return (
+    <>
+      {session.pinned && (
+        <PushPinIcon
+          weight="fill"
+          className="size-3.5 text-muted-foreground"
+          aria-hidden={false}
+          role="img"
+          aria-label="Pinned"
+        />
+      )}
+      {session.locked && (
+        <LockSimpleIcon
+          weight="fill"
+          className="size-3.5 text-muted-foreground"
+          aria-hidden={false}
+          role="img"
+          aria-label="Locked"
+        />
+      )}
+    </>
+  );
+}
+
+/** The control chat row gets the session menu once the project has a control chat. */
+function ControlRow({ id, children }: { id: string | null; children: React.ReactElement }) {
+  if (!id) return children;
+  return (
+    <SessionMenu sessionId={id} order={[id]}>
+      {children}
+    </SessionMenu>
+  );
+}
 
 export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTheme: () => void }) {
   const [location] = useLocation();
@@ -148,70 +192,84 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                       </CollapsibleTrigger>
                       <CollapsibleContent>
                         <SidebarMenuSub>
-                          <SidebarMenuSubItem>
-                            <SidebarMenuSubButton
-                              asChild
-                              size="md"
-                              className="h-8"
-                              isActive={
-                                !!project.controlSessionId && location === chatHref(project.controlSessionId)
-                              }
-                            >
-                              <Link
-                                href={project.controlSessionId ? chatHref(project.controlSessionId) : href}
+                          <ControlRow id={project.controlSessionId}>
+                            <SidebarMenuSubItem className={SELECTED}>
+                              <SidebarMenuSubButton
+                                asChild
+                                size="md"
+                                className="h-8"
+                                isActive={
+                                  !!project.controlSessionId &&
+                                  location === chatHref(project.controlSessionId)
+                                }
                               >
-                                <ChatTeardropTextIcon className="size-4" />
-                                <span className="truncate">Control chat</span>
-                                <div className="ml-auto flex shrink-0">
-                                  <LiveStatus
-                                    status={control?.status ?? 'missing'}
-                                    labelled={false}
-                                    unread={control?.unread}
-                                  />
-                                </div>
-                              </Link>
-                            </SidebarMenuSubButton>
-                          </SidebarMenuSubItem>
-                          {tasks
-                            .filter((t) => t.stage !== 'done')
-                            .map((t) => {
+                                <Link
+                                  href={project.controlSessionId ? chatHref(project.controlSessionId) : href}
+                                >
+                                  <ChatTeardropTextIcon className="size-4" />
+                                  <span className="truncate">Control chat</span>
+                                  <div className="ml-auto flex shrink-0 items-center gap-1">
+                                    <Marks session={control} />
+                                    <LiveStatus
+                                      status={control?.status ?? 'missing'}
+                                      labelled={false}
+                                      unread={control?.unread}
+                                    />
+                                  </div>
+                                </Link>
+                              </SidebarMenuSubButton>
+                            </SidebarMenuSubItem>
+                          </ControlRow>
+                          {(() => {
+                            const open = pinnedFirst(
+                              tasks.filter(
+                                (t) => t.stage !== 'done' && !sessions.get(t.aoeSessionId)?.archived,
+                              ),
+                              (t) => !!sessions.get(t.aoeSessionId)?.pinned,
+                            );
+                            const order = open.map((t) => t.aoeSessionId);
+                            return open.map((t) => {
                               const { icon: I, color } = STAGE_META[t.stage];
                               const taskHref = `${href}/t/${t.id}`;
                               const s = sessions.get(t.aoeSessionId);
                               return (
-                                <SidebarMenuSubItem key={t.id}>
-                                  <SidebarMenuSubButton
-                                    asChild
-                                    size="md"
-                                    isActive={location === taskHref || location.startsWith(`${taskHref}/`)}
-                                    className="h-8"
-                                  >
-                                    <Link href={taskHref}>
-                                      <I
-                                        weight="bold"
-                                        className={cn('size-4', color)}
-                                        aria-hidden={false}
-                                        role="img"
-                                        aria-label={STAGE_LABEL[t.stage]}
-                                      />
-                                      <span
-                                        translate="no"
-                                        className="font-mono text-[0.8125rem] text-muted-foreground"
-                                      >
-                                        {t.id.split('-')[1]}
-                                      </span>
-                                      <span className="truncate">{t.title}</span>
-                                      {s && (s.status === 'waiting' || s.status === 'error') && (
-                                        // A div, not a span: the sidebar truncates a row's last span, which clipped this icon.
-                                        <div className="ml-auto flex shrink-0">
-                                          <LiveStatus status={s.status} labelled={false} />
+                                <SessionMenu key={t.id} sessionId={t.aoeSessionId} order={order}>
+                                  <SidebarMenuSubItem className={SELECTED}>
+                                    <SidebarMenuSubButton
+                                      asChild
+                                      size="md"
+                                      isActive={location === taskHref || location.startsWith(`${taskHref}/`)}
+                                      className="h-8"
+                                    >
+                                      <Link href={taskHref}>
+                                        <I
+                                          weight="bold"
+                                          className={cn('size-4', color)}
+                                          aria-hidden={false}
+                                          role="img"
+                                          aria-label={STAGE_LABEL[t.stage]}
+                                        />
+                                        <span
+                                          translate="no"
+                                          className="font-mono text-[0.8125rem] text-muted-foreground"
+                                        >
+                                          {t.id.split('-')[1]}
+                                        </span>
+                                        <span className="truncate">{t.title}</span>
+                                        {/* A div, not a span: the sidebar truncates a row's last span, which clipped these icons. */}
+                                        <div className="ml-auto flex shrink-0 items-center gap-1">
+                                          <Marks session={s} />
+                                          {s && (s.status === 'waiting' || s.status === 'error') && (
+                                            <LiveStatus status={s.status} labelled={false} />
+                                          )}
                                         </div>
-                                      )}
-                                    </Link>
-                                  </SidebarMenuSubButton>
-                                </SidebarMenuSubItem>
+                                      </Link>
+                                    </SidebarMenuSubButton>
+                                  </SidebarMenuSubItem>
+                                </SessionMenu>
                               );
-                            })}
+                            });
+                          })()}
                         </SidebarMenuSub>
                       </CollapsibleContent>
                     </SidebarMenuItem>

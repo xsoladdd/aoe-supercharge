@@ -62,8 +62,9 @@ export class AoeCli {
     return t || null;
   }
 
-  async list(): Promise<AoeCliListEntry[]> {
-    const r = await this.exec(['list', '--json', '--state=live', '-p', this.profile], 20_000);
+  /** `live` skips archived and trashed sessions; `all` lists every one. */
+  async list(state: 'live' | 'all' = 'live'): Promise<AoeCliListEntry[]> {
+    const r = await this.exec(['list', '--json', `--state=${state}`, '-p', this.profile], 20_000);
     if (r.code !== 0) throw new Error(`aoe list failed: ${(r.stderr || r.error?.message || '').trim()}`);
     return AoeCliListSchema.parse(JSON.parse(r.stdout || '[]'));
   }

@@ -1,6 +1,9 @@
+import { ArchiveIcon, LockSimpleIcon, PushPinIcon } from '@phosphor-icons/react';
 import { relativeTime, type SessionView, type TaskRecord } from '@aoe-supercharge/core/shared';
 import { Link } from 'wouter';
+import { SessionMenu } from '@/components/session-menu';
 import { LiveStatus, MrBadge, StageBadge, StageStepper } from '@/components/status';
+import { pinnedFirst } from '@/lib/derive';
 import { useNow } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
@@ -10,15 +13,23 @@ export function WorkerList({
   sessions,
   changed,
   showDone,
+  showArchived = false,
 }: {
   project: string;
   tasks: TaskRecord[];
   sessions: Map<string, SessionView>;
   changed: Record<string, number>;
   showDone: boolean;
+  showArchived?: boolean;
 }) {
   const now = useNow();
-  const visible = tasks.filter((t) => showDone || t.stage !== 'done');
+  const visible = pinnedFirst(
+    tasks.filter(
+      (t) => (showDone || t.stage !== 'done') && (showArchived || !sessions.get(t.aoeSessionId)?.archived),
+    ),
+    (t) => !!sessions.get(t.aoeSessionId)?.pinned,
+  );
+  const order = visible.map((t) => t.aoeSessionId);
   if (!visible.length) {
     return (
       <div className="rounded-xl border border-dashed border-border-strong px-6 py-10 text-center">
@@ -39,47 +50,80 @@ export function WorkerList({
         const s = sessions.get(t.aoeSessionId);
         const flash = changed[t.id] && Date.now() - changed[t.id]! < 2000;
         return (
-          <li key={`${t.id}-${flash ? changed[t.id] : 0}`} className={cn(flash && 'flash')}>
-            {/* Stretched link: the title link covers the whole row; the MR link sits above it. */}
-            <div className="relative grid w-full grid-cols-1 items-center gap-x-6 gap-y-2 px-5 py-3.5 text-left transition-colors hover:bg-raised/70 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.3fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1.1fr)_minmax(0,0.75fr)_minmax(0,1.5fr)_3.5rem]">
-              <span className="min-w-0">
-                <Link
-                  href={`/p/${project}/t/${t.id}`}
-                  className="flex items-baseline gap-2 rounded-sm after:absolute after:inset-0 after:content-[''] hover:underline"
-                >
+          <SessionMenu key={`${t.id}-${flash ? changed[t.id] : 0}`} sessionId={t.aoeSessionId} order={order}>
+            <li
+              className={cn(
+                flash && 'flash',
+                'data-[state=open]:bg-raised data-selected:bg-primary/10 data-selected:shadow-[inset_3px_0_0_var(--color-primary)]',
+                s?.archived && 'opacity-70',
+              )}
+            >
+              {/* Stretched link: the title link covers the whole row; the MR link sits above it. */}
+              <div className="relative grid w-full grid-cols-1 items-center gap-x-6 gap-y-2 px-5 py-3.5 text-left transition-colors hover:bg-raised/70 md:grid-cols-[minmax(0,1.6fr)_minmax(0,1.3fr)_minmax(0,1fr)] xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1.1fr)_minmax(0,0.75fr)_minmax(0,1.5fr)_3.5rem]">
+                <span className="min-w-0">
+                  <Link
+                    href={`/p/${project}/t/${t.id}`}
+                    className="flex items-baseline gap-2 rounded-sm after:absolute after:inset-0 after:content-[''] hover:underline"
+                  >
+                    <span
+                      translate="no"
+                      className="shrink-0 font-mono text-[0.875rem] whitespace-nowrap text-muted-foreground"
+                    >
+                      {t.id}
+                    </span>
+                    <span className="min-w-0 truncate text-[0.9375rem] font-medium">{t.title}</span>
+                  </Link>
                   <span
                     translate="no"
-                    className="shrink-0 font-mono text-[0.875rem] whitespace-nowrap text-muted-foreground"
+                    className="block truncate font-mono text-[0.8125rem] text-muted-foreground"
                   >
-                    {t.id}
+                    {t.branch}
                   </span>
-                  <span className="min-w-0 truncate text-[0.9375rem] font-medium">{t.title}</span>
-                </Link>
-                <span
-                  translate="no"
-                  className="block truncate font-mono text-[0.8125rem] text-muted-foreground"
-                >
-                  {t.branch}
                 </span>
-              </span>
-              <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
-                <StageStepper stage={t.stage} blockedFrom={t.blockedFrom} />
-                <StageBadge stage={t.stage} size="sm" />
-              </span>
-              <span className="min-w-0">
-                <LiveStatus status={s?.status ?? 'missing'} unread={s?.unread} />
-              </span>
-              <span className="relative z-10 min-w-0 justify-self-start">
-                <MrBadge mr={t.mr} />
-              </span>
-              <span
-                className="tabular text-sm text-muted-foreground xl:text-right"
-                title={new Date(t.updatedAt).toLocaleString()}
-              >
-                {relativeTime(t.updatedAt, now)}
-              </span>
-            </div>
-          </li>
+                <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+                  <StageStepper stage={t.stage} blockedFrom={t.blockedFrom} />
+                  <StageBadge stage={t.stage} size="sm" />
+                </span>
+                <span className="flex min-w-0 items-center gap-2">
+                  {s?.archived ? (
+                    <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <ArchiveIcon className="size-4" />
+                      Archived
+                    </span>
+                  ) : (
+                    <LiveStatus status={s?.status ?? 'missing'} unread={s?.unread} />
+                  )}
+                  {s?.pinned && (
+                    <PushPinIcon
+                      weight="fill"
+                      className="size-3.5 text-muted-foreground"
+                      aria-hidden={false}
+                      role="img"
+                      aria-label="Pinned"
+                    />
+                  )}
+                  {s?.locked && (
+                    <LockSimpleIcon
+                      weight="fill"
+                      className="size-3.5 text-muted-foreground"
+                      aria-hidden={false}
+                      role="img"
+                      aria-label="Locked"
+                    />
+                  )}
+                </span>
+                <span className="relative z-10 min-w-0 justify-self-start">
+                  <MrBadge mr={t.mr} />
+                </span>
+                <span
+                  className="tabular text-sm text-muted-foreground xl:text-right"
+                  title={new Date(t.updatedAt).toLocaleString()}
+                >
+                  {relativeTime(t.updatedAt, now)}
+                </span>
+              </div>
+            </li>
+          </SessionMenu>
         );
       })}
     </ul>

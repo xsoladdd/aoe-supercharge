@@ -73,6 +73,9 @@ function session(p: Partial<SessionView> & { id: string }): SessionView {
   return {
     title: p.id,
     prompt: null,
+    pinned: false,
+    archived: false,
+    locked: false,
     status: 'idle',
     rawStatus: 'Idle',
     statusSince: '2026-10-05T11:00:00Z',

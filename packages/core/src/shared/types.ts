@@ -123,6 +123,12 @@ export interface SessionView {
   lastAccessedAt: string | null;
   /** The menu Claude is showing while it waits on you (plan approval, permission), if any. */
   prompt: SessionPrompt | null;
+  /** Pinned in AoE: listed first. */
+  pinned: boolean;
+  /** Archived in AoE: stopped and kept (worktree and branch too), listed apart until unarchived. */
+  archived: boolean;
+  /** Locked in Supercharge: it cannot be archived, deleted, stopped or cleared until unlocked. */
+  locked: boolean;
 }
 
 export type NeedsYouKind =

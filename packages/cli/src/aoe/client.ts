@@ -1,4 +1,4 @@
-import type { z } from 'zod';
+import { z } from 'zod';
 import type { AoeCli } from './cli.ts';
 import {
   AoeAboutSchema,
@@ -164,8 +164,50 @@ export class AoeClient {
     }
   }
 
-  async listSessions(): Promise<AoeSession[]> {
-    return (await this.request('GET', '/api/sessions?state=live', AoeSessionsResponseSchema)).sessions;
+  /** `live` leaves out archived and trashed sessions; `all` has every session, marked by its `*_at` fields. */
+  async listSessions(scope: 'live' | 'all' = 'live'): Promise<AoeSession[]> {
+    return (await this.request('GET', `/api/sessions?state=${scope}`, AoeSessionsResponseSchema)).sessions;
+  }
+
+  // Session lifecycle (src/server/api/sessions/lifecycle.rs and ensure.rs, AoE 1.17.2).
+  private lifecycle(method: string, id: string, action: string, body?: unknown) {
+    return this.request(method, `/api/sessions/${encodeURIComponent(id)}/${action}`, z.unknown(), body);
+  }
+
+  /** Pinned sessions list first; pinning an archived session also unarchives it. */
+  setPinned(id: string, pinned: boolean) {
+    return this.lifecycle('PATCH', id, 'pin', { pinned });
+  }
+
+  /** Archive tears down the session's tmux panes (Claude stops); the worktree and branch stay. */
+  setArchived(id: string, archived: boolean) {
+    return this.lifecycle('PATCH', id, 'archive', { archived, kill_pane: true });
+  }
+
+  /** Into AoE's trash: restorable until AoE purges it (session.trash_retention_days, 30 by default). */
+  trashSession(id: string) {
+    return this.lifecycle('POST', id, 'trash', { kill_pane: true });
+  }
+
+  restoreSession(id: string) {
+    return this.lifecycle('POST', id, 'restore');
+  }
+
+  stopSession(id: string) {
+    return this.lifecycle('POST', id, 'stop');
+  }
+
+  startSession(id: string) {
+    return this.lifecycle('POST', id, 'start');
+  }
+
+  /** Restart the agent's pane if it is dead, resuming its conversation (how AoE reopens an unarchived session). */
+  ensureSession(id: string) {
+    return this.lifecycle('POST', id, 'ensure');
+  }
+
+  setUnread(id: string, unread: boolean) {
+    return this.lifecycle('PATCH', id, 'unread', { unread });
   }
 
   async about() {

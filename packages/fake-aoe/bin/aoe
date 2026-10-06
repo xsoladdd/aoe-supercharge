@@ -47,7 +47,8 @@ if (cmd === '--version' || cmd === '-V') {
     }
   } else out('ok');
 } else if (cmd === 'list') {
-  out(JSON.stringify(await api('/__fake/cli/list')));
+  const scope = args.find((a) => a.startsWith('--state='))?.slice('--state='.length) ?? 'all';
+  out(JSON.stringify(await api(`/__fake/cli/list?state=${scope}`)));
 } else if (cmd === 'status') {
   const s = await api('/__fake/state');
   const count = (st) => s.sessions.filter((x) => x.status === st).length;

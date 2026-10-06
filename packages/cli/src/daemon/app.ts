@@ -30,11 +30,15 @@ import {
   MenuOpenError,
   PromptChangedError,
   replyToTask,
+  SESSION_ACTIONS,
   sendPlanComments,
   sendToSession,
+  sessionAction,
+  SessionLockedError,
   setSessionModel,
   TerminalBusyCliError,
   type QuestionAnswer,
+  type SessionAction,
 } from '../workflow.ts';
 import type { Store } from './store.ts';
 
@@ -274,6 +278,62 @@ export function createApp(deps: AppDeps) {
     }
   });
 
+  // The right-click menu: one action on one or more sessions, each done (and audited) on its own so
+  // a locked or failing one does not stop the rest.
+  app.post('/api/sessions/actions', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      action?: unknown;
+      ids?: unknown;
+      permanent?: unknown;
+      deleteWorktree?: unknown;
+      deleteBranch?: unknown;
+    };
+    const action = body.action;
+    if (typeof action !== 'string' || !(SESSION_ACTIONS as readonly string[]).includes(action))
+      return c.json(
+        { error: 'bad_action', message: `Unknown action. Use one of: ${SESSION_ACTIONS.join(', ')}.` },
+        400,
+      );
+    const ids = Array.isArray(body.ids)
+      ? [
+          ...new Set(
+            body.ids.filter((x): x is string => typeof x === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(x)),
+          ),
+        ]
+      : [];
+    if (!ids.length || ids.length > 200)
+      return c.json({ error: 'bad_ids', message: 'Pick between 1 and 200 sessions.' }, 400);
+    const known = new Set(store.sessions.map((s) => s.id));
+    const permanent = body.permanent === true;
+    const results: { id: string; ok: boolean; error?: string; locked?: boolean }[] = [];
+    for (const id of ids) {
+      if (!known.has(id)) {
+        results.push({ id, ok: false, error: 'Unknown session' });
+        continue;
+      }
+      try {
+        await sessionAction(ctx, {
+          sessionId: id,
+          action: action as SessionAction,
+          permanent,
+          deleteWorktree: permanent && body.deleteWorktree === true,
+          deleteBranch: permanent && body.deleteBranch === true,
+          actor: 'ui',
+        });
+        results.push({ id, ok: true });
+      } catch (err) {
+        results.push({
+          id,
+          ok: false,
+          error: (err as Error).message,
+          ...(err instanceof SessionLockedError ? { locked: true } : {}),
+        });
+      }
+    }
+    deps.onClientConnected();
+    return c.json({ results });
+  });
+
   // Adopting an AoE parent session and its children: what would happen, then do it.
   app.get('/api/adopt/:sessionId', async (c) => {
     const id = c.req.param('sessionId');
@@ -503,6 +563,8 @@ export function createApp(deps: AppDeps) {
     const session = store.sessions.find((s) => s.id === id);
     if (!session) return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
     const body = (await c.req.json().catch(() => ({}))) as { message?: string };
+    if (session.locked && body.message?.trim() === '/clear')
+      return c.json({ error: 'locked', message: 'This session is locked. Unlock it to clear it.' }, 409);
     const task = store.tasks.find((t) => t.aoeSessionId === id) ?? null;
     const project = task?.project ?? store.projects.find((p) => p.controlSessionId === id)?.name ?? null;
     try {

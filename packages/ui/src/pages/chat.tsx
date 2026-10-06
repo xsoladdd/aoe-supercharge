@@ -17,6 +17,7 @@ import {
   XIcon,
   SidebarSimpleIcon,
   BroomIcon,
+  ArrowUUpLeftIcon,
 } from '@phosphor-icons/react';
 import {
   LIVE_STATUS_LABEL,
@@ -678,6 +679,44 @@ function ChatComposer({
   );
 }
 
+/** An archived session has no running Claude: say so, and offer to bring it back where it left off. */
+function ArchivedNotice({ session }: { session: SessionView }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="mx-auto mb-3 flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3">
+      <p className="text-[0.9375rem] text-muted-foreground">
+        This session is archived: Claude is stopped, and its worktree and branch are kept. Unarchive it to
+        pick up the conversation where it left off.
+      </p>
+      <Button
+        size="sm"
+        disabled={busy || session.locked}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            const { results } = await sendJson<{ results: { ok: boolean; error?: string }[] }>(
+              'POST',
+              '/api/sessions/actions',
+              { action: 'unarchive', ids: [session.id] },
+            );
+            if (results[0]?.ok) toast.success('Unarchived');
+            else toast.error('Could not unarchive it', { description: results[0]?.error });
+          } catch (e) {
+            toast.error('Could not unarchive it', {
+              description: e instanceof ApiError ? e.message : undefined,
+            });
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? <CircleNotchIcon className="animate-spin" /> : <ArrowUUpLeftIcon />}
+        Unarchive
+      </Button>
+    </div>
+  );
+}
+
 /**
  * Clear the conversation with /clear. Long conversations resend everything with each message, so a
  * fresh one per story keeps your usage down; Supercharge keeps the task, plan and stage either way.
@@ -727,14 +766,18 @@ function StartFresh({
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
-            disabled={busy || session.status === 'working'}
+            disabled={busy || session.status === 'working' || session.locked}
             onClick={(e) => {
               e.preventDefault();
               void clear();
             }}
           >
             {busy ? <CircleNotchIcon className="animate-spin" /> : <BroomIcon />}
-            {session.status === 'working' ? 'Wait until Claude is done' : 'Clear conversation'}
+            {session.locked
+              ? 'Locked: unlock it first'
+              : session.status === 'working'
+                ? 'Wait until Claude is done'
+                : 'Clear conversation'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -1124,7 +1167,9 @@ export function SessionChat({
         )}
 
         <div className={cn(view === 'terminal' && 'pt-3')}>
-          {session.prompt ? (
+          {session.archived ? (
+            <ArchivedNotice session={session} />
+          ) : session.prompt ? (
             // While a menu is open a typed message would pick its highlighted option, so answer it here instead.
             <div className="mx-auto max-h-[62dvh] w-full max-w-3xl overflow-y-auto overscroll-contain px-4 pb-3">
               <PromptCard session={session} onAnswered={onAnswered} />

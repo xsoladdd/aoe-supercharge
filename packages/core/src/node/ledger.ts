@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readdir, readFile, rm } from 'node:fs/promises';
+import { readdir, readFile, rename, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { Stage } from '../shared/stages.ts';
 import type { Actor, PlanComment, ProjectRecord, TaskRecord } from '../shared/types.ts';
@@ -201,6 +201,76 @@ export class Ledger {
     });
   }
 
+  /** Tasks whose AoE session was trashed or deleted: kept here, out of the dashboard. */
+  removedDir(project: string) {
+    return join(this.projectDir(project), 'removed');
+  }
+
+  /**
+   * Take a task out of the ledger when its AoE session is gone (trashed or deleted). The folder
+   * moves to removed/<id> with its plan and comments, so restoring the session can bring it back.
+   */
+  async removeTask(project: string, id: string): Promise<boolean> {
+    // Locked, and checked first: the daemon and a delete can both remove the same task at once, and
+    // the second must find nothing to do rather than clear the copy the first just made.
+    return withLock(this.removedDir(project), async () => {
+      if (!(await readJson(this.taskFile(project, id)))) return false;
+      const to = join(this.removedDir(project), id);
+      await rm(to, { recursive: true, force: true });
+      await rename(this.taskDir(project, id), to);
+      return true;
+    });
+  }
+
+  /** Put a removed task back, for a session restored from AoE's trash. False if it is not there. */
+  async restoreTask(project: string, id: string): Promise<boolean> {
+    return withLock(this.removedDir(project), async () => {
+      const from = join(this.removedDir(project), id);
+      if (!(await readJson(join(from, 'task.json')))) return false;
+      if (await readJson(this.taskFile(project, id))) return false;
+      // A lock or an update can leave an empty task folder behind; the removed copy replaces it.
+      await rm(this.taskDir(project, id), { recursive: true, force: true });
+      await rename(from, this.taskDir(project, id));
+      return true;
+    });
+  }
+
+  async listRemovedTasks(): Promise<TaskRecord[]> {
+    const out: TaskRecord[] = [];
+    for (const p of await this.listProjects()) {
+      const ids = await readdir(this.removedDir(p.name)).catch(() => [] as string[]);
+      for (const id of ids.filter((x) => !x.startsWith('.'))) {
+        const t = await readJson<TaskRecord>(join(this.removedDir(p.name), id, 'task.json')).catch(
+          () => null,
+        );
+        if (t) out.push(t);
+      }
+    }
+    return out;
+  }
+
+  /** AoE session ids you locked: Supercharge will not archive, delete, stop or clear them. */
+  get locksFile() {
+    return join(this.paths.dataDir, 'locks.json');
+  }
+
+  async readLocks(): Promise<string[]> {
+    return (await readJson<string[]>(this.locksFile).catch(() => null)) ?? [];
+  }
+
+  async setLocked(ids: string[], locked: boolean): Promise<string[]> {
+    return withLock(this.paths.dataDir, async () => {
+      const cur = new Set(await this.readLocks());
+      for (const id of ids) {
+        if (locked) cur.add(id);
+        else cur.delete(id);
+      }
+      const next = [...cur].sort();
+      await writeJsonAtomic(this.locksFile, next);
+      return next;
+    });
+  }
+
   /** Forget a project: its record, tasks, plans, comments and notes (the ledger folder). */
   async removeProject(project: string): Promise<void> {
     await rm(this.projectDir(project), { recursive: true, force: true });
@@ -232,6 +302,9 @@ export interface AuditEntry {
     | 'project_init'
     | 'sessions_adopted'
     | 'project_deleted'
+    | 'session_action'
+    | 'task_removed'
+    | 'task_restored'
     | 'aoe_upgrade';
   project?: string | null;
   taskId?: string | null;

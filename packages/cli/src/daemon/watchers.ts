@@ -1,6 +1,7 @@
 import { watch, type FSWatcher } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import {
+  appendAudit,
   checkCompat,
   loadConfig,
   readLocalCompat,
@@ -106,7 +107,7 @@ export class AoeWatcher {
 
     let sessions: AoeSession[];
     try {
-      sessions = await this.ctx.aoe.listSessions();
+      sessions = await this.ctx.aoe.listSessions('all');
     } catch (err) {
       await this.onUnreachable(err);
       return;
@@ -134,11 +135,14 @@ export class AoeWatcher {
     }
 
     const profile = this.ctx.config.aoe.profile;
-    const live = sessions.filter((s) => !s.profile || s.profile === profile);
+    const mine = sessions.filter((s) => !s.profile || s.profile === profile);
+    // Trashed sessions only matter for taking their workers out; archived ones stay listed, marked.
+    const trashed = new Set(mine.filter((s) => s.trashed_at).map((s) => s.id));
+    const live = mine.filter((s) => !s.trashed_at);
     const unknown = live.some((s) => !this.cliIndex.has(s.id));
     if (unknown || Date.now() - this.lastCliList > this.ctx.config.poll.reconcile * 1000) {
       try {
-        const list = await this.ctx.aoeCli.list();
+        const list = await this.ctx.aoeCli.list('all');
         this.cliIndex = new Map(list.map((e) => [e.id, e]));
         this.lastCliList = Date.now();
       } catch (err) {
@@ -147,13 +151,14 @@ export class AoeWatcher {
       }
     }
 
-    const views = live.map((s) => this.toView(s));
+    const locks = new Set(await this.ctx.ledger.readLocks().catch(() => [] as string[]));
+    const views = live.map((s) => this.toView(s, locks));
     // A waiting session may be showing a menu (plan approval, permission); read it so the dashboard can answer.
     if (this.prompts) {
       const reader = this.prompts;
       await Promise.all(
         views
-          .filter((v) => v.status === 'waiting')
+          .filter((v) => v.status === 'waiting' && !v.archived)
           .map(async (v) => {
             v.prompt = await reader.read(v.id, v.projectPath).catch(() => null);
           }),
@@ -161,6 +166,9 @@ export class AoeWatcher {
     }
     this.store.setSessions(views);
     for (const id of [...this.since.keys()]) if (!live.some((s) => s.id === id)) this.since.delete(id);
+    await this.followRemovedSessions(new Set(live.map((s) => s.id)), trashed).catch((err) =>
+      this.ctx.logger.warn('could not sync removed workers', { err: (err as Error).message }),
+    );
     await this.refreshUsage();
     this.setAoe({
       state: 'ok',
@@ -171,14 +179,67 @@ export class AoeWatcher {
     });
   }
 
+  private absent = new Map<string, { polls: number; since: number }>();
+  private lastRestoreScan = 0;
+
+  /**
+   * Workers follow their AoE session. Trashed (AoE's delete) or gone for good: the task moves out of
+   * the ledger to removed/<id>. A session that is gone has to stay gone for a few polls first, so a
+   * hiccup in AoE's list never removes anything. Restored from AoE's trash: the task comes back.
+   */
+  private async followRemovedSessions(present: Set<string>, trashed: Set<string>): Promise<void> {
+    if (!this.store.ledgerLoaded || (present.size === 0 && trashed.size === 0)) return;
+    for (const t of this.store.tasks) {
+      const id = t.aoeSessionId;
+      const reason = trashed.has(id) ? 'trashed' : present.has(id) ? null : 'deleted';
+      if (!reason) {
+        this.absent.delete(id);
+        continue;
+      }
+      if (reason === 'deleted') {
+        const a = this.absent.get(id) ?? { polls: 0, since: Date.now() };
+        a.polls++;
+        this.absent.set(id, a);
+        if (a.polls < 3 || Date.now() - a.since < 30_000) continue;
+      }
+      this.absent.delete(id);
+      if (!(await this.ctx.ledger.removeTask(t.project, t.id))) continue;
+      this.ctx.logger.info('worker removed with its session', { task: t.id, reason });
+      await appendAudit(this.ctx.paths, {
+        actor: 'daemon',
+        action: 'task_removed',
+        project: t.project,
+        taskId: t.id,
+        sessionId: id,
+        details: { reason },
+      });
+    }
+    // Restores are rare: look for one every 10 seconds (a directory listing), not on every poll.
+    if (Date.now() - this.lastRestoreScan < 10_000) return;
+    this.lastRestoreScan = Date.now();
+    for (const t of await this.ctx.ledger.listRemovedTasks()) {
+      if (!present.has(t.aoeSessionId) || trashed.has(t.aoeSessionId)) continue;
+      if (!(await this.ctx.ledger.restoreTask(t.project, t.id))) continue;
+      this.ctx.logger.info('worker restored with its session', { task: t.id });
+      await appendAudit(this.ctx.paths, {
+        actor: 'daemon',
+        action: 'task_restored',
+        project: t.project,
+        taskId: t.id,
+        sessionId: t.aoeSessionId,
+      });
+    }
+  }
+
   /** Re-read usage.json (the status line writes it) against the workers active now. */
   async refreshUsage(): Promise<void> {
-    const status = new Map(this.store.sessions.map((v) => [v.id, v.status]));
+    // Archived workers are stopped, whatever status AoE last had for them.
+    const status = new Map(this.store.sessions.map((v) => [v.id, v.archived ? 'stopped' : v.status]));
     const active = countActiveWorkers(this.store.tasks, (id) => status.get(id) ?? null);
     this.store.setUsage(usageReport(await readUsage(this.ctx.paths), active, this.ctx.config.limits));
   }
 
-  private toView(s: AoeSession): SessionView {
+  private toView(s: AoeSession, locks: Set<string>): SessionView {
     const status = normalizeAoeStatus(s.status);
     const prev = this.since.get(s.id);
     let since: string;
@@ -203,6 +264,9 @@ export class AoeWatcher {
       createdAt: s.created_at ?? null,
       lastAccessedAt: s.last_accessed_at ?? null,
       prompt: null,
+      pinned: !!s.pinned_at,
+      archived: !!s.archived_at,
+      locked: locks.has(s.id),
     };
   }
 

@@ -103,7 +103,14 @@ export function ProjectPage({
   const [location, navigate] = useLocation();
   // "Show done" lives in the URL so the view is shareable and survives reloads.
   const showDone = useSearchParam('done') === '1';
-  const setShowDone = (v: boolean) => navigate(v ? `${location}?done=1` : location, { replace: true });
+  const showArchived = useSearchParam('archived') === '1';
+  const setParam = (key: string, v: boolean) => {
+    const q = new URLSearchParams(window.location.search);
+    if (v) q.set(key, '1');
+    else q.delete(key);
+    navigate(q.size ? `${location}?${q}` : location, { replace: true });
+  };
+  const setShowDone = (v: boolean) => setParam('done', v);
   if (!view) {
     return (
       <div className="space-y-3">
@@ -115,6 +122,7 @@ export function ProjectPage({
     );
   }
   const done = view.counts.done;
+  const archived = view.tasks.filter((t) => sessions.get(t.aoeSessionId)?.archived).length;
   return (
     <div className="space-y-6">
       <PageHeader
@@ -150,12 +158,24 @@ export function ProjectPage({
           <h2 id="workers-heading" className="text-base font-semibold">
             Workers
           </h2>
-          {done > 0 && (
-            <label className="flex cursor-pointer items-center gap-2 text-[0.9375rem] text-muted-foreground">
-              <Switch checked={showDone} onCheckedChange={setShowDone} aria-label="Show done tasks" />
-              Show done ({done})
-            </label>
-          )}
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            {archived > 0 && (
+              <label className="flex cursor-pointer items-center gap-2 text-[0.9375rem] text-muted-foreground">
+                <Switch
+                  checked={showArchived}
+                  onCheckedChange={(v) => setParam('archived', v)}
+                  aria-label="Show archived workers"
+                />
+                Show archived ({archived})
+              </label>
+            )}
+            {done > 0 && (
+              <label className="flex cursor-pointer items-center gap-2 text-[0.9375rem] text-muted-foreground">
+                <Switch checked={showDone} onCheckedChange={setShowDone} aria-label="Show done tasks" />
+                Show done ({done})
+              </label>
+            )}
+          </div>
         </div>
         <WorkerList
           project={view.project.name}
@@ -163,6 +183,7 @@ export function ProjectPage({
           sessions={sessions}
           changed={changed}
           showDone={showDone}
+          showArchived={showArchived}
         />
       </section>
     </div>

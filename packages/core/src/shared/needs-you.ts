@@ -90,6 +90,7 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
   }
 
   for (const s of sessions) {
+    if (s.archived) continue;
     const project = projectByControl.get(s.id) ?? null;
     const isControl = !!project || parentIds.has(s.id);
     const task = taskBySession.get(s.id) ?? null;

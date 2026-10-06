@@ -19,6 +19,10 @@ export const AoeSessionSchema = z.looseObject({
   created_at: z.string().nullish(),
   last_accessed_at: z.string().nullish(),
   idle_entered_at: z.string().nullish(),
+  // Lifecycle marks: AoE leaves each field out while it is unset.
+  pinned_at: z.string().nullish(),
+  archived_at: z.string().nullish(),
+  trashed_at: z.string().nullish(),
 });
 export type AoeSession = z.infer<typeof AoeSessionSchema>;
 

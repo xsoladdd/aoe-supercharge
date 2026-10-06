@@ -193,4 +193,30 @@ describe('ledger', () => {
     expect((await ledger.findTaskBySession('abc'))?.id).toBe('DE-0004');
     expect(await ledger.findProjectByRepo('/repo')).not.toBeNull();
   });
+
+  it('removing a task twice at once keeps one copy; restoring brings it back with its plan', async () => {
+    const ledger = await setup();
+    await ledger.createTask(newTask('DE-0005'));
+    await ledger.writePlan('demo', 'DE-0005', '# Plan');
+    const both = await Promise.all([
+      ledger.removeTask('demo', 'DE-0005'),
+      ledger.removeTask('demo', 'DE-0005'),
+    ]);
+    expect(both.filter(Boolean)).toHaveLength(1);
+    expect(await ledger.getTask('demo', 'DE-0005')).toBeNull();
+    expect((await ledger.listRemovedTasks()).map((t) => t.id)).toEqual(['DE-0005']);
+    expect(await ledger.removeTask('demo', 'DE-0005')).toBe(false);
+    expect(await ledger.restoreTask('demo', 'DE-0005')).toBe(true);
+    expect(await ledger.restoreTask('demo', 'DE-0005')).toBe(false);
+    expect((await ledger.getTask('demo', 'DE-0005'))?.id).toBe('DE-0005');
+    expect(await ledger.readPlan('demo', 'DE-0005')).toBe('# Plan');
+    expect(await ledger.listRemovedTasks()).toEqual([]);
+  });
+
+  it('locks are a set of session ids', async () => {
+    const ledger = await setup();
+    expect(await ledger.readLocks()).toEqual([]);
+    await Promise.all([ledger.setLocked(['a', 'b'], true), ledger.setLocked(['c'], true)]);
+    expect(await ledger.setLocked(['b'], false)).toEqual(['a', 'c']);
+  });
 });

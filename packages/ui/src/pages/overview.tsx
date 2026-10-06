@@ -1,6 +1,10 @@
 import {
+  ArchiveIcon,
   ArrowRightIcon,
+  CaretRightIcon,
   FolderSimplePlusIcon,
+  LockSimpleIcon,
+  PushPinIcon,
   TerminalWindowIcon,
   TreeStructureIcon,
 } from '@phosphor-icons/react';
@@ -9,9 +13,10 @@ import { relativeTime, STAGE_LABEL, type Snapshot, type SessionView } from '@aoe
 import { Link } from 'wouter';
 import { AdoptDialog } from '@/components/add-project';
 import { CommandLine } from '@/components/copy';
+import { SessionMenu } from '@/components/session-menu';
 import { Button } from '@/components/ui/button';
 import { LiveStatus, STAGE_META } from '@/components/status';
-import { projectViews, unmanagedGroups } from '@/lib/derive';
+import { archivedUnmanaged, projectViews, unmanagedGroups } from '@/lib/derive';
 import { useSessionHref } from '@/lib/nav';
 import { useNow } from '@/lib/theme';
 import { cn } from '@/lib/utils';
@@ -38,29 +43,78 @@ export function PageHeader({
   );
 }
 
-function SessionRow({ s, now, href }: { s: SessionView; now: Date; href: string }) {
+/** A group's parent session row gets the session menu too (standalone groups have no parent). */
+function ParentMenu({ id, children }: { id: string | null; children: React.ReactElement }) {
+  if (!id) return children;
   return (
-    <li>
-      <Link
-        href={href}
-        className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 px-4 py-2.5 text-left transition-colors hover:bg-raised/70 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_9rem_3.5rem]"
-      >
-        <span className="min-w-0 truncate text-[0.9375rem]">{s.title}</span>
-        <span
-          translate="no"
-          className="hidden min-w-0 truncate font-mono text-[0.8125rem] text-muted-foreground md:block"
+    <SessionMenu sessionId={id} order={[id]}>
+      {children}
+    </SessionMenu>
+  );
+}
+
+function SessionRow({
+  s,
+  now,
+  href,
+  order,
+}: {
+  s: SessionView;
+  now: Date;
+  href: string;
+  order: readonly string[];
+}) {
+  return (
+    <SessionMenu sessionId={s.id} order={order}>
+      <li className="data-[state=open]:bg-raised data-selected:bg-primary/10 data-selected:shadow-[inset_3px_0_0_var(--color-primary)]">
+        <Link
+          href={href}
+          className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1 px-4 py-2.5 text-left transition-colors hover:bg-raised/70 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_9rem_3.5rem]"
         >
-          {s.branch ?? ''}
-        </span>
-        <LiveStatus status={s.status} unread={s.unread} />
-        <span
-          className="tabular hidden text-right text-sm text-muted-foreground md:block"
-          title={s.statusSince ? new Date(s.statusSince).toLocaleString() : undefined}
-        >
-          {relativeTime(s.statusSince, now)}
-        </span>
-      </Link>
-    </li>
+          <span className="flex min-w-0 items-center gap-1.5 text-[0.9375rem]">
+            <span className="truncate">{s.title}</span>
+            {s.pinned && (
+              <PushPinIcon
+                weight="fill"
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-hidden={false}
+                role="img"
+                aria-label="Pinned"
+              />
+            )}
+            {s.locked && (
+              <LockSimpleIcon
+                weight="fill"
+                className="size-3.5 shrink-0 text-muted-foreground"
+                aria-hidden={false}
+                role="img"
+                aria-label="Locked"
+              />
+            )}
+          </span>
+          <span
+            translate="no"
+            className="hidden min-w-0 truncate font-mono text-[0.8125rem] text-muted-foreground md:block"
+          >
+            {s.branch ?? ''}
+          </span>
+          {s.archived ? (
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <ArchiveIcon className="size-4" />
+              Archived
+            </span>
+          ) : (
+            <LiveStatus status={s.status} unread={s.unread} />
+          )}
+          <span
+            className="tabular hidden text-right text-sm text-muted-foreground md:block"
+            title={s.statusSince ? new Date(s.statusSince).toLocaleString() : undefined}
+          >
+            {relativeTime(s.statusSince, now)}
+          </span>
+        </Link>
+      </li>
+    </SessionMenu>
   );
 }
 
@@ -69,6 +123,7 @@ export function OverviewPage({ snap }: { snap: Snapshot }) {
   const sessionHref = useSessionHref();
   const projects = useMemo(() => projectViews(snap), [snap]);
   const groups = useMemo(() => unmanagedGroups(snap), [snap]);
+  const archived = useMemo(() => archivedUnmanaged(snap), [snap]);
   const [adopting, setAdopting] = useState<string | null>(null);
   const aoeOk = snap.health.aoe.state === 'ok';
 
@@ -84,7 +139,7 @@ export function OverviewPage({ snap }: { snap: Snapshot }) {
         <p className="mt-1 text-[0.9375rem] text-muted-foreground">
           {plural(projects.length, 'project')},{' '}
           {plural(snap.tasks.filter((t) => t.stage !== 'done').length, 'active task')},{' '}
-          {plural(snap.sessions.length, 'AoE session')}
+          {plural(snap.sessions.filter((x) => !x.archived).length, 'AoE session')}
         </p>
       </div>
 
@@ -177,38 +232,69 @@ export function OverviewPage({ snap }: { snap: Snapshot }) {
               id={g.parent ? `group-${g.parent.id}` : 'standalone'}
               className="scroll-mt-4 overflow-hidden rounded-xl border border-border bg-card"
             >
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-                <Link
-                  href={g.parent ? sessionHref(g.parent.id) : '#standalone'}
-                  className="flex min-w-0 items-center gap-2.5 text-left hover:underline"
-                >
-                  <TerminalWindowIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden />
-                  <span className="truncate text-[0.9375rem] font-semibold">
-                    {g.parent?.title ?? 'Standalone sessions'}
-                  </span>
-                  <span className="tabular shrink-0 text-sm text-muted-foreground">
-                    {g.parent
-                      ? plural(g.children.length, 'child', 'children')
-                      : plural(g.children.length, 'session')}
-                  </span>
-                </Link>
-                {g.parent && (
-                  <span className="flex items-center gap-3">
-                    <LiveStatus status={g.parent.status} unread={g.parent.unread} />
-                    <Button size="sm" variant="secondary" onClick={() => setAdopting(g.parent!.id)}>
-                      <TreeStructureIcon />
-                      Adopt as project
-                    </Button>
-                  </span>
-                )}
-              </div>
+              <ParentMenu id={g.parent?.id ?? null}>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+                  <Link
+                    href={g.parent ? sessionHref(g.parent.id) : '#standalone'}
+                    className="flex min-w-0 items-center gap-2.5 text-left hover:underline"
+                  >
+                    <TerminalWindowIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+                    <span className="truncate text-[0.9375rem] font-semibold">
+                      {g.parent?.title ?? 'Standalone sessions'}
+                    </span>
+                    <span className="tabular shrink-0 text-sm text-muted-foreground">
+                      {g.parent
+                        ? plural(g.children.length, 'child', 'children')
+                        : plural(g.children.length, 'session')}
+                    </span>
+                  </Link>
+                  {g.parent && (
+                    <span className="flex items-center gap-3">
+                      <LiveStatus status={g.parent.status} unread={g.parent.unread} />
+                      <Button size="sm" variant="secondary" onClick={() => setAdopting(g.parent!.id)}>
+                        <TreeStructureIcon />
+                        Adopt as project
+                      </Button>
+                    </span>
+                  )}
+                </div>
+              </ParentMenu>
               <ul className="divide-y divide-border">
                 {g.children.map((s) => (
-                  <SessionRow key={s.id} s={s} now={now} href={sessionHref(s.id)} />
+                  <SessionRow
+                    key={s.id}
+                    s={s}
+                    now={now}
+                    href={sessionHref(s.id)}
+                    order={g.children.map((c) => c.id)}
+                  />
                 ))}
               </ul>
             </div>
           ))
+        )}
+        {archived.length > 0 && (
+          <details className="group overflow-hidden rounded-xl border border-border bg-card">
+            <summary className="flex cursor-pointer list-none items-center gap-2.5 px-4 py-3 text-[0.9375rem] font-semibold [&::-webkit-details-marker]:hidden">
+              <CaretRightIcon className="size-4 text-muted-foreground transition-transform group-open:rotate-90" />
+              <ArchiveIcon className="size-5 text-muted-foreground" />
+              Archived
+              <span className="tabular text-sm font-normal text-muted-foreground">
+                {plural(archived.length, 'session')}
+              </span>
+            </summary>
+            <ul className="divide-y divide-border border-t border-border">
+              {archived.map((s) => (
+                <SessionRow
+                  key={s.id}
+                  s={s}
+                  now={now}
+                  href={sessionHref(s.id)}
+                  order={archived.map((a) => a.id)}
+                />
+              ))}
+            </ul>
+          </details>
         )}
       </section>
       <AdoptDialog snap={snap} sessionId={adopting} onOpenChange={(o) => !o && setAdopting(null)} />

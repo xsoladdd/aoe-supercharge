@@ -42,12 +42,21 @@ export interface SessionGroup {
  * AoE sessions Supercharge doesn't manage, grouped parent → children. This is the Phase 1 read-only
  * view, and it makes pre-existing AoE control/worker setups visible straight away.
  */
-export function unmanagedGroups(snap: Snapshot): SessionGroup[] {
-  const managed = new Set<string>([
+function managedIds(snap: Snapshot): Set<string> {
+  return new Set<string>([
     ...snap.projects.map((p) => p.controlSessionId).filter((x): x is string => !!x),
     ...snap.tasks.map((t) => t.aoeSessionId),
   ]);
-  const rest = snap.sessions.filter((s) => !managed.has(s.id));
+}
+
+/** Pinned first, keeping the order otherwise (Array.prototype.sort is stable). */
+export function pinnedFirst<T>(items: T[], pinned: (item: T) => boolean): T[] {
+  return [...items].sort((a, b) => Number(pinned(b)) - Number(pinned(a)));
+}
+
+export function unmanagedGroups(snap: Snapshot): SessionGroup[] {
+  const managed = managedIds(snap);
+  const rest = snap.sessions.filter((s) => !managed.has(s.id) && !s.archived);
   const ids = new Set(rest.map((s) => s.id));
   const childrenOf = new Map<string, SessionView[]>();
   for (const s of rest) {
@@ -55,7 +64,7 @@ export function unmanagedGroups(snap: Snapshot): SessionGroup[] {
       childrenOf.set(s.parentId, [...(childrenOf.get(s.parentId) ?? []), s]);
   }
   const byRecent = (a: SessionView, b: SessionView) =>
-    (b.lastAccessedAt ?? '').localeCompare(a.lastAccessedAt ?? '');
+    Number(b.pinned) - Number(a.pinned) || (b.lastAccessedAt ?? '').localeCompare(a.lastAccessedAt ?? '');
   const groups: SessionGroup[] = rest
     .filter((s) => childrenOf.has(s.id))
     .map((parent) => ({ parent, children: (childrenOf.get(parent.id) ?? []).sort(byRecent) }));
@@ -64,6 +73,14 @@ export function unmanagedGroups(snap: Snapshot): SessionGroup[] {
     .sort(byRecent);
   if (loose.length) groups.push({ parent: null, children: loose });
   return groups;
+}
+
+/** Archived AoE sessions Supercharge doesn't manage, most recent first. */
+export function archivedUnmanaged(snap: Snapshot): SessionView[] {
+  const managed = managedIds(snap);
+  return snap.sessions
+    .filter((s) => s.archived && !managed.has(s.id))
+    .sort((a, b) => (b.lastAccessedAt ?? '').localeCompare(a.lastAccessedAt ?? ''));
 }
 
 export function taskSession(snap: Snapshot, task: TaskRecord): SessionView | null {

@@ -115,6 +115,9 @@ describe('Needs you: waiting workers say what they are waiting on', () => {
     createdAt: null,
     lastAccessedAt: null,
     prompt: null,
+    pinned: false,
+    archived: false,
+    locked: false,
   };
   const run = (prompt: SessionView['prompt']) =>
     computeNeedsYou({
