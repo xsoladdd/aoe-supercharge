@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-07)
+
+The office floor, commands you can run from the chat, and control chats that stay on Opus.
 
 - Right-click menu on sessions and workers (open, pin, lock, mark read, stop or start, archive, delete),
   with Ctrl/⌘ and Shift to select several. A worker whose AoE session is trashed or deleted leaves the
@@ -39,6 +41,13 @@
   worker for its card and answer its question there; **Call next** (N) brings the front of the line in.
   Put your name on the door with `ui.displayName` (Settings, Appearance). **Show in office** is in the
   right-click menu, and **List** shows the same people as a list.
+- The office looks like a study: your door at the far east end of the back wall (walnut double door,
+  bookcases, brass sconces, leather club chairs on a runner for the line), the pantry in the west, the
+  teams between. Dark is the study at night (near-black panelling, walnut, cognac leather), light the
+  navy study by day (white moulding, espresso floor, cream rugs, curtains, a world map). Characters are
+  sticker-style chibis with ink outlines, dot eyes and chunky hair, and face the room while they wait.
+- `npm run demo -- --live` keeps the demo's workers busy (three teams, new arrivals, questions, MRs that
+  merge), and `npm run demo:open` opens the running demo signed in.
 
 ## 0.2.1 (2026-10-06)
 
