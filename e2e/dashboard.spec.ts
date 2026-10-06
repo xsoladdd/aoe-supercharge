@@ -505,7 +505,18 @@ test.describe('project', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`/chat/${await sessionId('northwind-web control')}`);
     const panel = page.getByRole('complementary', { name: 'Project panel' });
-    await panel.getByRole('tab', { name: 'Notes' }).click();
+    // Notes is the first tab and the one a control chat opens on.
+    await expect(panel.getByRole('tab').first()).toHaveText('Notes');
+    await expect(panel.getByRole('tab', { name: 'Notes' })).toHaveAttribute('aria-selected', 'true');
+    // The panel hides from inside, and the labelled Panel button in the header brings it back.
+    await panel.getByRole('button', { name: 'Hide the panel' }).click();
+    await expect(panel).toHaveCount(0);
+    await page.getByRole('button', { name: 'Panel', exact: true }).click();
+    await expect(panel).toBeVisible();
+    // Start fresh sits next to the context meter, not only in the ⋯ menu.
+    await page.getByRole('button', { name: /start fresh/i }).click();
+    await expect(page.getByRole('alertdialog', { name: 'Start a fresh conversation?' })).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel' }).click();
     const notes = panel.getByLabel('Notes for northwind-web');
     const text = `Compare NW-0001 with the Figma frames (${browserName})`;
     await notes.fill(text);

@@ -371,6 +371,28 @@ interface PendingFile {
 const isImage = (f: Blob) => /^image\/(png|jpe?g|gif|webp)$/.test(f.type);
 
 /** How full the session's context is, as a small ring (like Claude Code's own meter). */
+/** From here on every message resends a lot: Start fresh gets louder. */
+const LONG_CHAT_TOKENS = 150_000;
+
+/** Start fresh, next to the context meter: there whenever there is a conversation, louder once it is long. */
+function FreshButton({ tokens, onClick }: { tokens: number | null; onClick: () => void }) {
+  if (!tokens) return null;
+  const long = tokens >= LONG_CHAT_TOKENS;
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className={cn('h-8 gap-1.5 px-2 text-xs', long ? 'text-st-yellow' : 'text-muted-foreground')}
+      title="Clear this conversation (/clear). Long conversations use more of your limit with every message."
+      onClick={onClick}
+    >
+      <BroomIcon className="size-4" />
+      {long ? 'Long chat: start fresh' : 'Start fresh'}
+    </Button>
+  );
+}
+
 function ContextMeter({ tokens, model }: { tokens: number | null; model: string | null }) {
   if (!tokens) return null;
   const windowSize = contextWindow(model);
@@ -443,6 +465,7 @@ function ChatComposer({
   model,
   effort,
   contextTokens,
+  onStartFresh,
 }: {
   session: SessionView;
   label: string;
@@ -453,6 +476,7 @@ function ChatComposer({
   model: string | null;
   effort: string | null;
   contextTokens: number | null;
+  onStartFresh: () => void;
 }) {
   const sessionId = session.id;
   const [sending, setSending] = useState(false);
@@ -634,6 +658,7 @@ function ChatComposer({
           </Button>
           <ModelMenu sessionId={sessionId} model={model} effort={effort} disabled={!!session.prompt} />
           <ContextMeter tokens={contextTokens} model={model} />
+          <FreshButton tokens={contextTokens} onClick={onStartFresh} />
           <span className="flex-1" />
           {session.status === 'working' && <WorkingClock since={session.statusSince} />}
           <button
@@ -795,6 +820,7 @@ function ChatHeader({
   aoeOrigin,
   embedded,
   panel,
+  onStartFresh,
 }: {
   session: SessionView;
   title: string;
@@ -807,9 +833,9 @@ function ChatHeader({
   embedded: boolean;
   /** Control chats: the side panel's show/hide switch. */
   panel?: { open: boolean; toggle: () => void };
+  onStartFresh: () => void;
 }) {
   const attach = `aoe session attach ${session.id}`;
-  const [fresh, setFresh] = useState(false);
   return (
     <HeaderActions>
       {!embedded && (
@@ -856,15 +882,15 @@ function ChatHeader({
       )}
       {panel && (
         <Button
-          variant="ghost"
-          size="icon-sm"
-          className="size-8"
-          aria-label={panel.open ? 'Hide the project panel' : 'Show the project panel'}
+          variant={panel.open ? 'secondary' : 'outline'}
+          size="sm"
+          className="h-8"
           aria-pressed={panel.open}
-          title={panel.open ? 'Hide the project panel' : 'Show the project panel'}
+          title={panel.open ? 'Hide the project panel' : 'Show the project panel: notes, plans and comments'}
           onClick={panel.toggle}
         >
           <SidebarSimpleIcon className="size-4 -scale-x-100" weight={panel.open ? 'fill' : 'regular'} />
+          <span className="max-sm:sr-only">Panel</span>
         </Button>
       )}
       <DropdownMenu>
@@ -900,13 +926,12 @@ function ChatHeader({
             Copy session id
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setFresh(true)}>
+          <DropdownMenuItem onSelect={onStartFresh}>
             <BroomIcon />
             Start fresh (/clear)…
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <StartFresh session={session} role={role} open={fresh} onOpenChange={setFresh} />
     </HeaderActions>
   );
 }
@@ -960,6 +985,7 @@ export function SessionChat({
 }) {
   const view = useSearchParam('view') === 'terminal' ? 'terminal' : 'chat';
   const [panelOpen, setPanelOpen] = usePanelOpen();
+  const [fresh, setFresh] = useState(false);
   const role = useMemo(() => roleOf(snap, session.id), [snap, session.id]);
   const { chat, error, refresh } = useChat(session.id);
   const terminal = useSessionOutput(session.id, view === 'terminal' ? 2000 : 15_000);
@@ -1049,7 +1075,9 @@ export function SessionChat({
           panel={
             role.kind === 'control' ? { open: panelOpen, toggle: () => setPanelOpen(!panelOpen) } : undefined
           }
+          onStartFresh={() => setFresh(true)}
         />
+        <StartFresh session={session} role={role} open={fresh} onOpenChange={setFresh} />
 
         {view === 'terminal' ? (
           <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-4 lg:px-6">
@@ -1185,13 +1213,14 @@ export function SessionChat({
               model={chat?.model ?? null}
               effort={chat?.effort ?? null}
               contextTokens={chat?.contextTokens ?? null}
+              onStartFresh={() => setFresh(true)}
             />
           )}
         </div>
       </div>
       {role.kind === 'control' && panelOpen && (
         <SidePanel onClose={() => setPanelOpen(false)}>
-          <ControlPanel snap={snap} project={role.project!} />
+          <ControlPanel snap={snap} project={role.project!} onHide={() => setPanelOpen(false)} />
         </SidePanel>
       )}
     </div>

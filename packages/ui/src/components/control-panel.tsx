@@ -1,4 +1,5 @@
 import {
+  CaretDoubleRightIcon,
   CaretRightIcon,
   ChatCenteredTextIcon,
   CheckCircleIcon,
@@ -19,6 +20,7 @@ import { Link } from 'wouter';
 import { KIND } from '@/components/needs-you';
 import { CommentablePlan, CommentList, useComments } from '@/components/plan-comments';
 import { StageBadge } from '@/components/status';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getJson, sendJson } from '@/lib/api';
 import { useNudgeFlash } from '@/lib/nudge';
@@ -26,7 +28,6 @@ import { useNow } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
 type Tab = 'plans' | 'comments' | 'notes';
-const TAB_KEY = 'supercharge.panelTab';
 
 /** What needs you in this project, at a glance; pulses when something new arrives. */
 function StatusBrief({
@@ -296,55 +297,65 @@ function NotesTab({ project }: { project: string }) {
 }
 
 const TABS: { key: Tab; label: string; icon: Icon }[] = [
+  { key: 'notes', label: 'Notes', icon: NotePencilIcon },
   { key: 'plans', label: 'Plans', icon: ClipboardTextIcon },
   { key: 'comments', label: 'Comments', icon: ChatCenteredTextIcon },
-  { key: 'notes', label: 'Notes', icon: NotePencilIcon },
 ];
 
 /** The control chat's side panel: what needs you, then the active plans, your comments and notes. */
-export function ControlPanel({ snap, project }: { snap: Snapshot; project: string }) {
-  const [tab, setTabState] = useState<Tab>(() => {
-    try {
-      return (localStorage.getItem(TAB_KEY) as Tab) || 'plans';
-    } catch {
-      return 'plans';
-    }
-  });
-  const setTab = (t: Tab) => {
-    setTabState(t);
-    try {
-      localStorage.setItem(TAB_KEY, t);
-    } catch {
-      // per-viewer convenience only
-    }
-  };
+export function ControlPanel({
+  snap,
+  project,
+  onHide,
+}: {
+  snap: Snapshot;
+  project: string;
+  /** Close the panel (the chat header's Panel button opens it again). */
+  onHide?: () => void;
+}) {
+  // Every control chat opens on your notes.
+  const [tab, setTab] = useState<Tab>('notes');
   const tasks = useMemo(() => snap.tasks.filter((t) => t.project === project), [snap.tasks, project]);
   const active = tasks.filter((t) => t.stage !== 'done');
   const items = snap.needsYou.filter((i) => i.project === project);
   return (
     <div className="flex h-full min-h-0 flex-col">
       <StatusBrief project={project} items={items} tasks={tasks} />
-      <div role="tablist" aria-label="Panel" className="flex gap-1 border-b border-border px-2">
-        {TABS.map(({ key, label, icon: I }) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            id={`panel-tab-${key}`}
-            aria-selected={tab === key}
-            aria-controls={`panel-${key}`}
-            onClick={() => setTab(key)}
-            className={cn(
-              '-mb-px inline-flex h-9 cursor-pointer items-center gap-1.5 border-b-2 px-2 text-sm font-medium transition-colors',
-              tab === key
-                ? 'border-foreground text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground',
-            )}
+      <div className="flex items-stretch border-b border-border px-2">
+        <div role="tablist" aria-label="Panel" className="flex min-w-0 gap-1">
+          {TABS.map(({ key, label, icon: I }) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              id={`panel-tab-${key}`}
+              aria-selected={tab === key}
+              aria-controls={`panel-${key}`}
+              onClick={() => setTab(key)}
+              className={cn(
+                '-mb-px inline-flex h-9 cursor-pointer items-center gap-1.5 border-b-2 px-2 text-sm font-medium transition-colors',
+                tab === key
+                  ? 'border-foreground text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <I className="size-4" />
+              {label}
+            </button>
+          ))}
+        </div>
+        {onHide && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="my-auto ml-auto size-7 text-muted-foreground"
+            aria-label="Hide the panel"
+            title="Hide the panel"
+            onClick={onHide}
           >
-            <I className="size-4" />
-            {label}
-          </button>
-        ))}
+            <CaretDoubleRightIcon className="size-4" />
+          </Button>
+        )}
       </div>
       <div
         role="tabpanel"

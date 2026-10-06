@@ -151,6 +151,8 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(out.project.name).toBe('northwind');
     expect(out.project.idPrefix).toBe('NO');
     expect(fake.state.sessions.find((s) => s.id === controlId)?.title).toBe('northwind control');
+    // Control chats run on Opus (agent.controlModel); workers get the model the control chat picks.
+    expect(fake.state.sessions.find((s) => s.id === controlId)?.extra_args).toContain('--model opus');
     for (const s of ['supercharge-control', 'supercharge-worker']) {
       expect(existsSync(join(home, '.claude/skills', s, 'SKILL.md'))).toBe(true);
       expect(existsSync(join(home, '.claude/skills', s, '.supercharge-managed'))).toBe(true);

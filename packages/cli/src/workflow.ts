@@ -244,7 +244,7 @@ export async function initProject(
     const extraArgs = [
       '--append-system-prompt-file',
       promptFile,
-      ...modelArgs(ctx.config),
+      ...modelArgs(ctx.config, { model: ctx.config.agent.controlModel || null }),
       ...(await claudeSettingsArgs(ctx)),
       ...uploadArgs(ctx.paths),
       ...ctx.config.agent.extraArgs,

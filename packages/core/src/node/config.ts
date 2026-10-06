@@ -60,12 +60,19 @@ export const ConfigSchema = z.strictObject({
         .enum(['plan', 'default', 'acceptEdits', 'auto'])
         .default('plan')
         .describe('Permission mode workers start in.'),
+      controlModel: z
+        .string()
+        .regex(/^[A-Za-z0-9._-]*$/, 'An alias like opus or sonnet, or a full model id')
+        .default('opus')
+        .describe(
+          'Model for new control chats: they split and judge the work, so Opus by default. An alias (fable, opus, opusplan, sonnet, haiku) or a full id. Empty uses your Claude Code default.',
+        ),
       model: z
         .string()
         .regex(/^[A-Za-z0-9._-]*$/, 'An alias like opus or sonnet, or a full model id')
         .default('')
         .describe(
-          'Model for new control chats, and for workers started without --model (the control chat picks sonnet or opus per task). An alias (fable, opus, opusplan, sonnet, haiku) or a full id. Empty uses your Claude Code default.',
+          'Model for workers started without --model. The control chat picks one per task (sonnet for well-scoped work, opus for harder work), so this is only the fallback. Empty uses your Claude Code default.',
         ),
       effort: z
         .enum(['default', 'low', 'medium', 'high', 'xhigh', 'max'])
