@@ -215,7 +215,8 @@ export function startLife(demo: Demo): () => void {
     const active = all.filter((t) => t.stage !== 'done');
     if (active.length >= MAX_WORKERS) return;
     const project = pick(Object.keys(NEW_WORK));
-    const taken = new Set(all.map((t) => t.title));
+    // A title comes back once its task is done, so new workers keep arriving.
+    const taken = new Set(active.map((t) => t.title));
     const free = NEW_WORK[project]!.filter(([title]) => !taken.has(title));
     if (!free.length) return;
     const [title, brief] = pick(free);

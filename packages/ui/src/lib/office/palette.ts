@@ -7,21 +7,21 @@
 export interface Palette {
   theme: 'dark' | 'light';
   bg: number;
+  /** Hardwood planks, and the seams between them. */
   corridor: [number, number];
-  /** Your office's wood floor, and its glass walls. */
-  officeFloor: [number, number];
-  rug: number;
-  glass: number;
-  glassFrame: number;
+  seam: number;
   pantry: [number, number];
-  /** Carpet under each team, picked per project. */
+  /** Rug under each team, picked per project. */
   carpets: [number, number][];
   wallLeft: number;
   wallRight: number;
   wallTop: number;
+  /** Crown moulding and skirting. */
+  trim: number;
   baseboard: number;
   window: number;
   windowFrame: number;
+  curtain: number;
   wood: { top: number; left: number; right: number };
   metal: { top: number; left: number; right: number };
   monitor: number;
@@ -36,6 +36,13 @@ export interface Palette {
   brass: number;
   sign: number;
   signText: number;
+  /** Your corner: painted panelling, leather club chairs, the runner rug, lamp light, the map, books. */
+  panel: { face: number; frame: number; shadow: number };
+  leather: { seat: number; back: number };
+  runner: { base: number; border: number; pattern: number };
+  glow: number;
+  map: { paper: number; land: number; frame: number };
+  books: number[];
   shadow: number;
   ink: number;
   nameplate: number;
@@ -65,44 +72,51 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
     cyan: token('--st-cyan', theme === 'dark' ? 0x38c6e0 : 0x0a6879),
     muted: token('--st-muted', theme === 'dark' ? 0x8f9193 : 0x5e6168),
   };
+  // Dark: a study at night, after the reference photo: near-black panelling, walnut, brass, cognac
+  // leather, a charcoal rug and leather-bound books.
   if (theme === 'dark')
     return {
       theme,
       bg: token('--background', 0x17191a),
-      corridor: [0x2b2d33, 0x2f3238],
-      officeFloor: [0x4a3a2c, 0x45362a],
-      rug: 0x2f4a5c,
-      glass: 0x7fb3d5,
-      glassFrame: 0x8a8f99,
-      pantry: [0x3a3f47, 0x333840],
+      corridor: [0x2b2019, 0x2f231b],
+      seam: 0x1b140f,
+      pantry: [0x2d3033, 0x282b2e],
       carpets: [
-        [0x2c3756, 0x303b5c],
-        [0x3a2c50, 0x3f3056],
-        [0x2a4641, 0x2e4b46],
-        [0x463829, 0x4b3c2d],
-        [0x47293a, 0x4d2d3f],
-        [0x2e4630, 0x324b34],
+        [0x232a35, 0x262e3a],
+        [0x1f2d27, 0x22322b],
+        [0x34201f, 0x382322],
+        [0x2d2233, 0x312538],
+        [0x352a1c, 0x392e1f],
+        [0x1f2f33, 0x223438],
       ],
-      wallLeft: 0x24272c,
-      wallRight: 0x2c2f35,
-      wallTop: 0x3a3d43,
-      baseboard: 0x1d1f23,
-      window: 0x1f3550,
-      windowFrame: 0x3a3d43,
-      wood: { top: 0x7a5c43, left: 0x5c4532, right: 0x4b3829 },
+      wallLeft: 0x141919,
+      wallRight: 0x192020,
+      wallTop: 0x262e2d,
+      trim: 0x2f3836,
+      baseboard: 0x0e1212,
+      window: 0x14263a,
+      windowFrame: 0x2a3231,
+      curtain: 0x3b2c25,
+      wood: { top: 0x6e4a32, left: 0x573823, right: 0x472c1c },
       metal: { top: 0x5a5e67, left: 0x43464d, right: 0x383b41 },
       monitor: 0x15171b,
       screen: 0x3d7fc4,
-      chair: 0x3c3f46,
-      plant: { pot: 0x8a5a3c, leaf: 0x2f7a4a, leafLight: 0x46a066 },
-      fridge: { top: 0xb9bec8, left: 0x9aa0aa, right: 0x858b95 },
-      sofa: { seat: 0x5b4a82, back: 0x4a3c6c },
+      chair: 0x232528,
+      plant: { pot: 0x6b4a32, leaf: 0x2f7a4a, leafLight: 0x46a066 },
+      fridge: { top: 0x8f959e, left: 0x777d86, right: 0x666b73 },
+      sofa: { seat: 0x5c3a28, back: 0x4b2f20 },
       felt: 0x2f6f4a,
-      door: 0x6b4f36,
-      doorFrame: 0x3a2c20,
-      brass: 0xc9a227,
-      sign: 0x27292d,
-      signText: 0xf4f4f5,
+      door: 0x5e3b25,
+      doorFrame: 0x2e1f15,
+      brass: 0xc29a48,
+      sign: 0x15181a,
+      signText: 0xe9d9b0,
+      panel: { face: 0x1b2122, frame: 0x262e2e, shadow: 0x101414 },
+      leather: { seat: 0x6a3f27, back: 0x56321f },
+      runner: { base: 0x2a2d31, border: 0x3a3f45, pattern: 0x33373c },
+      glow: 0xffc87a,
+      map: { paper: 0xe2d4b8, land: 0x8a5a36, frame: 0x6e4a32 },
+      books: [0x7a3b22, 0x8c4a28, 0x5a3420, 0x9a5a30, 0x6b2f2a, 0xb07a4a],
       shadow: 0x000000,
       ink: 0x2a2421,
       nameplate: 0x1f2125,
@@ -111,43 +125,50 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
       accent: token('--primary', 0xb780e5),
       status,
     };
+  // Light: the navy study by day, after the reference photo: navy walls with white trim, espresso floor,
+  // cream rugs, walnut, brass, curtains and a framed world map.
   return {
     theme,
     bg: token('--background', 0xeef0f2),
-    corridor: [0xe4e6ea, 0xdfe1e6],
-    officeFloor: [0xd9b88f, 0xd2b087],
-    rug: 0x7c9fb8,
-    glass: 0xa9d4ee,
-    glassFrame: 0x9aa1ab,
-    pantry: [0xf6f6f3, 0xe8e9e4],
+    corridor: [0x3d2c22, 0x392920],
+    seam: 0x281c15,
+    pantry: [0xe7e4dd, 0xdcd8cf],
     carpets: [
-      [0xcdd8f2, 0xc6d2ef],
-      [0xe1d3f0, 0xdccdec],
-      [0xcce7e0, 0xc4e2da],
-      [0xefdfca, 0xebd8c1],
-      [0xf1d2db, 0xeccad4],
-      [0xd5ebcf, 0xcde6c6],
+      [0xe9e3d6, 0xe3dccd],
+      [0xd9dfd0, 0xd2d9c8],
+      [0xe6d9c3, 0xe0d2b9],
+      [0xd6dde4, 0xcfd7df],
+      [0xe8d8d3, 0xe2d0ca],
+      [0xdedbd2, 0xd7d3c9],
     ],
-    wallLeft: 0xd5d9e0,
-    wallRight: 0xe3e6eb,
-    wallTop: 0xc4c9d1,
-    baseboard: 0xb8bdc6,
-    window: 0xbfe0fb,
+    wallLeft: 0x2c3e52,
+    wallRight: 0x34495f,
+    wallTop: 0xf1eee8,
+    trim: 0xf1eee8,
+    baseboard: 0xece8e0,
+    window: 0xcfe7f7,
     windowFrame: 0xffffff,
-    wood: { top: 0xc9a27a, left: 0xa8835f, right: 0x8e6d4f },
+    curtain: 0xeee4d3,
+    wood: { top: 0x8b5a3a, left: 0x70462c, right: 0x5c3923 },
     metal: { top: 0xb7bcc5, left: 0x9ea4ae, right: 0x8a909a },
     monitor: 0x2b2e35,
     screen: 0x8fc4f5,
-    chair: 0x5f636c,
+    chair: 0x3a3d44,
     plant: { pot: 0xc0784d, leaf: 0x3f9a5c, leafLight: 0x62bb7c },
     fridge: { top: 0xf4f5f7, left: 0xdfe2e7, right: 0xcdd1d8 },
-    sofa: { seat: 0x8c7ac0, back: 0x76649f },
+    sofa: { seat: 0x6e4632, back: 0x5c3826 },
     felt: 0x3f8f5f,
-    door: 0x9a7350,
-    doorFrame: 0x6b4f36,
-    brass: 0xc9a227,
-    sign: 0x2b2e35,
-    signText: 0xf4f4f5,
+    door: 0x7a4e30,
+    doorFrame: 0x4f321f,
+    brass: 0xc29a48,
+    sign: 0x1f2a36,
+    signText: 0xf1e6c8,
+    panel: { face: 0x2c3e52, frame: 0x3b5169, shadow: 0x223244 },
+    leather: { seat: 0x7a4a2e, back: 0x643b24 },
+    runner: { base: 0xe6dfd1, border: 0xcfc5b2, pattern: 0xd9d0bf },
+    glow: 0xffd28a,
+    map: { paper: 0xf3ecdd, land: 0x9a6a44, frame: 0x7a4e30 },
+    books: [0x7a3b22, 0x8c4a28, 0xb07a4a, 0x2f4a5c, 0x5a3420, 0xd8c7a8],
     shadow: 0x2a2d35,
     ink: 0x2a2421,
     nameplate: 0x16171a,

@@ -251,12 +251,12 @@ export class OfficeScene {
     const L = this.layout;
     const out = new Map<string, Spot>();
 
-    // The line at your door, front first: on the waiting chairs, then standing down the aisle. The one
-    // you called in walks into your office and stands across your desk.
+    // The line at your door, front first: on the club chairs, then standing on the runner. The one you
+    // called in steps through your door.
     let i = 0;
     for (const w of model.door) {
       if (w.key === this.called) {
-        out.set(w.key, { tile: L.visitor, stance: 'stand', hands: 'down', face: [0, -1] });
+        out.set(w.key, { tile: L.door, stance: 'stand', hands: 'down', face: [0, -1], vanish: 'door' });
         continue;
       }
       const at = Math.min(i, L.queue.length - 1);
@@ -264,7 +264,8 @@ export class OfficeScene {
       if (at < L.queueSeats) {
         out.set(w.key, { tile, stance: 'sit', hands: 'down', face: [0, 1] });
       } else {
-        const ahead = L.queue[at - 1] ?? L.door;
+        // Standing on the runner: facing your door.
+        const ahead = L.door;
         out.set(w.key, {
           tile,
           stance: 'stand',

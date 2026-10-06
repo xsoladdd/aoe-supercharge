@@ -53,8 +53,6 @@ describe('office layout', () => {
       const l = officeLayout(teams);
       const goals = [
         l.door,
-        l.visitor,
-        l.room.doorway,
         ...l.queue,
         ...l.pantry.spots.map((s) => s.tile),
         ...l.teams.flatMap((t) => [t.leadSeat, ...t.spare, ...t.desks.map((d) => d.seat)]),
@@ -82,27 +80,29 @@ describe('office layout', () => {
     expect(big.width * big.height).toBeGreaterThan(small.width * small.height);
     expect(Object.keys(big.areas).sort()).toEqual(['a', 'b', 'c', 'door', 'office', 'pantry']);
     // The front of the line sits on the chair beside your door; the first few spots are chairs.
-    expect(big.queue[0]).toEqual({ x: big.door.x + 1, y: big.door.y });
+    expect(big.queue[0]).toEqual({ x: big.door.x - 1, y: big.door.y });
     expect(big.queueSeats).toBeGreaterThan(0);
     expect(big.pantry.spots.length).toBeGreaterThanOrEqual(16);
   });
 
-  it('puts your office in the middle of the back wall, walled in glass with one door', () => {
+  it('puts your door at the far east end of the back wall, with the line beside it', () => {
     const l = officeLayout([
       { project: 'a', desks: 4 },
       { project: 'b', desks: 4 },
     ]);
-    const { area, doorway, walls } = l.room;
-    expect(area.y).toBe(0);
-    expect(Math.abs(area.x + area.w / 2 - l.width / 2)).toBeLessThanOrEqual(1);
-    // You can only get in through the doorway: every other front and side tile is wall.
-    expect(walls.some((t) => t.x === doorway.x && t.y === doorway.y)).toBe(false);
-    for (const t of walls) expect(l.grid.blocked(t.x, t.y)).toBe(true);
-    const path = findPath(l.grid, l.door, l.visitor)!;
-    expect(path.some((t) => t.x === doorway.x && t.y === doorway.y)).toBe(true);
-    // The teams sit in front of it, the pantry beside it.
-    for (const t of l.teams) expect(t.area.y).toBeGreaterThan(area.y + area.h);
-    expect(l.pantry.area.x + l.pantry.area.w).toBeLessThan(area.x);
+    // Your door is on the back wall, east of every team and the pantry, near the east edge.
+    expect(l.door.y).toBe(0);
+    expect(l.width - l.door.x).toBeLessThanOrEqual(4);
+    for (const t of l.teams) expect(t.area.x + t.area.w).toBeLessThan(l.door.x);
+    expect(l.pantry.area.x + l.pantry.area.w).toBeLessThan(l.door.x);
+    // The chairs line the wall beside it, nearest first; the rest of the line stands in front of them.
+    const chairs = l.queue.slice(0, l.queueSeats);
+    expect(chairs.map((t) => t.y)).toEqual(chairs.map(() => 0));
+    expect(chairs.map((t) => l.door.x - t.x)).toEqual(chairs.map((_, i) => i + 1));
+    for (const t of l.queue) {
+      expect(t.x).toBeGreaterThanOrEqual(l.suite.x);
+      expect(t.x).toBeLessThan(l.suite.x + l.suite.w);
+    }
   });
 
   it('is the same for the same teams', () => {

@@ -18,8 +18,12 @@ const BLUSH = 0xe8838f;
 
 type G = Graphics;
 
-/** The soft dark line round every shape: the fill's own colour, much darker. */
-const line = (c: number, width = 1.3) => ({ width, color: shade(c, 0.55), alpha: 0.9 });
+/**
+ * The look: a sticker-style chibi. One near-black ink line round every shape, a rounded-square head,
+ * dot eyes, chunky hair, mitten hands and boots, flat colours.
+ */
+const INK = 0x231f20;
+const line = (_c: number, width = 1.3) => ({ width: width * 1.45, color: INK });
 
 /** An outfit with its colours as numbers, ready to draw. */
 interface Look {
@@ -89,13 +93,24 @@ function hairFront(g: G, o: Look) {
         g.circle(x!, y!, 4.3).fill(c).stroke(line(c, 1.1));
       g.ellipse(-3, -44.5, 3, 1.5).fill({ color: 0xffffff, alpha: 0.22 });
       return;
+    case 'short':
+      // Chunky tufts on top, a ragged fringe.
+      g.poly([
+        -12.8, -33, -13.4, -44, -10, -50, -6.5, -48.2, -3.2, -52.4, 0.8, -49.4, 4.6, -52.8, 7.8, -48.8, 11.4,
+        -50.6, 13.6, -43.5, 12.8, -33, 10, -38.2, 6.4, -41.6, 2.8, -40.2, -1.2, -42.4, -5.2, -40.6, -9.4,
+        -41.8,
+      ])
+        .fill(c)
+        .stroke(line(c));
+      g.moveTo(-6, -47).lineTo(-3.6, -44.6).stroke({ width: 1.2, color: 0xffffff, alpha: 0.25 });
+      return;
     default:
-      if (o.hair.style === 'bun') g.circle(0, -50, 5).fill(c).stroke(line(c));
+      if (o.hair.style === 'bun') g.circle(0, -52, 5.2).fill(c).stroke(line(c));
       // A swept fringe: fuller on one side, with a parting.
-      g.moveTo(-11.4, -34.5)
-        .bezierCurveTo(-12.6, -51.5, 12.6, -51.5, 11.4, -34.5)
-        .quadraticCurveTo(7.5, -42.5, 1.5, -41.2)
-        .quadraticCurveTo(-4.5, -43, -11.4, -34.5)
+      g.moveTo(-12.6, -33.5)
+        .bezierCurveTo(-13.6, -55, 13.6, -55, 12.6, -33.5)
+        .quadraticCurveTo(8, -42.5, 1.5, -41.4)
+        .quadraticCurveTo(-5, -43.5, -12.6, -33.5)
         .fill(c)
         .stroke(line(c));
       if (o.hair.style === 'bob') {
@@ -140,10 +155,10 @@ function hairBackView(g: G, o: Look) {
 
 /** The upper body: rounded shoulders narrowing a touch to the waist. */
 function chest(g: G, color: number) {
-  g.moveTo(-9.6, -21.5)
-    .quadraticCurveTo(-9.6, -27.6, -4, -27.6)
-    .lineTo(4, -27.6)
-    .quadraticCurveTo(9.6, -27.6, 9.6, -21.5)
+  g.moveTo(-9.8, -20.5)
+    .quadraticCurveTo(-9.8, -26, -4, -26)
+    .lineTo(4, -26)
+    .quadraticCurveTo(9.8, -26, 9.8, -20.5)
     .lineTo(8.8, -12.5)
     .quadraticCurveTo(8.6, -10, 6, -10)
     .lineTo(-6, -10)
@@ -152,13 +167,13 @@ function chest(g: G, color: number) {
     .fill(color)
     .stroke(line(color));
   // Shade down the far side, for some volume.
-  g.moveTo(4.5, -27)
-    .quadraticCurveTo(9, -27, 9, -21.5)
+  g.moveTo(4.5, -25.4)
+    .quadraticCurveTo(9.2, -25.4, 9.2, -20.5)
     .lineTo(8.3, -12.5)
     .quadraticCurveTo(8.1, -10.6, 6, -10.6)
     .lineTo(5.2, -10.6)
     .quadraticCurveTo(7, -18, 4.5, -27)
-    .fill({ color: 0x000000, alpha: 0.1 });
+    .fill({ color: 0x000000, alpha: 0.06 });
 }
 
 function torsoFront(g: G, o: Look) {
@@ -235,21 +250,17 @@ function torsoBack(g: G, o: Look) {
       g.circle(x!, y!, 1.5).fill(trim);
 }
 
-function face(g: G, o: Look, ink: number) {
-  for (const x of [-4.1, 4.1]) {
-    g.ellipse(x, -35.2, 1.85, 2.45).fill(ink);
-    g.circle(x + 0.6, -36.2, 0.85).fill(0xffffff);
-    g.circle(x - 0.5, -34.2, 0.4).fill({ color: 0xffffff, alpha: 0.8 });
+function face(g: G) {
+  // Dot eyes with a glint, short ink brows, a small mouth.
+  for (const x of [-4.4, 4.4]) {
+    g.ellipse(x, -35, 1.6, 2.05).fill(INK);
+    g.circle(x + 0.55, -35.8, 0.55).fill(0xffffff);
+    g.moveTo(x - 1.7, -39)
+      .lineTo(x + 1.5, -39.4)
+      .stroke({ width: 1.2, color: INK, alpha: 0.85 });
   }
-  // Brows in the hair's colour (a bald head gets soft ones).
-  const brow = o.hair.style === 'bald' ? shade(o.skin, 0.4) : shade(o.hair.color, 0.1);
-  for (const x of [-4.1, 4.1])
-    g.moveTo(x - 1.9, -39.1)
-      .quadraticCurveTo(x, -40.3, x + 1.9, -39.1)
-      .stroke({ width: 1.1, color: brow, alpha: 0.9 });
-  g.ellipse(0, -32.6, 0.9, 0.6).fill({ color: shade(o.skin, 0.25), alpha: 0.7 });
-  g.moveTo(-1.9, -30.8).quadraticCurveTo(0, -29.1, 1.9, -30.8).stroke({ width: 1.1, color: ink });
-  for (const x of [-6.8, 6.8]) g.ellipse(x, -32, 2.2, 1.3).fill({ color: BLUSH, alpha: 0.42 });
+  g.moveTo(-1.6, -30.9).quadraticCurveTo(0, -29.6, 1.6, -30.9).stroke({ width: 1.2, color: INK });
+  for (const x of [-7.2, 7.2]) g.ellipse(x, -31.8, 1.9, 1.1).fill({ color: BLUSH, alpha: 0.3 });
 }
 
 function accessoryFront(g: G, o: Look, ink: number) {
@@ -357,10 +368,10 @@ function legShape(g: G, o: Look, len: number) {
     .stroke(line(shorts ? o.skin : cloth, 1.1));
   if (shorts && len > 8) g.roundRect(-3, 0, 6, 4.8, 2).fill(cloth).stroke(line(cloth, 1.1));
   // A rounded shoe, toe towards the viewer, with a shine.
-  g.roundRect(-3.3, len - 2, 7.2, 3.8, 1.9)
+  g.roundRect(-3.6, len - 2.4, 7.6, 4.2, 2)
     .fill(o.shoes)
     .stroke(line(o.shoes, 1.1));
-  g.ellipse(1.2, len - 1.1, 1.6, 0.7).fill({ color: 0xffffff, alpha: 0.25 });
+  g.ellipse(1.4, len - 1.4, 1.5, 0.6).fill({ color: 0xffffff, alpha: 0.2 });
 }
 
 function armShape(g: G, o: Look) {
@@ -529,6 +540,8 @@ export class Character {
   private head = new Graphics();
   private front = new Graphics();
   private held = new Graphics();
+  /** Little motion marks beside someone waiting on you. */
+  private wiggle = new Graphics();
   private bubble = new Container();
   private plate = new Container();
   private plateText: Text;
@@ -555,8 +568,8 @@ export class Character {
     this.o = look(outfit);
     this.legL.position.set(-3.7, -11.5);
     this.legR.position.set(3.7, -11.5);
-    this.armL.position.set(-10, -26);
-    this.armR.position.set(10, -26);
+    this.armL.position.set(-10.2, -23.6);
+    this.armR.position.set(10.2, -23.6);
     this.root.addChild(this.ring, this.shadow, this.body);
     this.plateText = new Text({
       text: name,
@@ -648,6 +661,7 @@ export class Character {
     if (shown && !this.prop) this.bubbleSince = now;
     this.prop = shown;
     this.thought = thought;
+    this.wiggle.visible = !!shown && !thought;
     this.drawBubble();
   }
 
@@ -732,6 +746,17 @@ export class Character {
       this.held,
     ])
       g.clear();
+    this.wiggle.clear();
+    for (const side of [-1, 1])
+      for (const [dx, y0, y1] of [
+        [17, -36, -29],
+        [20.5, -34, -30],
+      ] as const)
+        this.wiggle
+          .moveTo(side * dx, y0)
+          .quadraticCurveTo(side * (dx + 2.2), (y0 + y1) / 2, side * dx, y1)
+          .stroke({ width: 1.5, color: INK, alpha: 0.55 });
+    this.wiggle.visible = !!this.prop && !this.thought;
     this.shadow
       .clear()
       .ellipse(0, 0.5, 12.5, 5)
@@ -740,18 +765,17 @@ export class Character {
       .fill({ color: this.p.shadow, alpha: this.p.theme === 'dark' ? 0.2 : 0.1 });
     // Sitting: the shins hang from the knees, under a lap.
     const sit = this.stance === 'sit';
-    const legLen = sit ? 7.6 : 11.8;
-    for (const leg of [this.legL, this.legR]) leg.y = sit ? -8.6 : -11.5;
+    const legLen = sit ? 5.6 : 8.2;
+    for (const leg of [this.legL, this.legR]) leg.y = sit ? -7.4 : -10;
     legShape(this.legL, o, legLen);
     legShape(this.legR, o, legLen);
     armShape(this.armL, o);
     armShape(this.armR, o);
     // Neck, ears and head, with a soft shadow under the far cheek.
     this.head.rect(-2.6, -29.5, 5.2, 3.8).fill(shade(o.skin, 0.12));
-    for (const x of [-10.8, 10.8])
-      this.head.circle(x, -34.8, 2.6).fill(shade(o.skin, 0.06)).stroke(line(o.skin, 1));
-    this.head.ellipse(0, -36.4, 11.3, 10.7).fill(o.skin).stroke(line(o.skin));
-    this.head.ellipse(4.4, -33.2, 6.2, 5.6).fill({ color: 0x000000, alpha: 0.05 });
+    for (const x of [-12.2, 12.2])
+      this.head.circle(x, -34.6, 2.5).fill(shade(o.skin, 0.04)).stroke(line(o.skin, 1));
+    this.head.roundRect(-12.2, -46.8, 24.4, 22, 9.8).fill(o.skin).stroke(line(o.skin));
     if (this.view === 'front') {
       hairBack(this.back, o, 'front');
       if (o.accessory === 'hood') this.back.circle(0, -37, 13.2).fill(shade(o.top.trim, 0.15));
@@ -761,12 +785,13 @@ export class Character {
           .roundRect(-8.8, -13, 17.6, 5.6, 2.6)
           .fill(o.bottom.kind === 'shorts' ? o.bottom.color : o.bottom.color)
           .stroke(line(o.bottom.color, 1.1));
-      face(this.head, o, ink);
+      face(this.head);
       hairFront(this.front, o);
       accessoryFront(this.front, o, ink);
       heldItem(this.held, this.hands, this.p);
       this.body.removeChildren();
       this.body.addChild(
+        this.wiggle,
         this.back,
         this.legL,
         this.legR,
@@ -785,6 +810,7 @@ export class Character {
       heldItem(this.held, this.hands, this.p);
       this.body.removeChildren();
       this.body.addChild(
+        this.wiggle,
         this.held,
         this.legL,
         this.legR,

@@ -2,16 +2,13 @@ import type { Grid, Tile } from './pathfind.ts';
 
 /**
  * The office floor plan (SPEC §14.5), in tiles: x runs along the back wall (wall A), y along the left
- * wall (wall B), towards the viewer. Your office is a glass room in the middle of the back wall, with
- * your desk inside and a row of waiting chairs outside its door; the pantry is in the back-left corner.
- * The team blocks fill the floor in front of the main aisle, and the entrance is at the front of the left
- * wall. It grows with the teams.
+ * wall (wall B), towards the viewer. West to east: the pantry in the back-left corner, the team blocks
+ * in rows, and your door at the far east end of the back wall, set in panelling with bookshelves, with
+ * leather waiting chairs beside it and a waiting area on a runner in front. The entrance is at the front
+ * of the left wall. It grows with the teams.
  *
- *   wall A (y = -1): pantry | your office (glass) | whiteboard
- *                            waiting chairs
- *   ─────────────────────── main aisle ───────────────────────
- *   team blocks, left to right, in rows
- *   entrance (x = 0, near the front)
+ *   wall A (y = -1): pantry | world map ... | shelves, chairs, YOUR DOOR, shelves
+ *   x = 0 entrance | pantry | team blocks   | waiting area
  */
 
 export interface Rect {
@@ -39,9 +36,7 @@ export type FurnitureKind =
   | 'table'
   | 'sofa'
   | 'foosball'
-  | 'exec_desk'
-  | 'bookshelf'
-  | 'armchair';
+  | 'side_table';
 
 export interface Furniture {
   kind: FurnitureKind;
@@ -64,47 +59,35 @@ export interface TeamPlan {
 
 export type PantrySeat = 'stand' | 'chair' | 'sofa';
 
-/** Your office: a glass room whose walls stand on the edge tiles of `area`, with a door in the front. */
-export interface OfficeRoom {
-  area: Rect;
-  /** Wall tiles: the side columns and the front row, except the doorway. */
-  walls: Tile[];
-  /** The doorway in the front wall. */
-  doorway: Tile;
-  /** Your chair, behind your desk. */
-  seat: Tile;
-}
-
 export interface OfficeLayout {
   width: number;
   height: number;
   grid: Grid;
   /** First tile inside the entrance on the left wall; new workers walk in from here. */
   entrance: Tile;
-  /** The tile just outside your office door; the front of the line steps in through it. */
+  /** The tile in front of your door; a called worker steps through it. */
   door: Tile;
-  /** Where the worker you called in stands, across your desk. */
-  visitor: Tile;
-  room: OfficeRoom;
-  /** The line at your door, front first: on the waiting chairs, then standing in the aisle. */
+  /** The line at your door, front first: on the waiting chairs, then standing on the runner. */
   queue: Tile[];
   /** How many of the first `queue` spots are chairs. */
   queueSeats: number;
+  /** Your corner of the back wall: the panelled stretch round your door. */
+  suite: Rect;
   pantry: { area: Rect; spots: { tile: Tile; seat: PantrySeat }[] };
   teams: TeamPlan[];
   furniture: Furniture[];
-  floors: { kind: 'carpet' | 'pantry' | 'office'; rect: Rect; team?: string }[];
+  floors: { kind: 'carpet' | 'pantry' | 'runner'; rect: Rect; team?: string }[];
   /** Camera targets: `office`, `door`, `pantry` and each project name. */
   areas: Record<string, Rect>;
 }
 
 const PANTRY_W = 8;
 const PANTRY_H = 7;
-/** Your office, walls included: 5 tiles inside, with the side walls on its edge columns. */
-const ROOM_W = 7;
-/** Rows 0..3 inside (your chair, your desk, the visitor, a step in), then the front wall. */
-const ROOM_H = 5;
 const WAITING_CHAIRS = 4;
+/** Your corner: the chairs, your door, a side table and a plant past it. */
+const SUITE_W = WAITING_CHAIRS + 3;
+/** Rows of standing room on the runner in front of the chairs. */
+const WAIT_ROWS = 3;
 
 export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   const teams = input.length ? input : [];
@@ -120,22 +103,15 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
     const r = Math.floor(i / teamCols);
     rowHeights[r] = Math.max(rowHeights[r] ?? 0, blockH(t));
   });
-  const teamsW = teams.length ? teamCols * blockW + (teamCols - 1) : 0;
+  const teamsW = teams.length ? teamCols * blockW + (teamCols - 1) : 4;
   const teamsH = rowHeights.reduce((a, b) => a + b, 0) + Math.max(0, rowHeights.length - 1);
 
-  // The back band: pantry, a walkway, your office with its waiting chairs, room for the line.
   const px = 1;
-  const minRoomX = px + PANTRY_W + 1;
-  const backW = minRoomX + ROOM_W + WAITING_CHAIRS + 3;
-  // Wide enough that your office sits in the middle, clear of the pantry.
-  const width = Math.max(backW, 1 + teamsW + 1, 2 * minRoomX + ROOM_W);
-  const rx = Math.max(minRoomX, Math.floor((width - ROOM_W) / 2));
-  const doorX = rx + Math.floor(ROOM_W / 2);
-  const front = ROOM_H - 1;
-  const waitY = ROOM_H;
-  const aisleY = ROOM_H + 1;
-  const teamsY = Math.max(PANTRY_H, aisleY + 1) + 1;
-  const height = Math.max(teamsY + teamsH + 2, 14);
+  const tx = px + PANTRY_W + 1;
+  const sx = tx + teamsW + 1;
+  const doorX = sx + WAITING_CHAIRS;
+  const width = sx + SUITE_W + 1;
+  const height = Math.max(PANTRY_H + 5, 1 + teamsH + 2, WAIT_ROWS + 6);
 
   const blocked = new Uint8Array(width * height);
   const block = (x: number, y: number) => {
@@ -149,36 +125,14 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   const floors: OfficeLayout['floors'] = [];
   const areas: Record<string, Rect> = {};
 
-  // Your office. The walls stand on its edge tiles; you sit behind your desk, facing the door.
-  const roomArea = { x: rx, y: 0, w: ROOM_W, h: ROOM_H };
-  floors.push({ kind: 'office', rect: { x: rx + 1, y: 0, w: ROOM_W - 2, h: front } });
-  const walls: Tile[] = [];
-  for (let y = 0; y <= front; y++) walls.push({ x: rx, y }, { x: rx + ROOM_W - 1, y });
-  for (let x = rx + 1; x < rx + ROOM_W - 1; x++) if (x !== doorX) walls.push({ x, y: front });
-  for (const w of walls) block(w.x, w.y);
-  const seat = { x: doorX, y: 0 };
-  put({ kind: 'exec_desk', x: doorX - 1, y: 1, w: 3, h: 1 });
-  put({ kind: 'bookshelf', x: rx + 1, y: 0, w: 1, h: 1 });
-  put({ kind: 'plant', x: rx + 1, y: front - 1, w: 1, h: 1 });
-  put({ kind: 'armchair', x: rx + ROOM_W - 2, y: front - 1, w: 1, h: 1 });
-  const visitor = { x: doorX, y: 2 };
-
-  // The line: chairs along the glass on the door's right, then standing down the aisle.
-  const queue: Tile[] = [];
-  for (let k = 1; k <= WAITING_CHAIRS; k++) queue.push({ x: doorX + k, y: waitY });
-  for (let x = doorX + WAITING_CHAIRS; x >= rx - 1; x--) queue.push({ x, y: aisleY });
-  for (let x = rx - 2; x > px + PANTRY_W; x--) queue.push({ x, y: aisleY });
-  put({ kind: 'plant', x: doorX + WAITING_CHAIRS + 1, y: waitY, w: 1, h: 1 });
-
-  // Team blocks, in front of the aisle.
+  // Team blocks, in rows between the pantry and your corner.
   const plans: TeamPlan[] = [];
-  let rowY = teamsY;
+  let rowY = 1;
   teams.forEach((t, i) => {
     const c = i % teamCols;
     const r = Math.floor(i / teamCols);
     if (c === 0 && r > 0) rowY += rowHeights[r - 1]! + 1;
-    // The teams sit centred under your office.
-    const bx = Math.max(1, Math.floor((width - teamsW) / 2)) + c * (blockW + 1);
+    const bx = tx + c * (blockW + 1);
     const by = rowY;
     const area = { x: bx, y: by, w: blockW, h: blockH(t) };
     floors.push({ kind: 'carpet', rect: area, team: t.project });
@@ -203,6 +157,17 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
       spare: Array.from({ length: cols }, (_, k) => ({ x: bx + 1 + k, y: by + 2 })),
     });
   });
+
+  // Your corner: leather chairs against the panelling, nearest the door first; your door; a side table
+  // and a plant past it; standing room on the runner in front of the chairs.
+  const suite = { x: sx, y: 0, w: SUITE_W, h: WAIT_ROWS + 1 };
+  floors.push({ kind: 'runner', rect: { x: sx, y: 0, w: WAITING_CHAIRS + 1, h: WAIT_ROWS + 1 } });
+  const queue: Tile[] = [];
+  for (let k = 1; k <= WAITING_CHAIRS; k++) queue.push({ x: doorX - k, y: 0 });
+  for (let r = 1; r <= WAIT_ROWS; r++)
+    for (let k = 1; k <= WAITING_CHAIRS; k++) queue.push({ x: doorX - k, y: r });
+  put({ kind: 'side_table', x: doorX + 1, y: 0, w: 1, h: 1 });
+  put({ kind: 'plant', x: doorX + 2, y: 0, w: 1, h: 1 });
 
   // The pantry, in the back-left corner.
   const pantryArea = { x: px, y: 0, w: PANTRY_W, h: PANTRY_H };
@@ -232,13 +197,13 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
     for (let x = px; x < px + PANTRY_W; x++)
       if (!blocked[y * width + x] && !taken.has(`${x},${y}`)) spots.push({ tile: { x, y }, seat: 'stand' });
 
-  // Plants by the entrance and in the far back corner.
+  // Plants by the entrance and at the front corner of the east side.
   const entrance = { x: 0, y: height - 3 };
   put({ kind: 'plant', x: 0, y: height - 1, w: 1, h: 1 });
-  put({ kind: 'plant', x: width - 1, y: 0, w: 1, h: 1 });
+  put({ kind: 'plant', x: width - 1, y: height - 1, w: 1, h: 1 });
 
   areas.office = { x: 0, y: 0, w: width, h: height };
-  areas.door = { x: rx - 1, y: 0, w: ROOM_W + WAITING_CHAIRS + 2, h: aisleY + 1 };
+  areas.door = { x: sx - 1, y: 0, w: SUITE_W + 2, h: WAIT_ROWS + 3 };
   areas.pantry = pantryArea;
 
   return {
@@ -250,11 +215,10 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
       blocked: (x, y) => x < 0 || y < 0 || x >= width || y >= height || blocked[y * width + x] === 1,
     },
     entrance,
-    door: { x: doorX, y: waitY },
-    visitor,
-    room: { area: roomArea, walls, doorway: { x: doorX, y: front }, seat },
+    door: { x: doorX, y: 0 },
     queue,
     queueSeats: WAITING_CHAIRS,
+    suite,
     pantry: { area: pantryArea, spots },
     teams: plans,
     furniture,
