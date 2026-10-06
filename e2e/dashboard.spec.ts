@@ -749,6 +749,8 @@ test.describe('right-click', () => {
     signedIn: page,
   }) => {
     await page.goto('/settings');
+    await expect(page.locator('main h1')).toBeVisible();
+    await expect(page.locator('main input').first()).toBeVisible();
     const prevented = (selector: string) =>
       page.evaluate((sel) => {
         const el = document.querySelector(sel)!;

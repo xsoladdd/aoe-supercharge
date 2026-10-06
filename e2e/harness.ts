@@ -130,6 +130,8 @@ export async function startDemo(opts: {
     ['notifications.enabled', 'false'],
     ['notifications.waitingDebounceSeconds', '0'],
     ['remoteControl.enabled', 'true'],
+    // Test and demo browsers would otherwise chime through your speakers on every new Needs-you item.
+    ['ui.sound', 'false'],
   ] as const)
     await sc(env, ['config', 'set', k, v], home);
 
