@@ -23,6 +23,8 @@ type G = Graphics;
  * dot eyes, chunky hair, mitten hands and boots, flat colours.
  */
 const INK = 0x231f20;
+/** Characters are drawn at this size over their feet, so faces read at the zoom you usually work at. */
+const SCALE = 1.15;
 const line = (_c: number, width = 1.3) => ({ width: width * 1.45, color: INK });
 
 /** An outfit with its colours as numbers, ready to draw. */
@@ -137,20 +139,25 @@ function hairBackView(g: G, o: Look) {
     g.ellipse(0, -37, 11.2, 10.6).fill({ color: c, alpha: 0.8 }).stroke(line(c, 1));
     return;
   }
-  // Stops short of the ears, so a head of fair hair still reads as hair and not as skin.
-  g.moveTo(-11.2, -31)
-    .bezierCurveTo(-13, -51, 13, -51, 11.2, -31)
-    .quadraticCurveTo(0, -27.5, -11.2, -31)
+  // Stops above the nape, so the back of a head still reads as a head: hair, then skin and ears.
+  if (o.hair.style === 'short')
+    g.poly([-10, -47, -8.6, -52, -5, -49.4, -1.6, -53.2, 2.2, -49.8, 5.8, -53, 8.4, -48.6, 10.6, -46.5])
+      .fill(c)
+      .stroke(line(c));
+  g.moveTo(-12.7, -34)
+    .bezierCurveTo(-14, -55.5, 14, -55.5, 12.7, -34)
+    .quadraticCurveTo(0, -30.5, -12.7, -34)
     .fill(c)
     .stroke(line(c));
-  if (o.hair.style === 'curly') for (const x of [-8, -3, 3, 8]) g.circle(x, -45, 4).fill(c);
-  if (o.hair.style === 'bun') g.circle(0, -49.5, 4.8).fill(c);
+  if (o.hair.style === 'curly')
+    for (const x of [-8, -3, 3, 8]) g.circle(x, -47, 4.3).fill(c).stroke(line(c, 1));
+  if (o.hair.style === 'bun') g.circle(0, -51.5, 5.2).fill(c).stroke(line(c));
   if (o.hair.style === 'ponytail') g.roundRect(-2.6, -36, 5.2, 14, 2.6).fill(shade(c, 0.08));
-  // A parting and a sheen.
-  g.moveTo(0, -46.5)
-    .quadraticCurveTo(1.6, -41.5, 0.4, -37)
-    .stroke({ width: 1, color: shade(c, 0.28), alpha: 0.8 });
-  g.ellipse(-4, -42.5, 3.6, 2).fill({ color: 0xffffff, alpha: 0.2 });
+  // A crown swirl and a sheen.
+  g.moveTo(-1.5, -47)
+    .quadraticCurveTo(2.2, -45, 0.6, -41.5)
+    .stroke({ width: 1.2, color: shade(c, 0.35), alpha: 0.8 });
+  g.ellipse(-4.5, -45, 3.8, 1.9).fill({ color: 0xffffff, alpha: 0.18 });
 }
 
 /** The upper body: rounded shoulders narrowing a touch to the waist. */
@@ -605,7 +612,7 @@ export class Character {
     const sx = dx - dy;
     const sy = dx + dy;
     const view = sy > 0 || (sy === 0 && sx === 0) ? 'front' : 'back';
-    this.body.scale.x = sx < 0 ? -1 : 1;
+    this.body.scale.set(sx < 0 ? -SCALE : SCALE, SCALE);
     if (view !== this.view) {
       this.view = view;
       this.redraw();
@@ -631,12 +638,12 @@ export class Character {
     }
     const [l, r, s] =
       this.hands === 'typing'
-        ? [-0.62, 0.62, 0.72]
+        ? [-0.34, 0.34, 0.82]
         : this.hands === 'mug'
           ? [0.08, 2.5, 0.78]
           : this.hands === 'down'
             ? [0.1, -0.1, 1]
-            : [-0.72, 0.72, 0.8];
+            : [-0.5, 0.5, 0.78];
     this.armL.rotation = l;
     this.armR.rotation = r;
     this.armL.scale.y = this.hands === 'mug' ? 1 : s;
@@ -685,7 +692,7 @@ export class Character {
     this.ring.clear();
     if (selected || hovered)
       this.ring
-        .ellipse(0, 0, 16, 8)
+        .ellipse(0, 0, 16 * SCALE, 8 * SCALE)
         .stroke({ width: selected ? 2.6 : 1.6, color: this.p.accent, alpha: selected ? 1 : 0.7 });
     this.plate.visible = selected || hovered || showName;
     if (this.plate.visible) this.drawPlate();
@@ -698,7 +705,7 @@ export class Character {
   /** Where the bubble and nameplate sit, in world coordinates. */
   syncOverlay(x: number, y: number) {
     const lift = this.stance === 'sit' ? 3 : 0;
-    this.bubble.position.set(x, y - 51 + lift);
+    this.bubble.position.set(x, y - (51 - lift) * SCALE);
     this.plate.position.set(x, y + 5);
   }
 
@@ -759,7 +766,7 @@ export class Character {
     this.wiggle.visible = !!this.prop && !this.thought;
     this.shadow
       .clear()
-      .ellipse(0, 0.5, 12.5, 5)
+      .ellipse(0, 0.5, 12.5 * SCALE, 5 * SCALE)
       .fill({ color: this.p.shadow, alpha: this.p.theme === 'dark' ? 0.32 : 0.16 })
       .ellipse(0, 0.5, 8, 3.2)
       .fill({ color: this.p.shadow, alpha: this.p.theme === 'dark' ? 0.2 : 0.1 });
@@ -825,7 +832,7 @@ export class Character {
 
   /** Is world point (x, y) on this character standing at (fx, fy)? */
   hits(x: number, y: number, fx: number, fy: number): boolean {
-    return x >= fx - 13 && x <= fx + 13 && y >= fy - 50 && y <= fy + 4;
+    return x >= fx - 14 * SCALE && x <= fx + 14 * SCALE && y >= fy - 52 * SCALE && y <= fy + 4;
   }
 
   destroy() {

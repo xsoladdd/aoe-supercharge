@@ -264,14 +264,8 @@ export class OfficeScene {
       if (at < L.queueSeats) {
         out.set(w.key, { tile, stance: 'sit', hands: 'down', face: [0, 1] });
       } else {
-        // Standing on the runner: facing your door.
-        const ahead = L.door;
-        out.set(w.key, {
-          tile,
-          stance: 'stand',
-          hands: 'down',
-          face: [sign(ahead.x - tile.x), sign(ahead.y - tile.y)],
-        });
+        // Standing on the runner: turned towards your door, face to the room.
+        out.set(w.key, { tile, stance: 'stand', hands: 'down', face: [1, 0] });
       }
       i++;
     }

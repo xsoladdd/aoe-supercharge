@@ -86,8 +86,8 @@ const PANTRY_H = 7;
 const WAITING_CHAIRS = 4;
 /** Your corner: the chairs, your door, a side table and a plant past it. */
 const SUITE_W = WAITING_CHAIRS + 3;
-/** Rows of standing room on the runner in front of the chairs. */
-const WAIT_ROWS = 3;
+/** Rows of runner in front of the chairs; people stand on every other one, clear of the chairs. */
+const WAIT_ROWS = 4;
 
 export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   const teams = input.length ? input : [];
@@ -164,7 +164,8 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   floors.push({ kind: 'runner', rect: { x: sx, y: 0, w: WAITING_CHAIRS + 1, h: WAIT_ROWS + 1 } });
   const queue: Tile[] = [];
   for (let k = 1; k <= WAITING_CHAIRS; k++) queue.push({ x: doorX - k, y: 0 });
-  for (let r = 1; r <= WAIT_ROWS; r++)
+  // Standing in every other row from the second, so nobody's head hides someone seated or behind.
+  for (let r = 2; r <= WAIT_ROWS; r += 2)
     for (let k = 1; k <= WAITING_CHAIRS; k++) queue.push({ x: doorX - k, y: r });
   put({ kind: 'side_table', x: doorX + 1, y: 0, w: 1, h: 1 });
   put({ kind: 'plant', x: doorX + 2, y: 0, w: 1, h: 1 });
