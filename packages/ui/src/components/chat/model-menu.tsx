@@ -33,7 +33,7 @@ import { ApiError, sendJson } from '@/lib/api';
 const MODEL_LABEL: Record<ModelAlias, string> = {
   fable: 'Fable',
   opus: 'Opus',
-  opusplan: 'Opus to plan, Sonnet to build',
+  opusplan: 'Opus in plan mode, else Sonnet',
   sonnet: 'Sonnet',
   haiku: 'Haiku',
   default: 'Your default',
@@ -130,7 +130,7 @@ export function ModelMenu({
           {MODEL_ALIASES.map((m) => (
             <DropdownMenuItem key={m} disabled={disabled} onSelect={() => setChange({ model: m })}>
               {MODEL_LABEL[m]}
-              {modelMatches(model, m) && (
+              {(model === m || modelMatches(model, m)) && (
                 <span className="ml-auto text-xs text-muted-foreground">current</span>
               )}
             </DropdownMenuItem>

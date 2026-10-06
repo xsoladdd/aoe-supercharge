@@ -941,8 +941,9 @@ function ControlModelNotice({ session, chat }: { session: SessionView; chat: Cha
       <p className="min-w-0 flex-1 text-[0.9375rem] text-muted-foreground">
         {wrongModel ? (
           <>
-            The control chat is on <span className="text-foreground">{prettyModel(chat.model!)}</span>. It
-            plans and judges all the work, so Supercharge runs control chats on {name}.
+            The control chat is on <span className="text-foreground">{prettyModel(chat.model!)}</span>
+            {chat.model === 'opusplan' && ', which answers with Sonnet outside plan mode'}. It plans and
+            judges all the work, so Supercharge runs control chats on {name}.
           </>
         ) : (
           <>

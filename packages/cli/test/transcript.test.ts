@@ -119,6 +119,31 @@ describe('TranscriptParser: Claude Code JSONL → chat messages', () => {
     expect(p.messages.filter((m) => m.role === 'user')).toHaveLength(0);
   });
 
+  it('follows /model as Claude Code prints it: a bold display name, also from system records', () => {
+    // As Claude Code 2.1.236 wrote them in a real control chat; a /model typed while Claude was busy
+    // lands in a system record.
+    const p = new TranscriptParser();
+    const stdout = (name: string, saved = ' and saved as your default for new sessions') =>
+      `<local-command-stdout>Set model to \x1b[1m${name}\x1b[22m${saved}</local-command-stdout>`;
+    p.push(
+      assistant(
+        'msg_1',
+        { type: 'text', text: 'Hi' },
+        { message: { id: 'msg_1', role: 'assistant', model: 'claude-sonnet-5', content: [] } },
+      ),
+    );
+    p.push(user(stdout('Opus 5')));
+    expect(p.model).toBe('claude-opus-5');
+    p.push(line({ type: 'system', subtype: 'local_command', content: stdout('Fable 5') }));
+    expect(p.model).toBe('claude-fable-5');
+    p.push(user(stdout('Opus in plan mode, else Sonnet')));
+    expect(p.model).toBe('opusplan');
+    p.push(user(stdout('Sonnet 5.5 (1M)', ' for this session only')));
+    expect(p.model).toBe('claude-sonnet-5-5[1m]');
+    p.push(user("<local-command-stdout>Model 'opus 5.5' not found</local-command-stdout>"));
+    expect(p.model).toBe('claude-sonnet-5-5[1m]');
+  });
+
   it('shows shell-mode commands with their output, and the Claude Code version that wrote them', () => {
     // Records as Claude Code 2.1.285 wrote them for `!echo …` and a failing `!ls`.
     const p = new TranscriptParser();

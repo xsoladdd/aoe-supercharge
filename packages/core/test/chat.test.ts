@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { MODELS_55_SINCE, modelMatches, runnableCommand, versionAtLeast } from '../src/shared/chat.ts';
+import {
+  MODELS_55_SINCE,
+  modelFromDisplay,
+  modelMatches,
+  prettyModel,
+  runnableCommand,
+  versionAtLeast,
+} from '../src/shared/chat.ts';
 
 describe('runnableCommand: which code blocks get a Run button', () => {
   it('runs shell-tagged blocks as they are, several lines and comments included', () => {
@@ -40,5 +47,17 @@ describe('versionAtLeast and modelMatches: is a chat on the model and Claude Cod
     expect(modelMatches('claude-sonnet-5', 'opusplan')).toBeNull();
     expect(modelMatches('claude-sonnet-5', 'default')).toBeNull();
     expect(modelMatches(null, 'opus')).toBeNull();
+    // Opus Plan is not Opus: outside plan mode it answers with Sonnet.
+    expect(modelMatches('opusplan', 'opus')).toBe(false);
+  });
+
+  it("reads Claude Code's display names back as model ids", () => {
+    expect(modelFromDisplay('Opus 5')).toBe('claude-opus-5');
+    expect(modelFromDisplay('Opus 5.5')).toBe('claude-opus-5-5');
+    expect(modelFromDisplay('Sonnet 5.5 (1M)')).toBe('claude-sonnet-5-5[1m]');
+    expect(modelFromDisplay('Opus in plan mode, else Sonnet')).toBe('opusplan');
+    expect(modelFromDisplay('claude-sonnet-5-5')).toBe('claude-sonnet-5-5');
+    expect(prettyModel(modelFromDisplay('Opus 5.5'))).toBe('Opus 5.5');
+    expect(prettyModel('opusplan')).toBe('Opus Plan');
   });
 });

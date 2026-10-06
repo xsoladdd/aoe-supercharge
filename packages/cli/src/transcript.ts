@@ -2,6 +2,7 @@ import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   clip,
+  modelFromDisplay,
   toolSummary,
   type ChatBlock,
   type ChatMessage,
@@ -14,6 +15,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const NOT_TYPED =
   /^\s*(<(command-|local-command|system-reminder|bash-|task-notification|user-memory)|\[Request interrupted by user)/;
 const MAX_MESSAGES = 300;
+// Terminal colour codes, which Claude Code leaves in command output.
+const ANSI = /\x1b\[[0-9;]*m/g;
 const FULL_INPUT = new Set(['ExitPlanMode', 'AskUserQuestion']);
 
 type ToolBlock = Extract<ChatBlock, { kind: 'tool' }>;
@@ -81,10 +84,24 @@ export class TranscriptParser {
       if (typeof rec.effort === 'string') this.effort = rec.effort;
       return;
     }
-    if (rec.type !== 'user' || typeof message?.content !== 'string') return;
-    const out = /<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/.exec(message.content)?.[1] ?? '';
-    const model = /(?:Set model to|Model set to)\s+`?([A-Za-z0-9._[\]-]+)`?/.exec(out)?.[1];
-    if (model) this.model = model;
+    // A command typed while Claude is busy is recorded as a system record instead of a user one.
+    const echo =
+      rec.type === 'user' && typeof message?.content === 'string'
+        ? message.content
+        : rec.type === 'system' && rec.subtype === 'local_command' && typeof rec.content === 'string'
+          ? rec.content
+          : null;
+    if (echo === null) return;
+    // Claude Code prints the model's display name in bold: "Set model to \x1b[1mOpus 5\x1b[22m and saved…".
+    const out = (/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/.exec(echo)?.[1] ?? '').replace(
+      ANSI,
+      '',
+    );
+    const model =
+      /(?:Set model to|Model set to)\s+(.+?)(?:\s+and saved as\b|\s+for this session only\b|\s+with\b|$)/m.exec(
+        out,
+      )?.[1];
+    if (model) this.model = modelFromDisplay(model.replace(/^`(.*)`$/, '$1'));
     const effort = /(?:Set effort level to|Effort level set to)\s+`?([a-z]+)`?/.exec(out)?.[1];
     if (effort) this.effort = effort === 'auto' ? null : effort;
   }

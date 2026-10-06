@@ -75,6 +75,8 @@ export function versionAtLeast(version: string | null | undefined, min: readonly
  */
 export function modelMatches(id: string | null, wanted: string | null | undefined): boolean | null {
   if (!id || !wanted || ['opusplan', 'default'].includes(wanted)) return null;
+  // Opus Plan answers with Sonnet outside plan mode.
+  if (id === 'opusplan') return false;
   if (/^[a-z]+$/.test(wanted)) return id.toLowerCase().includes(wanted);
   return id.startsWith(wanted);
 }
@@ -101,7 +103,21 @@ export function toolSummary(name: string, input: unknown): string {
 }
 
 /** "claude-opus-5-5" → "Opus 5.5", "claude-haiku-4-5-20251001" → "Haiku 4.5"; anything else as is. */
+/**
+ * A model as Claude Code names it after /model ("Opus 5", "Sonnet 5.5 (1M)", "Opus in plan mode, else
+ * Sonnet") as an id, so it reads like the ids replies record. Anything else stays as written.
+ */
+export function modelFromDisplay(name: string): string {
+  const text = name.trim();
+  if (/^Opus in plan mode\b/i.test(text)) return 'opusplan';
+  const m = /^(Opus|Sonnet|Haiku|Fable)\s+(\d+(?:\.\d+)?)(\s*\(1M\))?$/i.exec(text);
+  if (!m) return text;
+  return `claude-${m[1]!.toLowerCase()}-${m[2]!.replace('.', '-')}${m[3] ? '[1m]' : ''}`;
+}
+
 export function prettyModel(id: string): string {
+  // Claude Code's own name for it; it answers with Opus only in plan mode.
+  if (id === 'opusplan') return 'Opus Plan';
   const m = /^claude-([a-z]+)-([\d-]+?)(?:-\d{8})?(\[1m\])?$/.exec(id);
   if (!m) return id;
   const family = m[1]!.charAt(0).toUpperCase() + m[1]!.slice(1);
