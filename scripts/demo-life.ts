@@ -11,13 +11,15 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { TaskRecord } from '../packages/core/src/shared/types.ts';
 import { ASK_MENU, PERMISSION_MENU, type FakeSession } from '../packages/fake-aoe/src/server.ts';
-import { mrJson, sc, unresolved, type Demo } from '../e2e/harness.ts';
+import { mrJson, repo, sc, unresolved, type Demo } from '../e2e/harness.ts';
 
-const TICK_MS = 3_000;
+const TICK_MS = 2_500;
 /** Something waiting on you answers itself after this. */
 const ANSWER_AFTER_MS = 60_000;
-const ARRIVE_EVERY_MS = 45_000;
-const MAX_WORKERS = 8;
+const ARRIVE_EVERY_MS = 25_000;
+const MAX_WORKERS = 20;
+/** Workers started straight away, on top of the demo's own, so the floor is busy from the start. */
+const CROWD = 14;
 
 const NEW_WORK: Record<string, [string, string][]> = {
   'northwind-web': [
@@ -31,10 +33,23 @@ const NEW_WORK: Record<string, [string, string][]> = {
     ['Health check endpoint', 'GET /healthz reporting database and queue status.'],
     ['Retry webhook deliveries', 'Exponential backoff, five tries, then the dead-letter queue.'],
     ['Drop the v1 auth shim', 'Remove the v1 token shim now that every client is on v2.'],
+    ['Rate limit the search API', 'Same token bucket as /export, 60 requests a minute per key.'],
+    ['Audit log for admin actions', 'Who changed what, kept for a year, exportable as CSV.'],
+  ],
+  'helios-mobile': [
+    ['Dark mode for settings', 'Follow the system theme on the settings screens.'],
+    ['Offline queue for check-ins', 'Queue check-ins while offline and send them when back.'],
+    ['Push notification opt-in', 'Ask after the first check-in, not on first launch.'],
+    ['Crash on rotate in camera', 'Rotating during capture crashes on Android 15. Repro in the ticket.'],
+    ['Faster cold start', 'Defer analytics and fonts; aim for under 1.5 s on a Pixel 7.'],
+    ['Accessibility labels on tabs', 'Every tab bar icon gets a label VoiceOver reads.'],
   ],
 };
-const MR_REPO: Record<string, string> = { 'northwind-web': 'northwind/web', 'apollo-api': 'apollo/api' };
-const PROJECT_DIR: Record<string, string> = { 'northwind-web': 'northwind-web', 'apollo-api': 'apollo-api' };
+const MR_REPO: Record<string, string> = {
+  'northwind-web': 'northwind/web',
+  'apollo-api': 'apollo/api',
+  'helios-mobile': 'helios/mobile',
+};
 
 const pick = <T>(xs: T[]): T => xs[Math.floor(Math.random() * xs.length)]!;
 const chance = (p: number) => Math.random() < p;
@@ -215,8 +230,13 @@ export function startLife(demo: Demo): () => void {
     const active = all.filter((t) => t.stage !== 'done');
     if (active.length >= MAX_WORKERS) return;
     const project = pick(Object.keys(NEW_WORK));
+    await hire(project, all);
+  };
+
+  /** One more worker in a project, working at its desk, with a few turns of conversation. */
+  const hire = async (project: string, all: TaskRecord[]) => {
     // A title comes back once its task is done, so new workers keep arriving.
-    const taken = new Set(active.map((t) => t.title));
+    const taken = new Set(all.filter((t) => t.stage !== 'done').map((t) => t.title));
     const free = NEW_WORK[project]!.filter(([title]) => !taken.has(title));
     if (!free.length) return;
     const [title, brief] = pick(free);
@@ -224,11 +244,28 @@ export function startLife(demo: Demo): () => void {
       await sc(
         env,
         ['task', 'new', title, '--brief', brief, '--force', '--json'],
-        join(dir, 'code', PROJECT_DIR[project]!),
+        join(dir, 'code', project),
       ),
-    ) as { id: string; name: string; aoeSessionId: string };
+    ) as { id: string; name: string; aoeSessionId: string; worktree: string };
+    all.push({ title, stage: 'planning' } as TaskRecord);
     const s = session(out.aoeSessionId);
-    if (s) set(s, 'Running');
+    if (s) {
+      set(s, 'Running');
+      const t = transcript(s);
+      t.title(title);
+      t.user(brief);
+      t.assistant({
+        type: 'text',
+        text: 'I’ll read the code around it first, then write a plan for you to approve.',
+      });
+      t.tool(
+        'Grep',
+        { pattern: title.split(' ')[0]!.toLowerCase(), path: 'src' },
+        'src/index.ts:12\nsrc/routes.ts:48',
+      );
+      t.tool('Read', { file_path: `${out.worktree}/src/routes.ts` }, '    48\texport const routes = [');
+      t.assistant({ type: 'text', text: `Found where it lives. Writing the plan for **${title}** now.` });
+    }
     log(`${out.name} (${out.id}) joined ${project}: ${title}`);
   };
 
@@ -259,8 +296,30 @@ export function startLife(demo: Demo): () => void {
     }
   };
 
+  // A third team, and a crowd of workers straight away, so the floor is busy from the start.
+  const crowd = async () => {
+    busy = true;
+    try {
+      const path = repo(dir, 'helios-mobile', 'git@gitlab.example.com:helios/mobile.git');
+      await sc(env, ['init', '--json'], path);
+      const control = fake.state.sessions.find(
+        (x) => x.title.startsWith('helios-mobile') && x.title.endsWith(' control'),
+      );
+      if (control) set(control, 'Running');
+      const all = await tasks();
+      const projects = Object.keys(NEW_WORK);
+      for (let i = 0; i < CROWD; i++) await hire(projects[i % projects.length]!, all);
+      log(`Started ${CROWD} more workers across ${projects.length} teams.`);
+    } catch (err) {
+      log(`(could not start the crowd: ${(err as Error).message.split('\n')[0]})`);
+    } finally {
+      busy = false;
+    }
+  };
+
   // MR changes show within seconds instead of a minute.
   void sc(env, ['config', 'set', 'poll.mr', '10'], dir);
+  void crowd();
   const timer = setInterval(() => void tick(), TICK_MS);
   log('Live: workers change status every few seconds. Ctrl+C stops the demo.');
   return () => clearInterval(timer);

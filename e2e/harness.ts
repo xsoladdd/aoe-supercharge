@@ -52,7 +52,7 @@ export function sc(
   });
 }
 
-function repo(dir: string, name: string, remote: string): string {
+export function repo(dir: string, name: string, remote: string): string {
   const path = join(dir, 'code', name);
   mkdirSync(path, { recursive: true });
   const git = (...a: string[]) => execFileSync('git', a, { cwd: path, stdio: 'pipe' });
