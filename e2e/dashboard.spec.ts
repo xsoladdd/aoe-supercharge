@@ -904,7 +904,15 @@ test.describe('design gate (SPEC §14.4)', () => {
 
   test('no em or en dashes in visible UI text', async ({ signedIn: page }) => {
     const chat = `/chat/${await sessionId('northwind-web control')}`;
-    for (const path of ['/', '/p/northwind-web', '/p/northwind-web/t/NW-0004', '/settings', chat]) {
+    for (const path of [
+      '/',
+      '/p/northwind-web',
+      '/p/northwind-web/t/NW-0004',
+      '/settings',
+      '/office',
+      '/office?view=list',
+      chat,
+    ]) {
       await page.goto(path);
       await page.waitForTimeout(400);
       const text = await page.locator('body').innerText();
@@ -934,6 +942,8 @@ test.describe('design gate (SPEC §14.4)', () => {
           ['task', '/p/northwind-web/t/NW-0001'],
           ['plan-approval', '/p/apollo-api/t/AA-0002'],
           ['settings', '/settings'],
+          ['office', '/office'],
+          ['office-list', '/office?view=list'],
           ['chat', chat],
         ] as const) {
           await page.goto(path);
@@ -955,6 +965,9 @@ test.describe('design gate (SPEC §14.4)', () => {
     await signIn(page);
     await page.goto('/p/northwind-web/t/NW-0001');
     await expect(page.getByRole('heading', { level: 1, name: 'Build page templates' })).toBeVisible();
+    await page.goto('/office');
+    await expect(page.getByRole('list', { name: 'Queue at your door' })).toBeVisible();
+    await expect(page.locator('[data-office-floor]')).toHaveAttribute('data-motion', 'jump');
     await ctx.close();
   });
 });

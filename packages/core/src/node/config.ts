@@ -229,6 +229,14 @@ export const ConfigSchema = z.strictObject({
         .enum(['small', 'default', 'large', 'larger'])
         .default('default')
         .describe('Interface size: text and spacing scale together.'),
+      displayName: z
+        .string()
+        .trim()
+        .max(40)
+        .default('')
+        .describe(
+          'Your name on the office door ("Ericson" reads "Ericson’s office"). Empty reads "Your office".',
+        ),
     })
     .prefault({}),
   logging: z

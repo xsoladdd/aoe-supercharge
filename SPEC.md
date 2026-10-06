@@ -310,6 +310,7 @@ waitingDebounceSeconds = 20
 [ui]
 theme = "dark"                   # dark | light | system
 density = "comfortable"          # comfortable | compact
+displayName = ""                 # your name on the office door (§14.5); empty reads "Your office"
 
 [logging]
 level = "info"
@@ -724,7 +725,7 @@ Bound to **127.0.0.1 only**. Requests are rejected unless the `Host` header is `
   - "Open in AoE" plus a copy-attach command,
   - (Phase 4) Reply.
 - **Settings:** a form generated from the config JSON Schema, with server-side validation errors shown inline. It has a "Restart required" bar and a **Restart** button behind a confirm dialog. The theme toggle sits in the header.
-- **Routes:** `/`, `/p/:project`, `/p/:project/t/:taskId`, `/settings`.
+- **Routes:** `/`, `/p/:project`, `/p/:project/t/:taskId`, `/settings`, `/office` (§14.5).
 - **Sizing:** works from 1080 px (portrait side monitor) to 2560 px.
 
 ### 14.2 Status vocabulary (never colour alone: icon shape + text label, and `aria-label` when the label is collapsed)
@@ -805,6 +806,47 @@ Spacing is a 4 px grid.
    - one run with `reducedMotion: 'reduce'`.
 4. **Dashboard pre-flight**, adapted from the taste skill's checklist: one accent, one radius scale, no decorative dots, every view has loading, empty and error states, buttons on one line, no duplicate button intent, no eyebrow labels, theme parity.
 5. **Reference check against your screenshots** (`image-to-code` analysis): surfaces, badge style and gradient usage match the intent.
+
+### 14.5 Office
+
+A Restaurant City style office at `/office`, for tracking every worker at once. **Where a worker stands is its status**: everyone who needs you queues at your door, working workers sit at their own desk, idle and waiting ones go to the pantry. It is built in gated phases: **A** an accessible roster (built), **B** a PixiJS canvas with zoom and pan (built), **C** walking (built), **D** extras.
+
+**Placement** is a pure function, `officeSpot` in `packages/core/src/shared/office.ts`, so the dashboard and the CLI agree. The first rule that matches wins:
+
+| # | Condition | Zone | Prop or pose |
+|---|---|---|---|
+| 1 | stage `done` | gone home (not shown) | waving |
+| 2 | any Needs-you item for the task | door queue, oldest item first, ties by key | question: speech bubble; plan_approval: scroll; permission: shield; approval: raised hand; mr_ready: folder; mr_closed: closed folder; session_error: warning; session_missing: lost placard |
+| 3 | AoE `working` | own desk | planning: sketching; implementing: typing; verifying: inspecting |
+| 4 | AoE `stopped`, or archived | away | none |
+| 5 | AoE `waiting` inside the Needs-you debounce | stays where it was | |
+| 6 | AoE `unknown`, `error` with no item yet, or the session is missing | stays where it was | |
+| 7 | AoE `idle`, stage `mr_raised` or `watching_mr` | pantry | waiting on the pipeline (failed: red), or on review |
+| 8 | AoE `idle`, stage `blocked`, question answered | pantry | reading your reply |
+| 9 | AoE `idle`, any other stage | pantry once idle for 15 s (finishing up at the desk until then) | coffee |
+
+- A worker with several items queues once, at its oldest, carrying the most urgent prop (question, permission, plan, approval, then the rest).
+- Each project's control chat is its **team lead**: at the lead desk, or at your door for `control_waiting` and `control_replied`.
+- "Stays where it was" keeps characters from pacing during short-lived states. On first sight, rule 5 and 6 workers stand at their desk.
+- **Desks** are stored as `TaskRecord.desk` (from 1, unique among the project's open tasks). `task new` and adoption pick the lowest free desk. The daemon backfills missing desks and settles clashes (a restored worker, two `task new` at once) on the newer task, without touching `updatedAt`. A done worker's desk is free again.
+- **Outfits** come from `outfitFor(taskId, project)` (`outfit.ts`): a dress code (business formal, smart casual, startup hoodie, cozy knit, Hawaiian shirt, sporty, medieval garb) and layered parts (skin, hair style and colour, top, bottom, shoes, one accessory). It is seeded by project and task id, so a worker keeps its clothes. It never depends on the name.
+- **The door** reads `ui.displayName` + "’s office", or "Your office" while the setting is empty (Settings, Appearance).
+- **The roster** is the accessible face of the floor and lists everyone by zone: the door queue as an ordered list, desks per team, the pantry and away. Every row has the name, id, reason (icon plus label) and time in place. In the list view (`?view=list`) a row is a link to the task; beside the floor it is a button that picks the worker. It carries `data-zone`, `data-task`, `data-project`, `data-since` and `data-worker` for tests. Zone changes are announced in a polite live region. `?worker=<id>&project=<name>` highlights and focuses a worker; `?focus=door|desk|pantry|<project>` scrolls to an area. The session menu has **Show in office**.
+
+**The floor** (`/office`, the default view) is a PixiJS canvas in its own lazy chunk, loaded only by this view:
+- **Plan:** `officeLayout` (`office-layout.ts`) lays out a 2:1 isometric tile grid. Team blocks sit along the left (lead desk, then rows of desks), with the lane to your door and its queue in the middle and the pantry in the far corner. The entrance is on the left wall. The office grows with teams and desks.
+- **Walking:** A\* (`pathfind.ts`, 8 directions, never cutting a corner past furniture) at 4.5 tiles a second. Long walks speed up so none takes more than 6 s. Legs and arms swing only while walking. New workers walk in from the entrance; done and away workers walk out. The queue moves up when the front leaves. The pantry keeps each worker's spot while it stays.
+- **Render on demand:** frames are drawn only while a worker walks, the camera flies or glides, or a bubble pops. Then drawing stops. The host carries `data-frames`, and the page root carries `data-renderer` (`loading`, `webgl`, `webgpu`, `canvas`, `fallback`), `data-camera-focus` (an area, a worker key, or `free`), `data-walking` (how many are walking), `data-motion` (`walk` or `jump`), `data-called` and `data-selected`, for tests.
+- **Camera:** drag to pan with a glide, wheel or pinch to zoom at the pointer (30% to 250%), eased fly-to for the area chips (snaps under reduced motion), double-click an area to zoom in. Keys: arrows/WASD, + and -, 0, N (Call next), F (follow), Escape.
+- **Worker card:** reason, stage, live status, where, since, outfit. For a task at your door it holds the same answer cards as the task page (`TaskAsks`). Open task, Open chat, MR, and Follow.
+- **Call next:** the first in line walks in through your door (it opens) and their card opens. When their zone changes they come back out and walk to it. Closing the card, or picking someone else, sends them back to the line.
+- **Theme:** the art palette follows the page's theme and reads the status colours and accent from the page's tokens.
+- **No renderer** (no WebGL or canvas): a note, and the roster in place of the floor. The dashboard's CSP forbids `eval`, so the floor loads `pixi.js/unsafe-eval`, which swaps Pixi's generated code for plain functions. Despite its name, it is what makes Pixi run *without* unsafe-eval.
+
+**Exceptions to §14.0, for this page only** (they apply from Phase B):
+- Characters walk to a new spot when their status changes, then hold a still pose. There are no perpetual loops. Under `prefers-reduced-motion` they jump instead.
+- The walking motion is hand-written in the renderer's ticker. No animation library is added. PixiJS (WebGL/WebGPU) draws the canvas, in its own lazy chunk.
+- Props and character art on the canvas are drawn, not Phosphor icons. Their colours are art (`outfit.ts`), not UI tokens. The UI around the canvas keeps every rule above.
 
 ---
 

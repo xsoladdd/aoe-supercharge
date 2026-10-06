@@ -2,6 +2,7 @@ import {
   ArchiveIcon,
   ArrowSquareOutIcon,
   ArrowUUpLeftIcon,
+  BuildingOfficeIcon,
   CircleNotchIcon,
   CopyIcon,
   EnvelopeOpenIcon,
@@ -179,6 +180,14 @@ export function SessionMenu({
   const archived = targets.filter((t) => t.session.archived);
   const deletable = unlocked.filter((t) => !t.control);
   const openHref = one ? (one.task ? `/p/${one.task.project}/t/${one.task.id}` : chatHref(one.id)) : null;
+  const leads = one?.control ? snap?.projects.find((p) => p.controlSessionId === one.id)?.name : undefined;
+  const officeHref = one?.task
+    ? one.task.stage === 'done'
+      ? null
+      : `/office?worker=${encodeURIComponent(one.task.id)}&project=${encodeURIComponent(one.task.project)}`
+    : leads
+      ? `/office?focus=${encodeURIComponent(leads)}`
+      : null;
   const lockedNote = (blocked: boolean) =>
     blocked ? <ContextMenuShortcut>Locked</ContextMenuShortcut> : null;
 
@@ -211,6 +220,12 @@ export function SessionMenu({
                 <TerminalWindowIcon />
                 Open terminal
               </ContextMenuItem>
+              {officeHref && (
+                <ContextMenuItem onSelect={() => navigate(officeHref)}>
+                  <BuildingOfficeIcon />
+                  Show in office
+                </ContextMenuItem>
+              )}
             </>
           )}
           <ContextMenuSeparator />

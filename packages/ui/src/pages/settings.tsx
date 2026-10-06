@@ -1,6 +1,6 @@
 import { ArrowsClockwiseIcon, BellRingingIcon, FloppyDiskIcon, SpeakerHighIcon } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState } from 'react';
-import type { Health } from '@aoe-supercharge/core/shared';
+import { doorLabel, type Health } from '@aoe-supercharge/core/shared';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -346,8 +346,58 @@ const SCALES: { value: ScalePref; label: string }[] = [
   { value: 'larger', label: 'Larger' },
 ];
 
-/** Theme, interface size and the nudge sound: applied at once, saved to config.toml. */
-function Appearance({ sound }: { sound: boolean }) {
+/** Your name on the office door: saved when you leave the field or press Enter. */
+function DisplayName({ saved }: { saved: string }) {
+  const [value, setValue] = useState(saved);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => setValue(saved), [saved]);
+  const commit = async () => {
+    if (value.trim() === saved) return;
+    setError(null);
+    try {
+      await sendJson('PUT', '/api/config', { patch: { ui: { displayName: value.trim() } } });
+      toast.success('Door sign updated', { description: doorLabel(value) });
+    } catch (e) {
+      setError(
+        e instanceof ApiError && e.status === 422 ? 'Use 40 characters or fewer.' : (e as Error).message,
+      );
+    }
+  };
+  return (
+    <div className="grid gap-1.5 py-3">
+      <Label htmlFor="ui-display-name" className="text-[0.9375rem]">
+        Your name
+      </Label>
+      <Input
+        id="ui-display-name"
+        name="ui.displayName"
+        autoComplete="given-name"
+        spellCheck={false}
+        maxLength={40}
+        value={value}
+        aria-invalid={!!error || undefined}
+        aria-describedby={error ? 'ui-display-name-err' : 'ui-display-name-desc'}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') void commit();
+        }}
+        className="h-10 max-w-xs text-[0.9375rem]"
+      />
+      <p id="ui-display-name-desc" className="text-sm text-muted-foreground">
+        On your door in the office: {doorLabel(value)}.
+      </p>
+      {error && (
+        <p id="ui-display-name-err" className="text-sm text-st-red">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Theme, interface size, the nudge sound and your door sign: applied at once, saved to config.toml. */
+function Appearance({ sound, displayName }: { sound: boolean; displayName: string }) {
   const theme = useThemePref();
   const scale = useScalePref();
   const save = (patch: Record<string, string | boolean>) =>
@@ -413,12 +463,21 @@ function Appearance({ sound }: { sound: boolean }) {
             <Switch id="ui-sound" checked={sound} onCheckedChange={(v) => void save({ sound: v })} />
           </div>
         </div>
+        <DisplayName saved={displayName} />
       </div>
     </section>
   );
 }
 
-export function SettingsPage({ health, sound }: { health: Health; sound: boolean }) {
+export function SettingsPage({
+  health,
+  sound,
+  displayName,
+}: {
+  health: Health;
+  sound: boolean;
+  displayName: string;
+}) {
   const [data, setData] = useState<ConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -591,7 +650,7 @@ export function SettingsPage({ health, sound }: { health: Health; sound: boolean
 
       {data && (
         <div className="grid gap-4 xl:grid-cols-2">
-          <Appearance sound={sound} />
+          <Appearance sound={sound} displayName={displayName} />
           {sections.map(({ key, fields }) => {
             // Agent settings are read each time Supercharge starts a chat; one already running keeps its own.
             const note =

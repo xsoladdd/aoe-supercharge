@@ -37,12 +37,15 @@ import type { Snapshot } from '@aoe-supercharge/core/shared';
 
 // Markdown and syntax highlighting only load when a chat opens.
 const ChatPage = lazy(() => import('@/pages/chat').then((m) => ({ default: m.ChatPage })));
+// The office loads its own chunk (its canvas renderer comes with it).
+const OfficePage = lazy(() => import('@/pages/office').then((m) => ({ default: m.OfficePage })));
 
 type Crumb = { label: string; href?: string; mono?: boolean };
 
 function crumbsFor(location: string, snap: Snapshot): Crumb[] {
   const parts = location.split('/').filter(Boolean).map(decodeURIComponent);
   if (parts[0] === 'settings') return [{ label: 'Settings' }];
+  if (parts[0] === 'office') return [{ label: 'Office' }];
   if (parts[0] === 'p' && parts[1]) {
     const c: Crumb[] = [{ label: parts[1], href: `/p/${parts[1]}` }];
     if (parts[2] === 'settings') c.push({ label: 'Settings' });
@@ -155,6 +158,8 @@ export function App() {
     taskParams?.tab === 'chat' || taskParams?.tab === 'plan' ? taskParams.tab : 'overview';
   // Chats fill the window and scroll inside themselves, with the composer pinned under them.
   const isChat = isSessionChat || (!!taskParams && taskTab === 'chat');
+  const [isOffice] = useRoute('/office');
+  const officeView = useSearchParam('view');
   const legacySession = useSearchParam('session');
   const [headerSlot, setHeaderSlot] = useState<HTMLDivElement | null>(null);
   const resolved = useResolvedTheme();
@@ -175,6 +180,8 @@ export function App() {
   if (!snap) return live.connection === 'error' ? <Unreachable error={live.error} /> : <LoadingShell />;
 
   const crumbs = crumbsFor(location, snap);
+  // The office floor fills the window like a chat; its list view scrolls like any page.
+  const fullHeight = isChat || (isOffice && officeView !== 'list' && snap.projects.length > 0);
 
   const toggleTheme = () => {
     const next = resolved === 'dark' ? 'light' : 'dark';
@@ -204,7 +211,10 @@ export function App() {
                 // The chat scrolls inside itself, with the composer pinned under it.
                 // clip, not hidden: a hidden box can still be scrolled by focus() and scrollIntoView(), which
                 // slid the whole chat out of view and left the page blank.
-                className={cn('min-w-0 bg-surface', isChat && 'h-dvh overflow-clip md:h-[calc(100dvh-1rem)]')}
+                className={cn(
+                  'min-w-0 bg-surface',
+                  fullHeight && 'h-dvh overflow-clip md:h-[calc(100dvh-1rem)]',
+                )}
               >
                 <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-3 rounded-t-xl border-b border-border bg-surface/95 px-4 backdrop-blur lg:px-6">
                   <SidebarTrigger className="size-9" />
@@ -254,15 +264,15 @@ export function App() {
                 </header>
 
                 <HealthBanners health={snap.health} connection={live.connection} />
-                {/* Chats and task pages show their own asks; the strip would push them down. */}
-                {!isChat && !taskParams && <NeedsYouStrip items={snap.needsYou} />}
+                {/* Chats and task pages show their own asks, and the office queues them at your door. */}
+                {!isChat && !taskParams && !isOffice && <NeedsYouStrip items={snap.needsYou} />}
 
                 <main
                   id="main"
                   tabIndex={-1}
                   className={cn(
                     'outline-none',
-                    isChat
+                    fullHeight
                       ? 'flex min-h-0 flex-1 flex-col'
                       : taskParams
                         ? 'pb-10'
@@ -287,8 +297,25 @@ export function App() {
                     <Route path="/">
                       <OverviewPage snap={snap} />
                     </Route>
+                    <Route path="/office">
+                      <Suspense
+                        fallback={
+                          <div className="space-y-4" aria-busy="true">
+                            <Skeleton className="h-7 w-40" />
+                            <Skeleton className="h-28 w-full" />
+                            <Skeleton className="h-64 w-full" />
+                          </div>
+                        }
+                      >
+                        <OfficePage snap={snap} />
+                      </Suspense>
+                    </Route>
                     <Route path="/settings">
-                      <SettingsPage health={snap.health} sound={snap.ui.sound} />
+                      <SettingsPage
+                        health={snap.health}
+                        sound={snap.ui.sound}
+                        displayName={snap.ui.displayName}
+                      />
                     </Route>
                     <Route path="/p/:project/t/:taskId/:tab?">
                       {taskParams && (

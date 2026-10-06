@@ -1,3 +1,5 @@
+import { fnv1a } from './hash.ts';
+
 /**
  * Medieval names for workers. They read better than task numbers, and later they become the
  * characters walking around the office view. The task id stays next to the name everywhere.
@@ -157,15 +159,6 @@ export const WORKER_NAMES = [
 ] as const;
 
 const ROMAN = ['II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
-
-function fnv1a(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h;
-}
 
 /**
  * A name no worker in the project has had yet (removed ones included, so a restored worker never

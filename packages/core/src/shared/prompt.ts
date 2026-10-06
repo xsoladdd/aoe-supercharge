@@ -18,6 +18,8 @@
  * AoE sends after it then cancels the menu (Escape). See SPEC §20.
  */
 
+import { fnv1a } from './hash.ts';
+
 export type PromptKind = 'plan' | 'permission' | 'question' | 'menu';
 
 export interface PromptOption {
@@ -62,12 +64,7 @@ function clean(line: string): string {
 
 /** FNV-1a, enough to tell two menus apart. */
 function hash(text: string): string {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i++) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return (h >>> 0).toString(16).padStart(8, '0');
+  return fnv1a(text).toString(16).padStart(8, '0');
 }
 
 export interface ParsedMenu {

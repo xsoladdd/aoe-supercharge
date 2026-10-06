@@ -67,6 +67,14 @@ describe('config', () => {
     expect(c.mr.gitlab.hosts).toEqual(['gitlab.com', 'gitlab.example.com']);
     expect(c.tasks.branchPrefix).toBe('feature/');
   });
+  it('the office door name is trimmed, optional and at most 40 characters', async () => {
+    expect((await loadConfig(paths)).config.ui.displayName).toBe('');
+    await patchConfig(paths, { ui: { displayName: '  Ericson ' } });
+    expect((await loadConfig(paths)).config.ui.displayName).toBe('Ericson');
+    await expect(patchConfig(paths, { ui: { displayName: 'x'.repeat(41) } })).rejects.toBeInstanceOf(
+      ConfigValidationError,
+    );
+  });
   it('reports a TOML syntax error instead of throwing', async () => {
     await writeFileAtomic(paths.configFile, '[server\nport = ');
     const c = await loadConfig(paths);
@@ -211,6 +219,20 @@ describe('ledger', () => {
     expect((await ledger.getTask('demo', 'DE-0005'))?.id).toBe('DE-0005');
     expect(await ledger.readPlan('demo', 'DE-0005')).toBe('# Plan');
     expect(await ledger.listRemovedTasks()).toEqual([]);
+  });
+
+  it('desks: seated without touching updatedAt; done tasks free theirs', async () => {
+    const ledger = await setup();
+    await ledger.createTask({ ...newTask('DE-0006'), desk: 1 });
+    await ledger.createTask({ ...newTask('DE-0007'), aoeSessionId: 'def' });
+    const before = await ledger.getTask('demo', 'DE-0007');
+    await ledger.deskTask('demo', 'DE-0007', 2);
+    const after = await ledger.getTask('demo', 'DE-0007');
+    expect(after?.desk).toBe(2);
+    expect(after?.updatedAt).toBe(before?.updatedAt);
+    expect((await ledger.takenDesks('demo')).sort()).toEqual([1, 2]);
+    await ledger.updateTask('demo', 'DE-0006', (t) => ({ ...t, stage: 'done' }));
+    expect(await ledger.takenDesks('demo')).toEqual([2]);
   });
 
   it('locks are a set of session ids', async () => {

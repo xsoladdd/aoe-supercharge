@@ -30,7 +30,13 @@ export class Store {
   tasks: TaskRecord[] = [];
   needsYou: NeedsYouItem[] = [];
   usage: UsageReport | null = null;
-  ui: Snapshot['ui'] = { theme: 'dark', density: 'comfortable', scale: 'default', sound: true };
+  ui: Snapshot['ui'] = {
+    theme: 'dark',
+    density: 'comfortable',
+    scale: 'default',
+    sound: true,
+    displayName: '',
+  };
   sessionsLoaded = false;
   ledgerLoaded = false;
 

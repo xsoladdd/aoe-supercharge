@@ -8,3 +8,8 @@ export * from './chat.ts';
 export * from './prompt.ts';
 export * from './usage.ts';
 export * from './names.ts';
+export * from './hash.ts';
+export * from './outfit.ts';
+export * from './office.ts';
+export * from './office-layout.ts';
+export * from './pathfind.ts';

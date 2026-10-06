@@ -31,6 +31,14 @@
 - The chat shows a `/model` switch at once. Claude Code prints the new model's display name in colour,
   sometimes in a different record, so the chat used to keep showing the last reply's model. `opusplan`
   shows as Opus Plan, and a control chat on it is flagged, since it answers with Sonnet outside plan mode.
+- **The office** (`/office`): a Restaurant City style floor where a worker's place is its status.
+  Everyone who needs you queues at your door, oldest first, with a bubble for why; working workers sit
+  at their desk in their project's team; idle ones, and those waiting on an MR, take a break in the
+  pantry. Workers walk to their new place when their status changes (they jump with reduced motion),
+  each in an outfit from one of seven dress codes. Zoom and pan, or jump with the area chips. Click a
+  worker for its card and answer its question there; **Call next** (N) brings the front of the line in.
+  Put your name on the door with `ui.displayName` (Settings, Appearance). **Show in office** is in the
+  right-click menu, and **List** shows the same people as a list.
 
 ## 0.2.1 (2026-10-06)
 

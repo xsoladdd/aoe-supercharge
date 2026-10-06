@@ -71,6 +71,8 @@ export interface TaskRecord {
   project: string;
   /** A medieval name ("Gareth") shown with the id; older tasks get one when the daemon next loads them. */
   name?: string;
+  /** Its desk in the office view (from 1, unique among the project's open tasks); the daemon backfills it. */
+  desk?: number;
   title: string;
   brief: string;
   branch: string;
@@ -204,6 +206,8 @@ export interface Snapshot {
     density: 'comfortable' | 'compact';
     scale: 'small' | 'default' | 'large' | 'larger';
     sound: boolean;
+    /** Your name on the office door; empty reads "Your office". */
+    displayName: string;
   };
 }
 

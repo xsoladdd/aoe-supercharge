@@ -110,6 +110,7 @@ async function runWorker(): Promise<void> {
     density: ctx.config.ui.density,
     scale: ctx.config.ui.scale,
     sound: ctx.config.ui.sound,
+    displayName: ctx.config.ui.displayName,
   };
 
   const notifier = new Notifier(() => ctx.config);

@@ -177,6 +177,22 @@ export class Ledger {
     });
   }
 
+  /** Seat a task at a desk in the office view, leaving updatedAt alone (a desk is not news either). */
+  async deskTask(project: string, id: string, desk: number): Promise<void> {
+    await withLock(this.taskDir(project, id), async () => {
+      const cur = await this.getTask(project, id);
+      if (!cur || cur.desk === desk) return;
+      await writeJsonAtomic(this.taskFile(project, id), { ...cur, desk, rev: cur.rev + 1 });
+    });
+  }
+
+  /** Desks the project's open tasks sit at (done tasks have left theirs). */
+  async takenDesks(project: string): Promise<number[]> {
+    return (await this.listTasks(project))
+      .filter((t) => t.stage !== 'done' && t.desk)
+      .map((t) => t.desk as number);
+  }
+
   /** Names every task in the project has had, removed ones included. */
   async takenNames(project: string): Promise<string[]> {
     const tasks = [

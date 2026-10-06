@@ -11,6 +11,7 @@ import {
 } from '@aoe-supercharge/core/node';
 import {
   countActiveWorkers,
+  deskChanges,
   normalizeAoeStatus,
   pickWorkerName,
   usageReport,
@@ -357,6 +358,12 @@ export class LedgerWatcher {
           );
         tasks = await this.ctx.ledger.listTasks();
       }
+      // Every open worker gets its own desk in the office view; clashes go to the newer one.
+      const moves = deskChanges(tasks);
+      if (moves.length) {
+        for (const m of moves) await this.ctx.ledger.deskTask(m.project, m.id, m.desk);
+        tasks = await this.ctx.ledger.listTasks();
+      }
       this.store.setLedger(projects, tasks);
     } catch (err) {
       this.ctx.logger.error('ledger reload failed', { err });
@@ -432,6 +439,7 @@ export class ConfigWatcher {
       density: loaded.config.ui.density,
       scale: loaded.config.ui.scale,
       sound: loaded.config.ui.sound,
+      displayName: loaded.config.ui.displayName,
     });
     this.onApplied(loaded.config);
   }

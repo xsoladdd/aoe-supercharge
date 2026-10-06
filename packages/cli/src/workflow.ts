@@ -25,6 +25,7 @@ import {
   MODEL_ALIASES,
   countActiveWorkers,
   normalizeAoeStatus,
+  pickDesk,
   pickWorkerName,
   usageReport,
   type PlanComment,
@@ -433,6 +434,7 @@ export async function newTask(
     id,
     project: project.name,
     name: pickWorkerName(await ctx.ledger.takenNames(project.name), project.name),
+    desk: pickDesk(await ctx.ledger.takenDesks(project.name)),
     title,
     brief: opts.brief?.trim() ?? '',
     branch,
@@ -929,6 +931,7 @@ export async function adoptSessions(
       project: project.name,
       // Each adopted task is written before the next is named, so names never repeat.
       name: pickWorkerName(await ctx.ledger.takenNames(project.name), project.name),
+      desk: pickDesk(await ctx.ledger.takenDesks(project.name)),
       title,
       brief: '',
       branch,

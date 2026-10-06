@@ -1,0 +1,230 @@
+import { STAGE_LABEL, type Stage } from './stages.ts';
+import type { NeedsYouItem, NeedsYouKind, SessionView, TaskRecord } from './types.ts';
+
+/**
+ * The office view (SPEC §14.5): where a worker stands *is* its status. Everyone who needs you queues
+ * at your door, working workers sit at their desk, idle and waiting ones go to the pantry. Pure, so
+ * the dashboard and the CLI agree.
+ */
+
+export type Zone = 'door' | 'desk' | 'pantry' | 'away' | 'gone';
+
+export const ZONE_LABEL: Record<Zone, string> = {
+  door: 'At your door',
+  desk: 'At their desk',
+  pantry: 'In the pantry',
+  away: 'Away',
+  gone: 'Gone home',
+};
+
+export type Pose =
+  'typing' | 'sketching' | 'inspecting' | 'waiting' | 'coffee' | 'reading' | 'away' | 'waving';
+
+/** What a worker holds or shows above its head, so the reason reads at a glance. */
+export type Prop =
+  | 'speech'
+  | 'scroll'
+  | 'shield'
+  | 'hand'
+  | 'folder'
+  | 'folder_closed'
+  | 'warning'
+  | 'lost'
+  | 'clipboard'
+  | 'envelope'
+  | 'pipeline'
+  | 'pipeline_failed'
+  | 'letter'
+  | 'mug'
+  | null;
+
+export interface OfficeSpot {
+  zone: Zone;
+  pose: Pose;
+  prop: Prop;
+  /** One short line on why it is there ("Plan to approve", "Waiting on the pipeline"). */
+  reason: string;
+  /**
+   * Short-lived state: stay where it was last seen, if it was seen. `zone` is where it goes when
+   * there is nothing to stay at (first sight). Keeps characters from pacing back and forth.
+   */
+  hold: boolean;
+  /** For a timed hold: when to look again (epoch ms). */
+  holdUntil: number | null;
+  /** At the door: the most urgent reason it is there, and when it started queueing. */
+  kind: NeedsYouKind | null;
+  queuedSince: string | null;
+}
+
+/** An idle worker finishes up at its desk this long before it heads to the pantry. */
+export const PANTRY_DWELL_MS = 15_000;
+
+/** Most urgent first: a worker with several items carries the prop of the first. */
+const URGENCY: NeedsYouKind[] = [
+  'question',
+  'permission',
+  'plan_approval',
+  'approval',
+  'control_waiting',
+  'session_error',
+  'session_missing',
+  'mr_closed',
+  'mr_ready',
+  'control_replied',
+];
+
+const DOOR: Record<NeedsYouKind, { prop: Exclude<Prop, null>; reason: string }> = {
+  question: { prop: 'speech', reason: 'Has a question' },
+  permission: { prop: 'shield', reason: 'Needs permission' },
+  plan_approval: { prop: 'scroll', reason: 'Plan to approve' },
+  approval: { prop: 'hand', reason: 'Waiting in AoE' },
+  control_waiting: { prop: 'clipboard', reason: 'Control chat waiting' },
+  session_error: { prop: 'warning', reason: 'Session error' },
+  session_missing: { prop: 'lost', reason: 'Session missing' },
+  mr_closed: { prop: 'folder_closed', reason: 'MR was closed' },
+  mr_ready: { prop: 'folder', reason: 'MR ready for review' },
+  control_replied: { prop: 'envelope', reason: 'Control chat replied' },
+};
+
+const DESK_POSE: Record<Stage, Pose> = {
+  planning: 'sketching',
+  implementing: 'typing',
+  verifying: 'inspecting',
+  mr_raised: 'typing',
+  watching_mr: 'typing',
+  ready_for_review: 'typing',
+  blocked: 'typing',
+  done: 'typing',
+};
+
+function atDoor(items: NeedsYouItem[]): OfficeSpot | null {
+  if (!items.length) return null;
+  const kind = URGENCY.find((k) => items.some((i) => i.kind === k)) ?? items[0]!.kind;
+  const since = items.map((i) => i.since).sort()[0]!;
+  return {
+    zone: 'door',
+    pose: 'waiting',
+    prop: DOOR[kind].prop,
+    reason: DOOR[kind].reason,
+    hold: false,
+    holdUntil: null,
+    kind,
+    queuedSince: since,
+  };
+}
+
+const spot = (zone: Zone, pose: Pose, prop: Prop, reason: string, hold = false): OfficeSpot => ({
+  zone,
+  pose,
+  prop,
+  reason,
+  hold,
+  holdUntil: null,
+  kind: null,
+  queuedSince: null,
+});
+
+/**
+ * Where a worker stands. `items` are this task's Needs-you items; `session` is its AoE session (null
+ * when AoE no longer has it). The first rule that matches wins (SPEC §14.5).
+ */
+export function officeSpot(
+  task: Pick<TaskRecord, 'stage' | 'openQuestion' | 'mr'>,
+  session: Pick<SessionView, 'status' | 'statusSince' | 'archived'> | null,
+  items: NeedsYouItem[],
+  now: Date = new Date(),
+): OfficeSpot {
+  if (task.stage === 'done') return spot('gone', 'waving', null, 'Done');
+  const door = atDoor(items);
+  if (door) return door;
+  if (session?.archived) return spot('away', 'away', null, 'Archived');
+  const status = session?.status ?? null;
+  if (status === 'working') return spot('desk', DESK_POSE[task.stage], null, STAGE_LABEL[task.stage]);
+  if (status === 'stopped') return spot('away', 'away', null, 'Stopped');
+  if (status === 'idle') {
+    const idleFor = session?.statusSince ? now.getTime() - Date.parse(session.statusSince) : Infinity;
+    const s = pantry(task);
+    if (idleFor < PANTRY_DWELL_MS)
+      return { ...s, hold: true, holdUntil: now.getTime() + PANTRY_DWELL_MS - idleFor };
+    return s;
+  }
+  // Waiting inside the debounce, unknown, missing, or an error with no item yet: stay put.
+  return spot('desk', 'waiting', null, status === 'waiting' ? 'Waiting' : 'Checking in', true);
+}
+
+function pantry(task: Pick<TaskRecord, 'stage' | 'openQuestion' | 'mr'>): OfficeSpot {
+  if (task.stage === 'mr_raised' || task.stage === 'watching_mr') {
+    const pipeline = task.mr?.pipeline ?? null;
+    if (pipeline === 'failed') return spot('pantry', 'coffee', 'pipeline_failed', 'Pipeline failed');
+    if (pipeline === 'success') return spot('pantry', 'coffee', 'folder', 'Waiting on review');
+    return spot('pantry', 'coffee', 'pipeline', 'Waiting on the pipeline');
+  }
+  if (task.stage === 'blocked' && task.openQuestion?.answeredAt)
+    return spot('pantry', 'reading', 'letter', 'Reading your reply');
+  return spot('pantry', 'coffee', 'mug', 'Idle');
+}
+
+/** A project's control chat is the team lead: at the door when it needs you, else at the lead desk. */
+export function leadSpot(
+  session: Pick<SessionView, 'status' | 'archived'> | null,
+  items: NeedsYouItem[],
+): OfficeSpot {
+  const door = atDoor(items);
+  if (door) return door;
+  if (!session) return spot('desk', 'waiting', null, 'Checking in', true);
+  if (session.archived) return spot('away', 'away', null, 'Archived');
+  if (session.status === 'stopped') return spot('away', 'away', null, 'Stopped');
+  if (session.status === 'working') return spot('desk', 'typing', null, 'Working');
+  return spot('desk', 'reading', null, 'At the lead desk', session.status !== 'idle');
+}
+
+/** Door queue order: who started waiting first stands at the front; ties go by id. */
+export function byQueue<T extends { id: string; spot: OfficeSpot }>(a: T, b: T): number {
+  return (a.spot.queuedSince ?? '').localeCompare(b.spot.queuedSince ?? '') || a.id.localeCompare(b.id);
+}
+
+/** "Ericson’s office" on the door, or "Your office" until you set `ui.displayName`. */
+export function doorLabel(displayName: string | null | undefined): string {
+  const name = displayName?.trim();
+  return name ? `${name}’s office` : 'Your office';
+}
+
+/** The lowest desk number (from 1) nobody in the project sits at. */
+export function pickDesk(taken: Iterable<number>): number {
+  const used = new Set(taken);
+  let n = 1;
+  while (used.has(n)) n++;
+  return n;
+}
+
+/**
+ * Desk moves that give every open task in each project its own desk. Older tasks keep theirs; a task
+ * with no desk, or one that clashes (a restored worker, two `task new` at once), gets the lowest free
+ * one. Done tasks have left, so their desks count as free.
+ */
+export function deskChanges(
+  tasks: Pick<TaskRecord, 'id' | 'project' | 'stage' | 'desk' | 'createdAt'>[],
+): { project: string; id: string; desk: number }[] {
+  const open = tasks
+    .filter((t) => t.stage !== 'done')
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  const used = new Map<string, Set<number>>();
+  const keep = new Set<string>();
+  for (const t of open) {
+    const u = used.get(t.project) ?? new Set<number>();
+    used.set(t.project, u);
+    if (t.desk && t.desk > 0 && !u.has(t.desk)) {
+      u.add(t.desk);
+      keep.add(`${t.project}/${t.id}`);
+    }
+  }
+  const out: { project: string; id: string; desk: number }[] = [];
+  for (const t of open) {
+    if (keep.has(`${t.project}/${t.id}`)) continue;
+    const u = used.get(t.project)!;
+    const desk = pickDesk(u);
+    u.add(desk);
+    out.push({ project: t.project, id: t.id, desk });
+  }
+  return out;
+}

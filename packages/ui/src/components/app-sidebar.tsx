@@ -1,4 +1,5 @@
 import {
+  BuildingOfficeIcon,
   CaretRightIcon,
   ChatTeardropTextIcon,
   GearSixIcon,
@@ -117,7 +118,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                   tooltip="Overview"
                   className="h-8 text-[0.9375rem]"
                 >
-                  <Link href="/">
+                  <Link href="/" aria-current={location === '/' ? 'page' : undefined}>
                     <SquaresFourIcon weight={location === '/' ? 'fill' : 'regular'} className="size-4" />
                     <span>Overview</span>
                   </Link>
@@ -127,6 +128,22 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                     {snap.needsYou.length}
                   </SidebarMenuBadge>
                 )}
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === '/office'}
+                  tooltip="Office"
+                  className="h-8 text-[0.9375rem]"
+                >
+                  <Link href="/office" aria-current={location === '/office' ? 'page' : undefined}>
+                    <BuildingOfficeIcon
+                      weight={location === '/office' ? 'fill' : 'regular'}
+                      className="size-4"
+                    />
+                    <span>Office</span>
+                  </Link>
+                </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>

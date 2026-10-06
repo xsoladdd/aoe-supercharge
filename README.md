@@ -195,6 +195,7 @@ waitingDebounceSeconds = 20
 
 [ui]
 theme = "dark"                     # dark | light | system
+displayName = "Ericson"            # on your office door: "Ericson’s office"
 
 [projects.my-repo]                 # per-project overrides
 baseBranch = "develop"
@@ -220,6 +221,18 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - MR status,
   - `aoe session attach` command and Open in AoE,
   - an explicit, confirmed **Reply**.
+- **Office** (`/office`): every worker stands where its status puts it.
+  - Everyone who needs you queues at your door, oldest first, with the reason beside them.
+  - Working workers sit at their own desk in their project's team. A project's control chat is the team lead.
+  - Idle workers, and those waiting on an MR pipeline or review, take a break in the pantry after 15 seconds idle.
+  - Each worker has a desk number and an outfit picked from seven dress codes, from business formal to medieval garb.
+  - The floor is drawn like a game (PixiJS). Drag to look around, scroll or pinch to zoom, double-click an area to zoom in, or use the chips: Whole office, your door, Pantry, and one per team.
+  - When a worker's status changes it walks to its new place, then stands still. With reduced motion it jumps there instead. Nothing is drawn while nobody moves.
+  - Click a worker, or its row in the list beside the floor, for its card: why it is there, its stage, and its question or approval to answer in place. **Follow** keeps the camera on it.
+  - **Call next** (or N) calls the front of the line in through your door and opens their card. Answer, and they walk back to work; close the card, and they go back in line.
+  - Keys on the floor: arrows or WASD to move, + and - to zoom, 0 for the whole office, F to follow, Escape to close the card.
+  - **List** in the top bar shows the same people as a plain list. Without WebGL or a canvas, the page shows the list with a note.
+  - Put your name on the door under Settings, Appearance. **Show in office** in any worker's right-click menu jumps to them.
 - **Settings:** every config key, validated, with restart handling.
 
 Status is never shown by colour alone: every state has an icon shape and a label. `*.localhost` resolves to loopback in Chrome, Firefox and Safari without editing `/etc/hosts`; the E2E suite checks all three engines.
