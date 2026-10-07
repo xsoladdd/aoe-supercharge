@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **Ready to merge without a PR.** On a project that merges branches without merge requests
+  (`supercharge config set projects.<name>.mr none`), a finished worker pushes its branch and runs
+  `supercharge stage ready_for_review`. It waits at the pool table with a green folder, "Branch ready
+  to merge", and shows in Needs you and in `status`. Once its commits land on the base branch
+  (fast-forwarded, merged or cherry-picked), Supercharge marks the task done by itself. Projects with
+  merge requests work as before.
+
 ## 0.5.0 (2026-10-07)
 
 Office v2: rooms, errands, a review lounge, a cost meter, going home, day and night, and the office's

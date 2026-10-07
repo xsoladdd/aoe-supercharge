@@ -17,6 +17,7 @@ import {
   formatUsd,
   relativeTime,
   ZONE_LABEL,
+  mrLabel,
 } from '@aoe-supercharge/core/shared';
 import { CostLine, ESTIMATE_NOTE } from '@/components/office/cost';
 import { GoHome, RestoreButton } from '@/components/office/go-home';
@@ -143,7 +144,7 @@ export function WorkerCard({
   onClose: () => void;
 }) {
   const sessionId = w.session?.id ?? w.task?.aoeSessionId ?? null;
-  const mr = w.task?.mr ?? null;
+  const mr = w.mr;
   return (
     <section
       aria-labelledby="worker-card-name"
@@ -300,7 +301,7 @@ export function WorkerCard({
           <Button asChild variant="outline" className="px-3">
             <a href={mr.url} target="_blank" rel="noreferrer">
               <GitMergeIcon />
-              MR !{mr.iid}
+              MR {mrLabel(mr)}
               <ArrowSquareOutIcon className="size-3.5 opacity-70" aria-hidden />
             </a>
           </Button>

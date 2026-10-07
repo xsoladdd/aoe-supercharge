@@ -1,31 +1,37 @@
 import { applyStage } from '@aoe-supercharge/core/node';
 import {
   evaluateMr,
+  mrLabel,
   MR_STAGES,
   transition,
   type MrState,
   type TaskRecord,
 } from '@aoe-supercharge/core/shared';
 import type { Ctx } from '../context.ts';
-import type { MrProvider } from '../mr/gitlab.ts';
+import { readyRequiresNonDraft, type MrProviders } from '../mr/index.ts';
+import { MrDiscovery } from './mr-discovery.ts';
 import type { Store } from './store.ts';
 
 /**
  * Watches merge requests for tasks in mr_raised / watching_mr / ready_for_review (SPEC §11).
  * This script does the watching, never an LLM loop. Transitions go through the same stage machine
- * as the CLI, with actor "daemon".
+ * as the CLI, with actor "daemon". Each round then looks up MRs by branch for the sessions and tasks
+ * that never reported one (SPEC §11.4), at the same cadence and backoff.
  */
 export class MrWatcher {
   private timer: NodeJS.Timeout | null = null;
   private backoff = 1;
   private stopped = false;
   private running = false;
+  readonly discovery: MrDiscovery;
 
   constructor(
     private ctx: Ctx,
     private store: Store,
-    private provider: () => MrProvider,
-  ) {}
+    private providers: () => MrProviders,
+  ) {
+    this.discovery = new MrDiscovery(ctx, store, providers);
+  }
 
   start() {
     this.schedule(5_000);
@@ -55,6 +61,8 @@ export class MrWatcher {
         const results = await Promise.all(due.slice(i, i + 2).map((t) => this.check(t)));
         rateLimited ||= results.includes('rate_limited');
       }
+      // A rate limit already hit this round: leave discovery for the next one.
+      if (!rateLimited) rateLimited = (await this.discovery.pollOnce()).includes('rate_limited');
       this.backoff = rateLimited ? Math.min(this.backoff * 2, 10) : 1;
     } finally {
       this.running = false;
@@ -63,7 +71,7 @@ export class MrWatcher {
 
   private async check(task: TaskRecord): Promise<'ok' | 'error' | 'rate_limited'> {
     const mr = task.mr!;
-    const provider = this.provider();
+    const provider = this.providers().forMr(mr);
     try {
       const status = await provider.status({ host: mr.host, repo: mr.repo, iid: mr.iid, url: mr.url });
       const checked: MrState = { ...status, checkedAt: new Date().toISOString(), error: null };
@@ -85,16 +93,16 @@ export class MrWatcher {
   advance(task: TaskRecord, mr: MrState): TaskRecord {
     let t: TaskRecord = { ...task, mr };
     if (!MR_STAGES.includes(t.stage)) return t;
-    const verdict = evaluateMr(mr, { requireNonDraft: this.ctx.config.mr.gitlab.readyRequiresNonDraft });
+    const verdict = evaluateMr(mr, { requireNonDraft: readyRequiresNonDraft(this.ctx.config, mr) });
     const move = (to: TaskRecord['stage'], note: string) => {
       const res = transition(t, to, 'daemon', { planApproved: true, hasMr: true });
       if (res.ok) t = { ...applyStage(t, to, 'daemon', note), mr };
     };
     if (verdict === 'merged') {
-      move('done', `MR !${mr.iid} merged`);
+      move('done', `MR ${mrLabel(mr)} merged`);
       return t;
     }
-    if (t.stage === 'mr_raised') move('watching_mr', `Watching MR !${mr.iid}`);
+    if (t.stage === 'mr_raised') move('watching_mr', `Watching MR ${mrLabel(mr)}`);
     if (t.stage === 'watching_mr' && verdict === 'ready')
       move('ready_for_review', 'Pipeline passed and no open threads');
     else if (t.stage === 'ready_for_review' && verdict === 'not_ready') {

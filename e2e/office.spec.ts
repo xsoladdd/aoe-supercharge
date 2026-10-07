@@ -91,6 +91,11 @@ test.describe('office', () => {
     );
     await expect(badge).toHaveAttribute('target', '_blank');
     await expect(badge).toHaveAttribute('rel', /noopener/);
+    // AA-0003 has no MR (apollo-api merges branches directly): its branch is ready to merge.
+    const branchRow = lounge.locator('li[data-task="AA-0003"]');
+    await expect(branchRow).toHaveAttribute('data-zone', 'review', { timeout: 20_000 });
+    await expect(branchRow.getByText('Branch ready to merge')).toBeVisible();
+    await expect(branchRow.locator('[data-branch-badge^="sc/aa-0003-"]')).toBeVisible();
     await axe(page, 'office list with the review lounge');
     // The floor's header counts the lounge, and its chip flies there.
     await page.goto('/office');
@@ -368,6 +373,46 @@ test.describe('office', () => {
       await page.goto('/office?view=list');
       await setStatus(id, 'Stopped');
       await expect(row).toHaveAttribute('data-zone', 'away', { timeout: 15_000 });
+    } finally {
+      await fake(`/__fake/sessions/${id}`, { method: 'DELETE' });
+    }
+  });
+
+  test('a session with no task whose branch has an MR waits in the review lounge with its badge', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    const control = await sessionId('northwind-web control');
+    const iid = 51 + ['chromium', 'firefox', 'webkit'].indexOf(browserName);
+    const { id } = (await fake('/__fake/sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: `hero copy ${browserName}`,
+        project_path: `/tmp/northwind-hero-${browserName}`,
+        branch: `fix/hero-copy-${browserName}`,
+        parent_session_id: control,
+        status: 'Idle',
+      }),
+    })) as { id: string };
+    try {
+      await page.goto('/office?view=list');
+      const lounge = page.locator('[data-zone-section="review"]');
+      const row = lounge.locator(`li[data-session="${id}"]`);
+      // Found on the MR watcher's next round (every 10 s here), then past the pantry dwell.
+      await expect(row).toHaveAttribute('data-zone', 'review', { timeout: 45_000 });
+      await expect(row.getByText('MR ready for review')).toBeVisible();
+      const badge = row.getByRole('link', {
+        name: new RegExp(`^MR !${iid}: pipeline passed, 0 open review threads`),
+      });
+      await expect(badge).toHaveAttribute(
+        'href',
+        `https://gitlab.example.com/northwind/web/-/merge_requests/${iid}`,
+      );
+      // Back to work: back at a desk.
+      await setStatus(id, 'Running');
+      await expect(page.locator(`li[data-session="${id}"]`)).toHaveAttribute('data-zone', 'desk', {
+        timeout: 15_000,
+      });
     } finally {
       await fake(`/__fake/sessions/${id}`, { method: 'DELETE' });
     }

@@ -2,30 +2,9 @@ import type { MrState, PipelineStatus } from '@aoe-supercharge/core/shared';
 import { z } from 'zod';
 import { run } from '../util/exec.ts';
 import type { RemoteRef } from '../util/git.ts';
+import { pickBranchMr, type FoundMr, type MrCheck, type MrProvider, type MrRef } from './provider.ts';
 
-export interface MrRef {
-  host: string;
-  repo: string;
-  iid: number;
-  url: string;
-}
-
-export interface MrCheck {
-  name: string;
-  ok: boolean;
-  detail: string;
-  fix?: string;
-}
-
-/** Provider seam (SPEC §11.1). GitHub via `gh` can implement this later. */
-export interface MrProvider {
-  id: 'gitlab';
-  matches(remote: RemoteRef | null): boolean;
-  parseUrl(url: string): MrRef | null;
-  findOpenMrForBranch(remote: RemoteRef, branch: string): Promise<MrRef | null>;
-  status(ref: MrRef): Promise<Omit<MrState, 'checkedAt' | 'error'>>;
-  doctor(): Promise<MrCheck[]>;
-}
+export type { FoundMr, MrCheck, MrProvider, MrRef } from './provider.ts';
 
 const MrViewSchema = z.looseObject({
   iid: z.number(),
@@ -36,6 +15,12 @@ const MrViewSchema = z.looseObject({
   detailed_merge_status: z.string().nullish(),
   head_pipeline: z.looseObject({ status: z.string() }).nullish(),
   pipeline: z.looseObject({ status: z.string() }).nullish(),
+});
+
+const BranchMrSchema = z.looseObject({
+  iid: z.number(),
+  web_url: z.string(),
+  state: z.enum(['opened', 'merged', 'closed', 'locked']),
 });
 
 const DiscussionsSchema = z.array(
@@ -153,6 +138,35 @@ export class GitLabProvider implements MrProvider {
       : undefined;
     if (!first?.iid || !first.web_url) return null;
     return { host: remote.host, repo: remote.path, iid: first.iid, url: first.web_url };
+  }
+
+  async findMrForBranch(remote: RemoteRef, branch: string): Promise<FoundMr | null> {
+    const list = await this.json([
+      'mr',
+      'list',
+      '-R',
+      `https://${remote.host}/${remote.path}`,
+      '--source-branch',
+      branch,
+      '--all',
+      '-F',
+      'json',
+    ]);
+    const found = (Array.isArray(list) ? list : []).flatMap((m: unknown) => {
+      const r = BranchMrSchema.safeParse(m);
+      return r.success
+        ? [
+            {
+              host: remote.host,
+              repo: remote.path,
+              iid: r.data.iid,
+              url: r.data.web_url,
+              state: r.data.state,
+            },
+          ]
+        : [];
+    });
+    return pickBranchMr(found);
   }
 
   async status(ref: MrRef): Promise<Omit<MrState, 'checkedAt' | 'error'>> {

@@ -44,7 +44,7 @@ export type PipelineStatus =
   | 'scheduled';
 
 export interface MrState {
-  provider: 'gitlab';
+  provider: 'gitlab' | 'github';
   host: string;
   repo: string;
   iid: number;
@@ -89,6 +89,11 @@ export interface TaskRecord {
   openQuestion: OpenQuestion | null;
   plan: PlanRef | null;
   mr: MrState | null;
+  /**
+   * Branch head when the worker reported it ready to merge without an MR (SPEC §11.3); the landing
+   * check falls back to it when the branch is gone. Null or absent otherwise.
+   */
+  readyHead?: string | null;
   /** The model and effort the worker was started with (null: Claude Code's default). Older tasks lack them. */
   model?: string | null;
   effort?: string | null;
@@ -283,6 +288,11 @@ export interface Snapshot {
    * (SPEC §14.5): only sessions on the office floor, by session id.
    */
   costs: Record<string, SessionCost>;
+  /**
+   * MRs found by branch for the crew a control chat started with no task (SPEC §11.4), by session id.
+   * Observed by the daemon, not kept in the ledger.
+   */
+  sessionMrs: Record<string, MrState>;
   ui: {
     theme: 'dark' | 'light' | 'system';
     density: 'comfortable' | 'compact';
@@ -305,6 +315,7 @@ export type SnapshotEvent =
   | { type: 'usage'; data: UsageReport }
   | { type: 'office'; data: OfficeState }
   | { type: 'costs'; data: Record<string, SessionCost> }
+  | { type: 'session_mrs'; data: Record<string, MrState> }
   | { type: 'health'; data: Health };
 
 export interface ProjectStatus {
@@ -312,7 +323,14 @@ export interface ProjectStatus {
   control: { sessionId: string | null; status: LiveStatus | 'missing'; remoteControl: boolean };
   counts: Record<Stage, number>;
   blocked: { taskId: string; name: string | null; title: string; question: string; since: string }[];
-  readyForReview: { taskId: string; name: string | null; title: string; mrUrl: string | null }[];
+  readyForReview: {
+    taskId: string;
+    name: string | null;
+    title: string;
+    mrUrl: string | null;
+    /** The branch to merge when there is no MR. */
+    branch: string;
+  }[];
   failingPipelines: { taskId: string; name: string | null; title: string; mrUrl: string | null }[];
   tasks: {
     id: string;

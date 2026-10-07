@@ -59,7 +59,9 @@ test.describe('overview', () => {
     await expect(needs.getByText('Question', { exact: true })).toBeVisible();
     await expect(needs.getByText('Waiting in AoE', { exact: true })).toBeVisible();
     await expect(needs.getByText('Control chat replied', { exact: true }).first()).toBeVisible();
-    await expect(needs.getByText('Ready for review', { exact: true })).toBeVisible({ timeout: 20_000 });
+    // Two: NW-0004's MR, and AA-0003's branch, ready to merge without an MR.
+    await expect(needs.getByText('Ready for review', { exact: true })).toHaveCount(2, { timeout: 20_000 });
+    await expect(needs.getByText(/Branch ready to merge: sc\/aa-0003-/)).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Other AoE sessions' })).toBeVisible();
     await expect(page.getByText('ops control', { exact: true }).last()).toBeVisible();
     await expect(page.getByText('flaky e2e triage')).toBeVisible();

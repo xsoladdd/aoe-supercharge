@@ -14,13 +14,16 @@ supercharge whoami --json
 ```
 
 If `role` is not `"worker"`, this skill does not apply to this session. Stop using it and continue normally.
-The output also shows your task id, title, current stage and branch.
+The output also shows your task id, title, current stage and branch, and `merge`: `"mr"` when this project
+uses merge requests, `"branch"` when it merges branches without them (step 5).
 
 ## 2. The stages
 
 Every task moves through these stages, in order:
 
 `planning` → `implementing` → `verifying` → `mr_raised` → `watching_mr` → `ready_for_review`
+
+On a project without merge requests (`merge: "branch"`), `verifying` goes straight to `ready_for_review`.
 
 Off the main path: `blocked` (you asked the user a question) and `done`.
 Supercharge rejects invalid moves and tells you what is allowed instead.
@@ -38,14 +41,34 @@ Supercharge rejects invalid moves and tells you what is allowed instead.
 
 3. **Start implementing:** `supercharge stage implementing`
 4. **Verify.** When the implementation is done: `supercharge stage verifying`. Run the tests and checks. If they fail, go back with `supercharge stage implementing`.
-5. **Raise the merge request.** Push the branch and open the MR, then:
+5. **Hand the work over.** Check `merge` in `supercharge whoami --json`:
+   - **`"mr"`: raise the merge request.** Push the branch and open the MR, then:
 
-   ```bash
-   supercharge stage mr_raised --mr <merge-request-url>
-   ```
+     ```bash
+     supercharge stage mr_raised --mr <merge-request-url>
+     ```
 
-6. **After that, Supercharge watches the MR for you.** It moves the task to `watching_mr` and then to `ready_for_review` once the pipeline passes and no review threads are open. Never set those two stages yourself.
-7. **Fixing review feedback or a failed pipeline:** `supercharge stage implementing`, fix, push, then `supercharge stage verifying` and `supercharge stage mr_raised --mr <url>` again.
+     The URL is a GitLab merge request (`https://<host>/<group>/<repo>/-/merge_requests/<iid>`) or a
+     GitHub pull request (`https://<host>/<owner>/<repo>/pull/<number>`). Without `--mr`, Supercharge
+     looks for an open one on your branch.
+
+     After that, Supercharge watches the MR for you. It moves the task to `watching_mr` and then to
+     `ready_for_review` once the pipeline passes and no review threads are open. Never set those two
+     stages yourself.
+
+   - **`"branch"`: report the branch ready to merge.** Do not open a merge request. Commit, push your
+     branch, check the tests pass on what you pushed, then:
+
+     ```bash
+     supercharge stage ready_for_review
+     ```
+
+     The task waits in the review lounge until the user or the control chat merges your branch into the
+     base branch. Supercharge marks it `done` by itself once your commits land there (fast-forwarded,
+     merged or cherry-picked). Never push to the base branch yourself.
+
+6. **Fixing review feedback or a failed pipeline:** `supercharge stage implementing`, fix, push, then
+   `supercharge stage verifying` and hand it over again as in step 5.
 
 Add `--note "<short note>"` to any stage change when it helps the user.
 

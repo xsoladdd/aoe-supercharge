@@ -13,15 +13,15 @@ import type { Palette } from './palette';
 export type Stance = 'stand' | 'sit';
 export type Hands = 'down' | 'typing' | 'mug' | 'paper' | 'magnifier' | 'letter';
 
-/** The cost meter under a worker: how full (0 to 1), its label ("≈ $1.20", "2.3M tokens"). */
+/** The cost meter under a worker: how full (0 to 1). */
 export interface Meter {
   fill: number;
-  label: string;
 }
 
 /** The MR badge under a worker in the review lounge: its number, pipeline and open threads. */
 export interface Badge {
-  iid: number;
+  /** `!12` (GitLab) or `#12` (GitHub). */
+  label: string;
   pipeline: 'ok' | 'failed' | 'running' | 'none';
   threads: number;
 }
@@ -739,10 +739,10 @@ export class Character {
 
   /**
    * The cost meter (SPEC §14.5): a bar that fills towards the token limit, green to amber to red,
-   * with the estimate beside it. Null hides it.
+   * with no value beside it (the figure lives on the worker card and roster). Null hides it.
    */
   setMeter(m: Meter | null) {
-    const key = m ? `${m.fill.toFixed(3)}|${m.label}` : '';
+    const key = m ? m.fill.toFixed(3) : '';
     if (key === this.meterKey) return;
     this.meterKey = key;
     this.meter = m;
@@ -750,13 +750,8 @@ export class Character {
     this.meterBox.visible = !!m;
     if (!m) return;
     const p = this.p;
-    const t = new Text({
-      text: m.label,
-      style: { fontFamily: FONT, fontSize: 8.5, fontWeight: '600', fill: p.nameplateText },
-      resolution: 4,
-    });
     const barW = 26;
-    const w = barW + 6 + t.width + 10;
+    const w = barW + 10;
     const color = m.fill >= 0.9 ? p.status.red : m.fill >= 0.6 ? p.status.yellow : p.status.green;
     const g = new Graphics()
       .roundRect(-w / 2, -6.5, w, 13, 6.5)
@@ -764,8 +759,7 @@ export class Character {
       .roundRect(-w / 2 + 5, -2, barW, 4, 2)
       .fill({ color: 0xffffff, alpha: 0.18 });
     if (m.fill > 0) g.roundRect(-w / 2 + 5, -2, Math.max(2, barW * m.fill), 4, 2).fill(color);
-    t.position.set(-w / 2 + 5 + barW + 5, -5.5);
-    this.meterBox.addChild(g, t);
+    this.meterBox.addChild(g);
   }
 
   /** The runaway warning: a red triangle by the head, always shown while flagged. */
@@ -807,7 +801,7 @@ export class Character {
 
   /** The MR badge (review lounge only); null hides it. */
   setBadge(b: Badge | null) {
-    const key = b ? `${b.iid}|${b.pipeline}|${b.threads}` : '';
+    const key = b ? `${b.label}|${b.pipeline}|${b.threads}` : '';
     if (key === this.badgeKey) return;
     this.badgeKey = key;
     this.badge = b;
@@ -821,7 +815,7 @@ export class Character {
         style: { fontFamily: FONT, fontSize: 9.5, fontWeight: '700', fill: p.nameplateText },
         resolution: 4,
       });
-    const num = text(`!${b.iid}`);
+    const num = text(b.label);
     const count = b.threads ? text(String(b.threads)) : null;
     const icons = new Graphics();
     let x = 6;

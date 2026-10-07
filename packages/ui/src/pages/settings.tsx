@@ -104,7 +104,10 @@ const LABEL: Record<string, string> = {
   'mr.provider': 'Provider',
   'mr.gitlab.hosts': 'GitLab hosts',
   'mr.gitlab.glabBinary': 'glab binary',
-  'mr.gitlab.readyRequiresNonDraft': 'Drafts are never ready',
+  'mr.gitlab.readyRequiresNonDraft': 'Drafts are never ready (GitLab)',
+  'mr.github.hosts': 'GitHub hosts',
+  'mr.github.ghBinary': 'gh binary',
+  'mr.github.readyRequiresNonDraft': 'Drafts are never ready (GitHub)',
   'notifications.enabled': 'Desktop notifications',
   'notifications.blocked': 'A worker asks a question',
   'notifications.readyForReview': 'An MR is ready for review',
@@ -727,7 +730,9 @@ export function SettingsPage({
           <section className="rounded-xl border border-dashed border-border-strong px-5 py-4 text-[0.9375rem] text-muted-foreground xl:col-span-2">
             Per-project overrides (<code className="font-mono text-[0.8125rem]">[projects.&lt;name&gt;]</code>
             ) are edited in config.toml or with{' '}
-            <code className="font-mono text-[0.8125rem]">supercharge config edit</code>.
+            <code className="font-mono text-[0.8125rem]">supercharge config edit</code>. Set{' '}
+            <code className="font-mono text-[0.8125rem]">mr = "none"</code> there for a project that merges
+            branches without merge requests.
           </section>
         </div>
       )}

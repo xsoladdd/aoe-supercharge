@@ -184,7 +184,10 @@ export const ConfigSchema = z.strictObject({
     .prefault({}),
   mr: z
     .strictObject({
-      provider: z.literal('gitlab').default('gitlab').describe('Only GitLab (via glab) is supported in v1.'),
+      provider: z
+        .enum(['auto', 'gitlab'])
+        .default('auto')
+        .describe('Deprecated: the provider is picked per project from its remote, and per MR from its URL.'),
       gitlab: z
         .strictObject({
           hosts: z
@@ -197,6 +200,20 @@ export const ConfigSchema = z.strictObject({
             .boolean()
             .default(false)
             .describe('Draft MRs never count as ready for review.'),
+        })
+        .prefault({}),
+      github: z
+        .strictObject({
+          hosts: z
+            .array(z.string().regex(HOSTNAME, 'Must be a hostname'))
+            .min(1)
+            .default(['github.com'])
+            .describe('GitHub hosts to watch, including GitHub Enterprise ones.'),
+          ghBinary: z.string().min(1).default('gh').describe('Path or name of the gh binary.'),
+          readyRequiresNonDraft: z
+            .boolean()
+            .default(false)
+            .describe('Draft pull requests never count as ready for review.'),
         })
         .prefault({}),
     })
@@ -369,6 +386,12 @@ export const ConfigSchema = z.strictObject({
       z.strictObject({
         gitlabHost: z.string().regex(HOSTNAME).optional(),
         baseBranch: z.string().min(1).optional(),
+        mr: z
+          .enum(['none'])
+          .optional()
+          .describe(
+            'Set to "none" when this project merges branches without merge requests: workers report a pushed branch ready to merge, and Supercharge marks it done once it lands.',
+          ),
         branchPrefix: z
           .string()
           .regex(/^[A-Za-z0-9._/-]*$/)
@@ -398,6 +421,10 @@ enabled = false
 [mr.gitlab]
 # Add self-hosted GitLab hosts here, e.g. ["gitlab.com", "gitlab.example.com"].
 hosts = ["gitlab.com"]
+
+[mr.github]
+# Add GitHub Enterprise hosts here, e.g. ["github.com", "github.example.com"].
+hosts = ["github.com"]
 
 [ui]
 theme = "dark"

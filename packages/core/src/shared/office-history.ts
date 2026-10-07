@@ -53,7 +53,7 @@ export type CostLookup = (w: OfficeWorker) => CharState['cost'];
 const ownCost: CostLookup = (w) => (w.cost ? { tokens: w.cost.total.tokens, usd: w.cost.total.usd } : null);
 
 export function charState(w: OfficeWorker, cost: CostLookup = ownCost): CharState {
-  const mr = w.task?.mr ?? null;
+  const mr = w.mr;
   return {
     key: w.key,
     sessionId: w.session?.id ?? w.task?.aoeSessionId ?? null,

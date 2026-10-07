@@ -246,6 +246,18 @@ export async function startDemo(opts: {
   await as('templates', ['stage', 'verifying', '--note', 'Storybook and visual tests green']);
   await as('templates', ['stage', 'mr_raised', '--mr', mrUrl(41, 'northwind/web')]);
   writeFileSync(join(glabDir, 'mr-41.json'), mrJson(41, 'northwind/web', 'opened', 'running'));
+  // MRs for branches of sessions a control chat starts with no task (office.spec: found by branch).
+  const crewMrs = (['chromium', 'firefox', 'webkit'] as const).map((engine, i) => ({
+    iid: 51 + i,
+    state: 'opened',
+    source_branch: `fix/hero-copy-${engine}`,
+    web_url: mrUrl(51 + i, 'northwind/web'),
+  }));
+  writeFileSync(join(glabDir, 'mr-list.json'), JSON.stringify(crewMrs));
+  for (const m of crewMrs) {
+    writeFileSync(join(glabDir, `mr-${m.iid}.json`), mrJson(m.iid, 'northwind/web', 'opened', 'success'));
+    writeFileSync(join(glabDir, `discussions-${m.iid}.json`), unresolved(0));
+  }
   writeFileSync(join(glabDir, 'discussions-41.json'), unresolved(2));
 
   await plan(
@@ -310,6 +322,7 @@ export async function startDemo(opts: {
     'Per-tenant token bucket on /export, 429 with Retry-After.',
   );
   await add('node24', ap, 'Upgrade to Node 24', 'Bump engines, CI images and the Docker base image.');
+  await add('changelog', ap, 'Changelog for 2.4', 'Write the 2.4 release notes from the merged work.');
   await plan(
     'ratelimit',
     '# Plan: rate limiting\n\n1. Token bucket in Redis\n2. 429 with Retry-After\n3. Load test\n',
@@ -322,6 +335,16 @@ export async function startDemo(opts: {
   await as('node24', ['stage', 'mr_raised', '--mr', mrUrl(12, 'apollo/api')]);
   writeFileSync(join(glabDir, 'mr-12.json'), mrJson(12, 'apollo/api', 'opened', 'failed'));
   writeFileSync(join(glabDir, 'discussions-12.json'), unresolved(1));
+  // No MR for this one: apollo-api merges branches directly, and the branch waits to be merged (§11.3).
+  await sc(env, ['config', 'set', 'projects.apollo-api.mr', 'none'], ap);
+  await plan('changelog', '# Plan: changelog\n\n- Collect the merged work\n- Write CHANGELOG.md\n');
+  await as('changelog', ['stage', 'implementing']);
+  writeFileSync(join(tasks.changelog!.worktree, 'CHANGELOG.md'), '# 2.4\n\n- Export rate limits\n');
+  const wtGit = (...a: string[]) => execFileSync('git', a, { cwd: tasks.changelog!.worktree, stdio: 'pipe' });
+  wtGit('add', 'CHANGELOG.md');
+  wtGit('-c', 'user.email=demo@example.invalid', '-c', 'user.name=demo', 'commit', '-q', '-m', 'Changelog');
+  await as('changelog', ['stage', 'verifying']);
+  await as('changelog', ['stage', 'ready_for_review', '--note', 'Pushed and checked']);
 
   // Project 3 (demo only): orion-mobile, a busy room of six.
   const orion: string[] = [];

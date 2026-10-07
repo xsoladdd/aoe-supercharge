@@ -84,6 +84,46 @@ describe('buildOffice (core)', () => {
     );
     expect(m.everyone.find((w) => w.key === 'alpha/s/x')?.desk).toBe(2);
   });
+
+  it("carries a spawned session's MR, and a task's, and puts the session in the lounge", () => {
+    const found = {
+      provider: 'github' as const,
+      host: 'github.com',
+      repo: 'o/r',
+      iid: 7,
+      url: 'https://github.com/o/r/pull/7',
+      state: 'opened' as const,
+      draft: false,
+      pipeline: 'success' as const,
+      unresolvedThreads: 0,
+      detailedMergeStatus: null,
+      checkedAt: null,
+      error: null,
+    };
+    const m = buildOffice(
+      {
+        ...input(
+          [
+            session('ctl', 'idle'),
+            session('w1', 'idle'),
+            session('x', 'idle', { parentId: 'ctl', branch: 'b' }),
+          ],
+          [
+            task('A-1', 'alpha', 'w1', {
+              stage: 'watching_mr',
+              mr: { ...found, provider: 'gitlab', iid: 3 },
+            }),
+          ],
+        ),
+        sessionMrs: { x: found },
+      },
+      new Date(T0),
+    );
+    const x = m.everyone.find((w) => w.key === 'alpha/s/x')!;
+    expect(x).toMatchObject({ zone: 'review', mr: { iid: 7 }, spot: { prop: 'folder' } });
+    expect(m.everyone.find((w) => w.key === 'alpha/A-1')?.mr?.iid).toBe(3);
+    expect(m.review.map((w) => w.key)).toEqual(['alpha/A-1', 'alpha/s/x']);
+  });
 });
 
 describe('office history', () => {

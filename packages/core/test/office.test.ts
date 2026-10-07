@@ -144,6 +144,12 @@ describe('office: where a worker stands (SPEC §14.5)', () => {
       at(task('watching_mr', { mr: { ...mr('success')!, unresolvedThreads: 3 } }), session('idle')).reason,
     ).toBe('3 review threads open');
     expect(at(task('ready_for_review', { mr: mr('success') }), session('idle')).prop).toBe('folder');
+    // A branch ready to merge without an MR (SPEC §11.3).
+    expect(at(task('ready_for_review', { mr: null }), session('idle'))).toMatchObject({
+      zone: 'review',
+      prop: 'folder',
+      reason: 'Branch ready to merge',
+    });
     // Finishing up at the desk first, like the pantry; a stopped session still has its MR out.
     expect(at(task('watching_mr', { mr: mr('running') }), session('idle', ago(2_000)))).toMatchObject({
       zone: 'review',
@@ -201,6 +207,35 @@ describe('office: where a worker stands (SPEC §14.5)', () => {
       zone: 'door',
       prop: 'shield',
     });
+  });
+
+  it('a worker with no task but an MR for its branch waits in the review lounge (SPEC §11.3)', () => {
+    const open = mr('running')!;
+    expect(sessionSpot(session('idle'), [], NOW, open)).toMatchObject({
+      zone: 'review',
+      prop: 'folder_amber',
+      reason: 'Waiting on the pipeline',
+    });
+    expect(sessionSpot(session('idle', ago(1_000)), [], NOW, open)).toMatchObject({
+      zone: 'review',
+      hold: true,
+    });
+    expect(sessionSpot(session('stopped'), [], NOW, mr('success'))).toMatchObject({
+      zone: 'review',
+      prop: 'folder',
+      reason: 'MR ready for review',
+    });
+    expect(sessionSpot(session('idle'), [], NOW, mr('failed'))).toMatchObject({ prop: 'folder_red' });
+    expect(sessionSpot(session('idle'), [], NOW, { ...open, state: 'merged' })).toMatchObject({
+      prop: 'folder',
+      reason: 'MR merged',
+    });
+    expect(
+      sessionSpot(session('idle'), [], NOW, { ...open, pipeline: 'success', unresolvedThreads: 2 }),
+    ).toMatchObject({ prop: 'folder_amber', reason: '2 review threads open' });
+    // Working on it stays at the desk; the door still comes first.
+    expect(sessionSpot(session('working'), [], NOW, open).zone).toBe('desk');
+    expect(sessionSpot(session('waiting'), [item('permission')], NOW, open).zone).toBe('door');
   });
 
   it('a NEEDS YOU list puts the lead in line; one that blocks work goes to the front', () => {

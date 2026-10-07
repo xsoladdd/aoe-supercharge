@@ -4,6 +4,7 @@ import {
   type NeedsYouItem,
   type NoteRecord,
   type OfficeState,
+  type MrState,
   type SessionCost,
   type ProjectRecord,
   type SessionView,
@@ -36,6 +37,7 @@ export class Store {
   usage: UsageReport | null = null;
   office: OfficeState = { marks: {} };
   costs: Record<string, SessionCost> = {};
+  sessionMrs: Record<string, MrState> = {};
   ui: Snapshot['ui'] = {
     theme: 'dark',
     density: 'comfortable',
@@ -69,6 +71,7 @@ export class Store {
       usage: this.usage,
       office: this.office,
       costs: this.costs,
+      sessionMrs: this.sessionMrs,
       ui: this.ui,
     };
   }
@@ -164,6 +167,12 @@ export class Store {
     if (same(costs, this.costs)) return;
     this.costs = costs;
     this.emit({ type: 'costs', data: costs });
+  }
+
+  setSessionMrs(sessionMrs: Record<string, MrState>) {
+    if (same(sessionMrs, this.sessionMrs)) return;
+    this.sessionMrs = sessionMrs;
+    this.emit({ type: 'session_mrs', data: sessionMrs });
   }
 
   setUi(ui: Snapshot['ui']) {

@@ -11,7 +11,15 @@ import {
 import { outfitFor, type Outfit } from './outfit.ts';
 import type { SessionCost } from './office-cost.ts';
 import { comesBack, idleCheck, nextIdleDeadline, type IdleCheck, type IdleLimits } from './office-idle.ts';
-import type { NeedsYouItem, OfficeMark, OfficeState, SessionView, Snapshot, TaskRecord } from './types.ts';
+import type {
+  MrState,
+  NeedsYouItem,
+  OfficeMark,
+  OfficeState,
+  SessionView,
+  Snapshot,
+  TaskRecord,
+} from './types.ts';
 
 /**
  * The whole floor from a snapshot (SPEC §14.5). Pure: the dashboard draws it, and the daemon logs it
@@ -33,6 +41,8 @@ export interface OfficeWorker {
   title: string;
   task: TaskRecord | null;
   session: SessionView | null;
+  /** Its MR: the task's, or for a worker with no task the one found for its branch (SPEC §11.4). */
+  mr: MrState | null;
   desk: number | null;
   outfit: Outfit;
   spot: OfficeSpot;
@@ -74,6 +84,7 @@ export interface OfficeModel {
 
 export type OfficeInput = Pick<Snapshot, 'sessions' | 'projects' | 'tasks' | 'needsYou'> & {
   costs?: Snapshot['costs'];
+  sessionMrs?: Snapshot['sessionMrs'];
   office?: Pick<OfficeState, 'marks' | 'idle'>;
 };
 
@@ -145,6 +156,7 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
         title: 'Team lead',
         task: null,
         session,
+        mr: null,
         desk: null,
         outfit: outfitFor('lead', name),
         spot,
@@ -173,6 +185,7 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
         title: task.title,
         task,
         session,
+        mr: task.mr,
         desk: task.desk ?? null,
         outfit: outfitFor(task.id, name),
         spot,
@@ -195,7 +208,8 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
       const key = `${name}/s/${session.id}`;
       const crew = project.crew?.[session.id];
       const items = bySession.get(session.id) ?? [];
-      const spot = sessionSpot(session, items, now);
+      const mr = input.sessionMrs?.[session.id] ?? null;
+      const spot = sessionSpot(session, items, now, mr);
       const desk = pickDesk(taken);
       taken.add(desk);
       everyone.push({
@@ -208,6 +222,7 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
         title: crew ? session.title : (session.branch ?? 'Started by the control chat'),
         task: null,
         session,
+        mr,
         desk,
         outfit: outfitFor(session.id, name),
         spot,

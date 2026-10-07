@@ -14,11 +14,12 @@ import {
   StopIcon,
   WarningOctagonIcon,
   XCircleIcon,
+  GitBranchIcon,
   type Icon,
 } from '@phosphor-icons/react';
 import { useEffect, useRef } from 'react';
 import { Link } from 'wouter';
-import { blocksWork, DRESS_CODE_LABEL, relativeTime, type Prop } from '@aoe-supercharge/core/shared';
+import { blocksWork, DRESS_CODE_LABEL, mrLabel, relativeTime, type Prop } from '@aoe-supercharge/core/shared';
 import { Avatar } from '@/components/office/avatar';
 import { CostLine } from '@/components/office/cost';
 import { GoHome, RestoreButton } from '@/components/office/go-home';
@@ -112,11 +113,12 @@ export function pipelineKind(p: string | null): keyof typeof PIPELINE {
  * in a new tab; the floor draws the same badge under the character.
  */
 export function MrBadge({ w }: { w: OfficeWorker }) {
-  const mr = w.task?.mr;
+  const mr = w.mr;
+  if (!mr && w.task?.stage === 'ready_for_review') return <BranchBadge branch={w.task.branch} />;
   if (!mr) return null;
   const p = PIPELINE[pipelineKind(mr.pipeline)]!;
   const threads = mr.unresolvedThreads;
-  const label = `MR !${mr.iid}: ${p.label}, ${threads} open review ${threads === 1 ? 'thread' : 'threads'} (opens in a new tab)`;
+  const label = `MR ${mrLabel(mr)}: ${p.label}, ${threads} open review ${threads === 1 ? 'thread' : 'threads'} (opens in a new tab)`;
   return (
     <a
       href={mr.url}
@@ -127,13 +129,31 @@ export function MrBadge({ w }: { w: OfficeWorker }) {
       data-mr-badge={mr.iid}
       className="tabular inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border-strong px-2.5 text-[0.8125rem] font-semibold hover:bg-raised"
     >
-      <span translate="no">!{mr.iid}</span>
+      <span translate="no">{mrLabel(mr)}</span>
       <p.icon weight="bold" className={cn('size-4', p.color)} aria-hidden />
       <span className="inline-flex items-center gap-0.5">
         <ChatCircleIcon weight="bold" className="size-4" aria-hidden />
         {threads}
       </span>
     </a>
+  );
+}
+
+/** A branch ready to merge without an MR (SPEC §11.3): its name, in place of the MR badge. */
+function BranchBadge({ branch }: { branch: string }) {
+  const label = `Branch ${branch}, ready to merge`;
+  return (
+    <span
+      aria-label={label}
+      title={label}
+      data-branch-badge={branch}
+      className="inline-flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-full border border-border-strong px-2.5 text-[0.8125rem] font-semibold"
+    >
+      <GitBranchIcon weight="bold" className="size-4 shrink-0 text-st-green" aria-hidden />
+      <span translate="no" className="truncate font-mono">
+        {branch}
+      </span>
+    </span>
   );
 }
 

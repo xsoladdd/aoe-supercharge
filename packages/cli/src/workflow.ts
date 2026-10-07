@@ -12,6 +12,7 @@ import {
 import {
   derivePrefix,
   isSlug,
+  mrLabel,
   nextStageHint,
   slugify,
   STAGE_LABEL,
@@ -34,7 +35,7 @@ import {
 } from '@aoe-supercharge/core/shared';
 import type { AoeCliListEntry } from './aoe/schemas.ts';
 import { VERSION, type Ctx } from './context.ts';
-import { GitLabProvider, type MrProvider } from './mr/gitlab.ts';
+import { mrProviders, toMrState } from './mr/index.ts';
 import { installUserSkills, readTemplate, render, SKILL_NAMES, upsertManagedBlock } from './skills.ts';
 import { TerminalBusyError } from './aoe/client.ts';
 import { menuOnScreen } from './prompt.ts';
@@ -43,11 +44,15 @@ import { transcriptStore, type TranscriptStore } from './transcript.ts';
 import { CliError, EXIT } from './util/errors.ts';
 import { daemonHealth } from './util/daemon-client.ts';
 import { run } from './util/exec.ts';
-import { currentBranch, defaultBranch, mainCheckout, parseRemote, remoteUrl } from './util/git.ts';
-
-export function mrProvider(config: Config, env: NodeJS.ProcessEnv): MrProvider {
-  return new GitLabProvider(config.mr.gitlab.glabBinary, config.mr.gitlab.hosts, env);
-}
+import {
+  commitsAhead,
+  currentBranch,
+  defaultBranch,
+  mainCheckout,
+  parseRemote,
+  remoteUrl,
+  revParse,
+} from './util/git.ts';
 
 function assertSafeArg(value: string, what: string) {
   if (!SAFE_ARG.test(value)) {
@@ -64,6 +69,8 @@ function assertSafeArg(value: string, what: string) {
 export interface WhoAmI {
   role: 'control' | 'worker' | 'none';
   project: string | null;
+  /** How finished work reaches the base branch: a merge request, or the branch itself (`projects.<name>.mr = "none"`). */
+  merge: MergeMode;
   sessionId: string | null;
   branch: string | null;
   task:
@@ -74,6 +81,12 @@ export interface WhoAmI {
     | null;
   /** Actor used for stage changes: the worker itself, or a human running the CLI in the worktree. */
   actor: Actor;
+}
+
+export type MergeMode = 'mr' | 'branch';
+
+export function mergeMode(config: Ctx['config'], project: string | null): MergeMode {
+  return project && config.projects[project]?.mr === 'none' ? 'branch' : 'mr';
 }
 
 export async function whoami(
@@ -87,6 +100,7 @@ export async function whoami(
   const none = {
     role: 'none' as const,
     project: project?.name ?? null,
+    merge: mergeMode(ctx.config, project?.name ?? null),
     sessionId,
     branch,
     task: null,
@@ -110,6 +124,7 @@ export async function whoami(
   return {
     role: 'worker',
     project: project.name,
+    merge: mergeMode(ctx.config, project.name),
     sessionId,
     branch,
     task: {
@@ -564,65 +579,67 @@ export async function stageTask(
   let mr: MrState | null = task.mr;
 
   if (opts.stage === 'mr_raised') {
-    const provider = mrProvider(ctx.config, ctx.env);
+    const providers = mrProviders(ctx.config, ctx.env);
     if (opts.mrUrl) {
-      const ref = provider.parseUrl(opts.mrUrl);
-      if (!ref)
+      const found = providers.forUrl(opts.mrUrl);
+      if (!found)
         throw new CliError(
-          `Not a GitLab merge request URL: ${opts.mrUrl}`,
+          `Not a merge request or pull request URL: ${opts.mrUrl}`,
           EXIT.usage,
-          'Expected https://<host>/<group>/<repo>/-/merge_requests/<iid>',
+          'Expected https://<host>/<group>/<repo>/-/merge_requests/<iid> (GitLab) or https://<host>/<owner>/<repo>/pull/<number> (GitHub)',
         );
-      mr = {
-        provider: 'gitlab',
-        host: ref.host,
-        repo: ref.repo,
-        iid: ref.iid,
-        url: ref.url,
-        state: 'opened',
-        draft: false,
-        pipeline: null,
-        unresolvedThreads: 0,
-        detailedMergeStatus: null,
-        checkedAt: null,
-        error: null,
-      };
+      mr = toMrState(found.ref, found.provider.id);
     } else {
       const remote = parseRemote(
         who.projectRecord.remoteUrl ?? (await remoteUrl(who.projectRecord.repoPath)),
       );
-      if (remote && provider.matches(remote)) {
+      const provider = providers.forRemote(remote);
+      if (remote && provider) {
         const ref = await provider.findOpenMrForBranch(remote, task.branch).catch(() => null);
-        if (ref)
-          mr = {
-            provider: 'gitlab',
-            host: ref.host,
-            repo: ref.repo,
-            iid: ref.iid,
-            url: ref.url,
-            state: 'opened',
-            draft: false,
-            pipeline: null,
-            unresolvedThreads: 0,
-            detailedMergeStatus: null,
-            checkedAt: null,
-            error: null,
-          };
+        if (ref) mr = toMrState(ref, provider.id);
       }
     }
   }
 
+  const branchReady = opts.stage === 'ready_for_review' && !task.mr;
+  if (opts.stage === 'ready_for_review' && opts.mrUrl)
+    throw new CliError(
+      '--mr goes with mr_raised, not ready_for_review.',
+      EXIT.usage,
+      'With a merge request: supercharge stage mr_raised --mr <url>. Without one: supercharge stage ready_for_review',
+    );
+
   const res = transition(task, opts.stage, who.actor, {
     planApproved: task.plan?.status === 'approved',
-    hasMr: !!mr,
+    hasMr: opts.stage === 'ready_for_review' ? !!task.mr : !!mr,
     question: task.openQuestion?.text ?? null,
     force: opts.force,
   });
   if (!res.ok) throw rejection(task, opts.stage, res.reason, res.allowed);
 
+  let readyHead: string | null = null;
+  if (branchReady) {
+    const repo = who.projectRecord.repoPath;
+    readyHead = await revParse(repo, task.branch);
+    const base = (await revParse(repo, task.baseBranch))
+      ? task.baseBranch
+      : (await revParse(repo, `origin/${task.baseBranch}`))
+        ? `origin/${task.baseBranch}`
+        : null;
+    if (readyHead && base && (await commitsAhead(repo, base, readyHead)) === 0 && !opts.force)
+      throw new CliError(
+        `${task.branch} has no commits that aren't on ${task.baseBranch} yet: nothing to merge.`,
+        EXIT.invalidTransition,
+        'Commit your work on this branch and push it, then run supercharge stage ready_for_review again.',
+      );
+  }
+
   return ctx.ledger.updateTask(task.project, task.id, (t) => {
     const next = applyStage(t, opts.stage, who.actor, opts.note?.trim() || (opts.force ? 'Forced' : null));
-    return opts.stage === 'mr_raised' ? { ...next, mr } : next;
+    if (opts.stage === 'mr_raised') return { ...next, mr };
+    if (branchReady) return { ...next, readyHead };
+    if (opts.stage === 'implementing' && t.readyHead) return { ...next, readyHead: null };
+    return next;
   });
 }
 
@@ -1026,31 +1043,19 @@ export async function detectAdoptedMrs(
   project: ProjectRecord,
   tasks: TaskRecord[],
 ): Promise<number> {
-  const provider = mrProvider(ctx.config, ctx.env);
   const remote = parseRemote(project.remoteUrl ?? (await remoteUrl(project.repoPath)));
-  if (!remote || !provider.matches(remote)) return 0;
+  const provider = mrProviders(ctx.config, ctx.env).forRemote(remote);
+  if (!remote || !provider) return 0;
   let found = 0;
   for (const t of tasks) {
     if (!t.branch) continue;
     const ref = await provider.findOpenMrForBranch(remote, t.branch).catch(() => null);
     if (!ref) continue;
     found++;
+    const mr = toMrState(ref, provider.id);
     await ctx.ledger.updateTask(project.name, t.id, (cur) => ({
-      ...applyStage(cur, 'mr_raised', 'daemon', `Found MR !${ref.iid} for the branch`),
-      mr: {
-        provider: 'gitlab',
-        host: ref.host,
-        repo: ref.repo,
-        iid: ref.iid,
-        url: ref.url,
-        state: 'opened',
-        draft: false,
-        pipeline: null,
-        unresolvedThreads: 0,
-        detailedMergeStatus: null,
-        checkedAt: null,
-        error: null,
-      },
+      ...applyStage(cur, 'mr_raised', 'daemon', `Found MR ${mrLabel(mr)} for the branch`),
+      mr,
     }));
   }
   return found;

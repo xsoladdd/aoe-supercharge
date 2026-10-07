@@ -44,3 +44,8 @@ export function pipelineLabel(p: MrState['pipeline']): string {
       return 'Pipeline manual';
   }
 }
+
+/** How an MR is named where it lives: `!12` on GitLab, `#12` for a GitHub pull request. */
+export function mrLabel(mr: Pick<MrState, 'provider' | 'iid'>): string {
+  return `${mr.provider === 'github' ? '#' : '!'}${mr.iid}`;
+}

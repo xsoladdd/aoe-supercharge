@@ -10,7 +10,7 @@ import { skillsStatus } from '../skills.ts';
 import { daemonHealth } from '../util/daemon-client.ts';
 import { run, which } from '../util/exec.ts';
 import { c, out, sym } from '../util/term.ts';
-import { mrProvider } from '../workflow.ts';
+import { mrProviders } from '../mr/index.ts';
 
 export interface Check {
   group: string;
@@ -165,15 +165,18 @@ export async function runDoctor(ctx: Ctx): Promise<Check[]> {
     }
   }
 
-  // GitLab
-  for (const chk of await mrProvider(ctx.config, env).doctor()) {
-    add({
-      group: 'GitLab',
-      name: chk.name,
-      status: chk.ok ? 'ok' : chk.name === 'glab' ? 'fail' : 'warn',
-      detail: chk.detail,
-      fix: chk.fix,
-    });
+  // Merge request providers: glab is required (GitLab is the default), gh only for GitHub repositories.
+  for (const provider of mrProviders(ctx.config, env).all) {
+    const binary = provider.id === 'github' ? 'gh' : 'glab';
+    for (const chk of await provider.doctor()) {
+      add({
+        group: provider.id === 'github' ? 'GitHub' : 'GitLab',
+        name: chk.name,
+        status: chk.ok ? 'ok' : chk.name === binary && provider.id === 'gitlab' ? 'fail' : 'warn',
+        detail: chk.detail,
+        fix: chk.fix,
+      });
+    }
   }
 
   // Config + permissions
