@@ -1,13 +1,42 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 (2026-10-08)
 
+GitHub pull requests, MRs found by branch, merging without PRs, and new workers that start on
+their own.
+
+- **New workers start on their own.** Claude Code does nothing with a new worker until it gets a
+  first message, and nothing sent one, so every new worker sat idle at an empty prompt. `task new`
+  now sends a short kickoff once the session is at its prompt with no menu open (the trust dialog,
+  say). If it can't, the daemon sends it later. It goes once, and a worker someone already wrote to
+  is left alone.
+- **A lost kickoff is sent again.** A kickoff can still get lost: typed before Claude Code was
+  ready, taken by a menu, or dropped by a restart. It only counts once it shows up in the worker's
+  transcript. If the worker sits idle with no menu 20 s later and its conversation has no message
+  yet, it is sent again, up to 3 times. If the daemon is down and the worker isn't at its prompt
+  yet, `task new` tells you nobody will send it later.
+- **Just the cost bar on the floor.** The meter under each character is now only the bar (green,
+  amber, red). The figure is still on the worker card, the roster and in Since I was away.
 - **Ready to merge without a PR.** On a project that merges branches without merge requests
   (`supercharge config set projects.<name>.mr none`), a finished worker pushes its branch and runs
   `supercharge stage ready_for_review`. It waits at the pool table with a green folder, "Branch ready
   to merge", and shows in Needs you and in `status`. Once its commits land on the base branch
   (fast-forwarded, merged or cherry-picked), Supercharge marks the task done by itself. Projects with
   merge requests work as before.
+- **GitHub pull requests.** Projects on GitHub are watched through `gh`, next to GitLab through
+  `glab`: the pipeline (the head commit's checks), open review threads and the merge state, with the
+  same rules for ready. The provider is picked from the project's remote, and `stage mr_raised --mr`
+  takes a pull request URL too. GitHub Enterprise hosts go in `mr.github.hosts`. `supercharge doctor`
+  checks `gh` and its login, but only warns, since only GitHub repositories need it.
+- **MRs found by branch.** An MR opened without `stage mr_raised` is found by its branch. A worker in
+  implementing or verifying that has gone quiet is moved to `mr_raised` when its branch has one. A crew
+  session a control chat started straight in AoE, with no task, waits in the review lounge with its
+  MR's badge and folder, without anything in Needs you.
+- **The README install guide matches what works.** Supercharge is not on npm or Homebrew yet, so it
+  says to install the packed CLI attached to the GitHub release, or from a checkout
+  (`./install.sh --local .`). It lists the requirements (`gh` only for GitHub repositories) and the
+  first run (`supercharge doctor`, `supercharge start`, `supercharge init`), and the features added
+  since 0.4.0.
 
 ## 0.5.0 (2026-10-07)
 

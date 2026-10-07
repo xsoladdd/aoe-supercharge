@@ -6,10 +6,13 @@ An opinionated parent/child dashboard for Claude Code, built on [Agent of Empire
 - **One worker per task**, each in its own git worktree and AoE session.
 - **Fixed stages for every worker:** `planning → implementing → verifying → mr_raised → watching_mr → ready_for_review`, plus `blocked` and `done`.
 - **One dashboard** you leave open on a side monitor. It shows every project, control chat, worker, plan and merge request, and pins whatever **needs you** at the top.
+- **An office** (`/office`) where every worker stands where its status puts it: rooms for each project, a line at your door, a review lounge with a pool table, a cost bar under everyone, runaway warnings, and a replayable history.
+- **Notes and todos** for you and Claude: `/note`, `/todo` and `/gnote` in any Claude Code session, and a whiteboard in the office.
+- **Merge requests, or none.** GitLab MRs are watched through `glab`, GitHub pull requests through `gh`, and an MR opened without telling Supercharge is found by its branch. A project that merges branches without MRs reports a branch ready to merge instead.
 
 It runs as a small local daemon (Node 24, about 70 MB idle) bound to `127.0.0.1`. Merge requests are watched by a script, never by an LLM loop.
 
-> Status: v0.5.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 (1.18.0 passes the live contract too; see [AoE versions](#aoe-versions)).
+> Status: v1.0.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 (1.18.0 passes the live contract too; see [AoE versions](#aoe-versions)).
 > The design rationale lives in [SPEC.md](SPEC.md).
 
 ---
@@ -24,39 +27,50 @@ It runs as a small local daemon (Node 24, about 70 MB idle) bound to `127.0.0.1`
 
 ## Install
 
-macOS and Linux only. On Windows, use WSL2 (AoE requires it).
+macOS and Linux only. On Windows, use WSL2 (AoE requires it). You need [Node.js 24 or newer](#dependencies) and the other tools listed there.
 
-**Installer script.** It checks every dependency, shows what it would install, and asks first:
+**Supercharge is not on npm or Homebrew yet**, and there is no tap, so `npm install -g aoe-supercharge`, `brew install` and the one-line `curl … | bash` do not work today. Install the packed release from GitHub, or from a checkout.
+
+**From a GitHub release.** Every release on the [Releases page](https://github.com/xsoladdd/aoe-supercharge/releases) has the packed CLI attached. For 1.0.0:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/xsoladdd/aoe-supercharge/main/install.sh | bash
+npm install -g https://github.com/xsoladdd/aoe-supercharge/releases/download/v1.0.0/aoe-supercharge-1.0.0.tgz
 ```
+
+This checks no dependencies: install them first (see [Dependencies](#dependencies)), then run `supercharge doctor`.
+
+**From a checkout, with the installer:**
+
+```bash
+git clone https://github.com/xsoladdd/aoe-supercharge.git
+cd aoe-supercharge
+./install.sh --local .            # add --dry-run first to see the plan
+```
+
+The installer checks every dependency, shows what it would install, and asks first. It then builds this checkout and installs it with `npm install -g ./packages/cli`, and ends with `supercharge doctor`.
 
 | Flag | Effect |
 |---|---|
 | `--dry-run` | Print the plan only; change nothing |
 | `--yes` | Skip the confirmation |
-| `--local <checkout>` | Install from a local clone instead of npm |
+| `--local <checkout>` | Install from a local clone (required for now; without it the script tries `npm install -g aoe-supercharge`, which is not published) |
 
-The script runs under both bash and zsh.
-
-**npm:**
+The script runs under both bash and zsh. If you already have the dependencies, the manual route is the same two steps:
 
 ```bash
-npm install -g aoe-supercharge
+npm ci && npm run build
+npm install -g ./packages/cli
 ```
 
-**Homebrew** (the tap is created by the release workflow):
-
-```bash
-brew install xsoladdd/tap/aoe-supercharge
-```
+Updating is the same: `git pull`, then run the installer (or the two steps above) again, then `supercharge restart`.
 
 Then check everything:
 
 ```bash
 supercharge doctor
 ```
+
+*Planned:* publishing to npm (`npm install -g aoe-supercharge`) and a Homebrew tap (`brew install xsoladdd/tap/aoe-supercharge`). The release workflow is written but needs a license and the `NPM_TOKEN` and `TAP_TOKEN` secrets first (see [License](#license)).
 
 ## Dependencies
 
@@ -68,21 +82,30 @@ supercharge doctor
 | Claude Code | the agent | `claude --version` | `curl -fsSL https://claude.ai/install.sh \| bash` | same |
 | Agent of Empires | sessions, worktrees, status | `aoe --version` | `brew install aoe` | `curl -fsSL https://raw.githubusercontent.com/agent-of-empires/agent-of-empires/main/scripts/install.sh \| bash` |
 | glab | GitLab merge-request watching | `glab version` | `brew install glab` | `dnf install glab`, `pacman -S glab`, or `apt install glab` |
+| gh (only for GitHub repositories) | GitHub pull-request watching | `gh --version` | `brew install gh` | see [GitHub CLI installation](https://github.com/cli/cli#installation) |
+
+The installer script installs everything above except `gh`; `supercharge doctor` only warns when `gh` is missing.
 
 After installing, there is one-time setup:
 
 - **AoE hook consent.** Run `aoe` once and approve the agent hook paths it asks about. Until you do, AoE creates sessions but won't launch them; `supercharge doctor` checks this.
 - **glab login.** Run `glab auth login` for every GitLab host, including self-hosted ones (`glab auth login --hostname gitlab.example.com`).
+- **gh login** (GitHub repositories). Run `gh auth login`, and `gh auth login --hostname <host>` for each GitHub Enterprise host.
 
 ## Quick start
 
+First run, in order:
+
 ```bash
+supercharge doctor                # every check, each with its fix (AoE hook consent included)
 supercharge start                 # background service (launchd / systemd --user), starts at login
 supercharge open                  # sign in and open http://supercharge.localhost:4280
 
 cd ~/code/my-repo
 supercharge init                  # registers the project and starts its control chat in AoE
 ```
+
+`supercharge start` installs the user service (launchd on macOS, `systemd --user` on Linux), so the daemon comes back at login, and refreshes the skills in `~/.claude/skills/`. After upgrading, run it again, or `supercharge restart`.
 
 Then talk to the control chat (in AoE, or from your phone; see [Phone access](#phone-access-remote-control)), for example: *"Split the launch checklist into tasks and start them."*
 
@@ -97,6 +120,7 @@ Then talk to the control chat (in AoE, or from your phone; see [Phone access](#p
   - an AoE session that is a child of the control session,
   - a ledger entry.
 - The control chat runs `task new` itself; you can run it by hand too.
+- **A new worker starts on its own.** Claude Code does nothing until it gets a first message, so `task new` sends a short kickoff once the session is at its prompt with no menu open. If that can't happen, the daemon sends it later; if it is lost, it is sent again (up to 3 times), but never to a worker someone already wrote to. Every send is audited as `prompt_sent`.
 
 **Instructions reach the agents without touching your repository.** Two user-level skills are installed in `~/.claude/skills/` (`supercharge-control` and `supercharge-worker`), and each session gets its role and brief through `--append-system-prompt-file`.
 
@@ -118,7 +142,7 @@ supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_req
 ```
 
 - Invalid moves are rejected with exit code 3 and a list of what's allowed from the current stage.
-- `watching_mr` and `ready_for_review` are set only by the MR watcher.
+- `watching_mr` and `ready_for_review` are set only by the MR watcher. The one exception is a project with `mr = "none"`: a worker with no MR runs `supercharge stage ready_for_review` itself once its branch is pushed (see [Merge requests](#merge-requests)).
 - Inside a worker, `AOE_INSTANCE_ID` is cross-checked against the task's session, so an agent in the wrong worktree is refused.
 
 **The ledger** is one JSON file per task plus its `plan.md`, written atomically under a per-task lock. Workers can report stages even when the daemon is down. The daemon picks changes up through `fs.watch`.
@@ -194,6 +218,10 @@ reconcile = 60
 hosts = ["gitlab.com", "gitlab.example.com"]
 readyRequiresNonDraft = false
 
+[mr.github]
+hosts = ["github.com"]             # add GitHub Enterprise hosts here
+readyRequiresNonDraft = false
+
 [notifications]
 enabled = true                     # also: blocked, readyForReview, aoeWaiting, controlWaiting, error, runaway
 waitingDebounceSeconds = 20
@@ -230,6 +258,7 @@ windows = "activity"               # or "weather": the real sky at home in the w
 [projects.my-repo]                 # per-project overrides
 baseBranch = "develop"
 gitlabHost = "gitlab.example.com"
+# mr = "none"                      # this project merges branches without merge requests
 ```
 
 Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **Restart** button. Everything else reloads live.
@@ -254,9 +283,9 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
 - **Office** (`/office`): every worker stands where its status puts it.
   - Everyone who needs you stands in line at your door, in single file between brass posts and ropes, blockers first, then oldest first, with the reason over their heads.
   - Every project has a room of its own, behind low glass with its name over the doorway. Working workers sit at their own desk in their project's room; the control chat is the team lead at the head desk.
-  - Workers with an MR out wait in the **review lounge**, round the pool table, holding a folder: green when it is ready for review, amber while the pipeline runs or review threads are open, red when the pipeline failed or the MR was closed. A badge under each shows the MR number, the pipeline and the open threads; click it to open the MR. An MR ready for review still shows in Needs you, but no longer queues at your door.
+  - Workers with an MR out wait in the **review lounge**, round the pool table, holding a folder: green when it is ready for review, amber while the pipeline runs or review threads are open, red when the pipeline failed or the MR was closed. A badge under each shows the MR number, the pipeline and the open threads; click it to open the MR. An MR ready for review still shows in Needs you, but no longer queues at your door. On a project without merge requests, a worker whose branch is ready to merge waits there too, with a green folder, "Branch ready to merge", and its branch name instead of an MR badge.
   - Idle workers take a break in the pantry after 15 seconds idle.
-  - A **meter** under everyone shows the tokens of their live Claude Code conversation and what it would cost on the Claude API (an estimate: "≈ $1.20"; on a Claude plan it is not a bill). The header adds today's and the floor's total. Models without a price show tokens only. Prices live in one file, `packages/core/src/shared/model-prices.ts`.
+  - A **cost bar** under everyone (green, amber, red) shows how much their live Claude Code conversation has used. The figures are on the worker's card, the roster rows and Since I was away: tokens and what it would cost on the Claude API (an estimate: "≈ $1.20"; on a Claude plan it is not a bill). The header adds today's and the floor's total. Models without a price show tokens only. Prices live in one file, `packages/core/src/shared/model-prices.ts`.
   - **History** replays the office: scrub back through the last hours or days, play it at 1×, 10× or 60×, narrow it to a project or an agent, and come **Back to Live**. **Since I was away** sums up what happened since your last visit (finished, MRs raised, failed, needed you, about how much it cost): a standup view.
   - The lights follow the work: bright while anyone works, dimmed when nobody does, and a warm night look after an hour of quiet.
   - The header has two **clocks** (Stockholm and Manila by default, `office.clocks`) and the time between them, right through daylight saving. It can add the **weather** at home from [Open-Meteo](https://open-meteo.com), and the windows can show it. The weather is **off by default**: Open-Meteo's free API is for non-commercial use, so review [its terms](https://open-meteo.com/en/terms) before setting `office.weather.enabled = true`.
@@ -289,11 +318,13 @@ With `remoteControl.enabled = true`, control sessions start with Claude Code's `
 
 ## Merge requests
 
-For tasks in `mr_raised`, `watching_mr` or `ready_for_review`, the daemon checks each MR every `poll.mr` seconds through `glab`. It reads:
+For tasks in `mr_raised`, `watching_mr` or `ready_for_review`, the daemon checks each MR every `poll.mr` seconds: GitLab merge requests through `glab`, GitHub pull requests through `gh`. A project's provider is picked from its remote's host (`mr.gitlab.hosts`, `mr.github.hosts`), and an MR's from its URL. It reads:
 
-- pipeline status,
-- unresolved resolvable discussion threads (where CodeRabbit comments),
+- pipeline status (on GitHub, the head commit's checks and statuses together),
+- unresolved review threads (where CodeRabbit comments),
 - merge state.
+
+`supercharge stage mr_raised --mr <url>` takes a GitLab MR (`…/-/merge_requests/<iid>`) or a GitHub pull request (`…/pull/<number>`). The dashboard names them `!iid` and `#number`.
 
 The rules:
 
@@ -301,7 +332,11 @@ The rules:
 - **Merged:** the task moves to `done`.
 - **Ready, then a new thread or pipeline appears:** the task goes back to `watching_mr`.
 
-Self-hosted GitLab works: add the host to `mr.gitlab.hosts` and log in with `glab auth login --hostname <host>`.
+Self-hosted GitLab works: add the host to `mr.gitlab.hosts` and log in with `glab auth login --hostname <host>`. GitHub Enterprise works the same way with `mr.github.hosts` and `gh auth login --hostname <host>`.
+
+**MRs found by branch.** Some MRs are opened without `stage mr_raised`: by a worker that forgot to report it, or by crew sessions a control chat starts straight in AoE, with no task. Each round, the watcher looks those branches up too. A task in `implementing` or `verifying` with no MR, whose session is idle or stopped, is moved to `mr_raised` when its branch has one. A crew session with no task only shows its MR: it waits in the review lounge with the MR's badge and folder, but raises nothing in Needs you and sends no notification. A branch with no MR is looked up again at most every 5 minutes.
+
+**Projects without merge requests.** If a project merges branches directly, set `supercharge config set projects.<name>.mr none`. A finished worker then pushes its branch and runs `supercharge stage ready_for_review` with no MR. The task waits in the review lounge with a green folder ("Branch ready to merge"), shows in Needs you and in `supercharge status`, and is marked `done` by itself once its commits land on the base branch (fast-forwarded, merged, or cherry-picked). Projects with merge requests work as before.
 
 ## Security
 
@@ -346,7 +381,7 @@ To go back to a tested AoE, reinstall that release: `curl -fsSL …/scripts/inst
 ```bash
 supercharge uninstall            # service file + managed skills
 supercharge uninstall --purge    # also config, the ledger and state
-npm uninstall -g aoe-supercharge # or: brew uninstall aoe-supercharge
+npm uninstall -g aoe-supercharge
 ```
 
 ## Development
@@ -365,9 +400,9 @@ Layout:
 
 ```
 packages/core       shared types, stage machine, needs-you rules, config schema, ledger
-packages/cli        CLI + daemon (Hono, SSE), AoE client, glab provider, services, templates
+packages/cli        CLI + daemon (Hono, SSE), AoE client, glab and gh providers, services, templates
 packages/ui         React 19, Vite, Tailwind 4, shadcn/ui (Phosphor icons, Geist)
-packages/fake-aoe   fake `aoe serve` plus `aoe`/`glab` shims for tests and the demo
+packages/fake-aoe   fake `aoe serve` plus `aoe`/`glab`/`gh` shims for tests and the demo
 e2e/                Playwright suite and the demo/E2E harness
 fixtures/aoe/       redacted responses recorded from real AoE
 ```
@@ -385,4 +420,4 @@ fixtures/aoe/       redacted responses recorded from real AoE
 
 ## License
 
-Not chosen yet. Pick one before the first public release (see `.github/workflows/release.yml`).
+Not chosen yet. Pick one before the first public release, and before the npm and Homebrew paths can be switched on (see `.github/workflows/release.yml`).
