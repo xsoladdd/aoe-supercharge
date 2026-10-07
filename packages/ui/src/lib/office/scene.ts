@@ -606,6 +606,8 @@ export class OfficeScene {
       if (instant) this.hide(w, s.vanish);
       else w.fade = { from: 1, to: 0, start: now };
     }
+    // Gone for good (it left and was taken off the floor): nothing to draw.
+    if (!this.walkers.has(w.key)) return;
     this.decorate(w);
   }
 

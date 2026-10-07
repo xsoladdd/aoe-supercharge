@@ -108,7 +108,7 @@ const DOOR: Record<NeedsYouKind, { prop: Exclude<Prop, null>; reason: string }> 
   control_needs: { prop: 'clipboard', reason: 'Needs you' },
 };
 
-const DESK_POSE: Record<Stage, Pose> = {
+export const DESK_POSE: Record<Stage, Pose> = {
   planning: 'sketching',
   implementing: 'typing',
   verifying: 'inspecting',

@@ -1,5 +1,6 @@
 import {
   AppWindowIcon,
+  ClockCounterClockwiseIcon,
   ArrowsOutIcon,
   ChalkboardSimpleIcon,
   CoffeeIcon,
@@ -19,7 +20,9 @@ import {
   type NoteRecord,
   type OfficeState,
 } from '@aoe-supercharge/core/shared';
+import { AwaySummaryButton } from '@/components/office/away';
 import { OfficeClocks } from '@/components/office/clocks';
+import { HistoryBar } from '@/components/office/history-bar';
 import { CostSummary } from '@/components/office/cost';
 import { OfficeRoster } from '@/components/office/roster';
 import { WhiteboardCard } from '@/components/office/whiteboard-card';
@@ -27,6 +30,7 @@ import { WorkerCard } from '@/components/office/worker-card';
 import { Button } from '@/components/ui/button';
 import { boardLines } from '@/lib/notes';
 import type { OfficeModel } from '@/lib/office';
+import { useHistoryPlayer } from '@/lib/office-history';
 import { openOfficeWindow } from '@/lib/office-window';
 import { OfficeScene, type SceneEvents } from '@/lib/office/scene';
 import { cn } from '@/lib/utils';
@@ -134,7 +138,7 @@ export interface FloorProps {
  * accessible list of the same people; without a canvas it is all you get.
  */
 export default function OfficeFloor({
-  office,
+  office: live,
   door,
   now,
   linkWorker,
@@ -165,13 +169,19 @@ export default function OfficeFloor({
   const [arriving, setArriving] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [rosterOpen, setRosterOpen] = useState(() => readRosterPref(standalone));
+  // History mode (SPEC §14.5): the floor as it was, replayed from the office history.
+  const [inHistory, setInHistory] = useState(false);
+  const player = useHistoryPlayer(inHistory);
+  const history = inHistory ? player.model : null;
+  const office = history ?? live;
   /** A camera move asked for before the scene was ready. */
   const pending = useRef<{ worker?: string; area?: string } | null>(
     linkWorker ? { worker: linkWorker } : linkFocus ? { area: linkFocus } : null,
   );
 
-  const sel = selected ? (office.everyone.find((w) => w.key === selected) ?? null) : null;
-  const next = office.door.find((w) => w.key !== called) ?? null;
+  // No cards and no Call next in the past: the floor is for looking at.
+  const sel = selected && !inHistory ? (office.everyone.find((w) => w.key === selected) ?? null) : null;
+  const next = inHistory ? null : (office.door.find((w) => w.key !== called) ?? null);
 
   function pick(key: string | null, from: 'floor' | 'roster' | 'link' | 'call') {
     setSelected(key);
@@ -274,13 +284,23 @@ export default function OfficeFloor({
     seenEpoch.current = epoch;
     scene.resync();
   }, [scene, epoch]);
-  useEffect(() => scene?.setModel(office), [scene, office]);
+  // In the past everyone jumps to where they were (no walking storms when you scrub or play fast),
+  // except at 1x, where they walk as they did; going in and out of history jumps too.
+  const wasHistory = useRef(inHistory);
+  const walkHistory = player.playing && player.speed === 1;
+  useEffect(() => {
+    if (!scene) return;
+    if (inHistory !== wasHistory.current || (inHistory && !walkHistory)) scene.resync();
+    wasHistory.current = inHistory;
+    scene.setModel(office);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scene, office]);
   useEffect(() => scene?.setBoard(boardLines(notes)), [scene, notes]);
   useEffect(() => scene?.setTheme(theme), [scene, theme]);
   useEffect(() => scene?.setDoorLabel(door), [scene, door]);
 
   // The light follows what the office is doing; the windows can show the weather at home instead.
-  const light = activityLight(office, now);
+  const light = activityLight(live, now);
   const weather = ambience?.weather ?? null;
   const weatherWindows = ambience?.windows === 'weather' && !!weather;
   const look = windowLook(ambience?.windows ?? 'activity', AMBIENCE[light.mode], weather);
@@ -401,6 +421,7 @@ export default function OfficeFloor({
       data-selected={sel?.key ?? ''}
       data-rooms={office.teams.map((t) => t.project).join(',')}
       data-light={light.mode}
+      data-history={inHistory ? (history ? 'ready' : 'loading') : undefined}
       data-windows={weatherWindows && weather ? weatherKind(weather.code).kind : 'activity'}
       className="flex min-h-0 flex-1 flex-col"
       onKeyDown={onKey}
@@ -412,12 +433,30 @@ export default function OfficeFloor({
           {office.pantry.length} in the pantry
           {office.away.length ? ` · ${office.away.length} away` : ''}
         </p>
-        <CostSummary office={office} onAttention={(key) => pick(key, 'roster')} />
+        {!inHistory && <CostSummary office={live} onAttention={(key) => pick(key, 'roster')} />}
         <OfficeClocks clocks={ambience?.clocks} weather={weather} />
         <p className="sr-only" role="status" aria-live="polite">
           {announcement}
         </p>
         <div className="ml-auto flex items-center gap-1">
+          <AwaySummaryButton office={live} />
+          {!inHistory && (
+            <Button
+              variant="ghost"
+              className="px-3"
+              title="Replay the office: scrub back through the day, or play it at 1x, 10x or 60x"
+              onClick={() => {
+                setSelected(null);
+                setCalled(null);
+                setFollowing(null);
+                setInHistory(true);
+              }}
+              data-history-button
+            >
+              <ClockCounterClockwiseIcon />
+              History
+            </Button>
+          )}
           {!standalone && (
             <Button
               variant="ghost"
@@ -443,6 +482,8 @@ export default function OfficeFloor({
           )}
         </div>
       </div>
+
+      {inHistory && <HistoryBar player={player} onLive={() => setInHistory(false)} />}
 
       {fallback && (
         <div

@@ -197,6 +197,103 @@ test.describe('office', () => {
     await expect(row.locator('[data-runaway]')).toHaveCount(0, { timeout: 30_000 });
   });
 
+  test('history mode replays the office: scrub, play, filter, and Back to Live', async ({
+    signedIn: page,
+  }) => {
+    await page.goto('/office');
+    const floor = page.locator('[data-office-floor]');
+    await page.locator('[data-history-button]').click();
+    await expect(floor).toHaveAttribute('data-history', 'ready');
+    const bar = page.getByRole('region', { name: 'Office history' });
+    await expect(bar.getByRole('button', { name: 'Back to Live' })).toBeVisible();
+    // The past is for looking at: no spend, no Call next.
+    await expect(page.locator('[data-office-cost]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Call next/ })).toHaveCount(0);
+
+    // Four and a quarter hours ago (the made-up history): Percival waits on a pipeline in the lounge,
+    // Isolde works at a desk.
+    const scrubber = bar.getByRole('slider', { name: 'Time' });
+    // The made-up history is written when the suite starts (its first frame 7 hours before that); time
+    // it from then, so a later engine scrubs to the same moments.
+    const since = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+    const seeded = (await (await page.request.get(`/api/office/history?from=${since}`)).json()) as {
+      records: { type: string; ts: string; key?: string }[];
+    };
+    const firstFrame = Math.min(
+      ...seeded.records.filter((r) => r.type === 'frame').map((r) => Date.parse(r.ts)),
+    );
+    const seededAt = firstFrame + 7 * 60 * 60 * 1000;
+    const scrubTo = async (hoursAgo: number) => {
+      const min = Number(await scrubber.getAttribute('min'));
+      const t = seededAt - hoursAgo * 60 * 60 * 1000;
+      await scrubber.fill(String(min + Math.round((t - min) / 1000) * 1000));
+    };
+    await scrubTo(4.25);
+    const roster = page.locator('#office-roster');
+    const percival = roster.locator('li[data-task="NW-0090"]');
+    await expect(percival).toHaveAttribute('data-zone', 'review');
+    await expect(roster.locator('[data-mr-badge="31"]')).toBeVisible();
+    await expect(roster.locator('li[data-task="AA-0090"]')).toHaveAttribute('data-zone', 'desk');
+    await expect(roster.locator('li[data-task="NW-0091"]')).toHaveCount(0);
+    await axe(page, 'office history');
+
+    // Narrowed to one project, then to one agent.
+    await bar.getByRole('combobox', { name: 'Project' }).selectOption('apollo-api');
+    await expect(percival).toHaveCount(0);
+    await expect(roster.locator('li[data-task="AA-0090"]')).toHaveCount(1);
+    await bar.getByRole('combobox', { name: 'Agent' }).selectOption({ label: 'Isolde (apollo-api)' });
+    await expect(roster.locator('li[data-role="worker"]')).toHaveCount(1);
+    await bar.getByRole('combobox', { name: 'Project' }).selectOption('');
+
+    // Later: Isolde's pipeline failed, Percival has gone home.
+    await scrubTo(1.4);
+    await expect(roster.locator('li[data-task="AA-0090"]')).toHaveAttribute('data-zone', 'review');
+    await expect(roster.locator('li[data-task="AA-0090"]')).toContainText('Pipeline failed');
+    await bar.getByRole('combobox', { name: 'Agent' }).selectOption('');
+    await expect(roster.locator('li[data-task="AA-0090"]')).toHaveCount(1);
+    await expect(percival).toHaveCount(0);
+
+    // Play runs the clock on; pause stops it.
+    await scrubTo(6);
+    const time = bar.locator('[data-history-time]');
+    const before = await time.textContent();
+    await bar.getByRole('button', { name: '60×' }).click();
+    await bar.getByRole('button', { name: 'Play' }).click();
+    await expect(time).not.toHaveText(before ?? '', { timeout: 5_000 });
+    await bar.getByRole('button', { name: 'Pause' }).click();
+    await expect(bar.getByRole('button', { name: 'Play' })).toHaveAttribute('aria-pressed', 'false');
+
+    // Back to Live: today's office again.
+    await bar.getByRole('button', { name: 'Back to Live' }).click();
+    await expect(floor).not.toHaveAttribute('data-history', /./);
+    await expect(page.locator('[data-office-cost]')).toBeVisible();
+    await expect(roster.locator('li[data-task="NW-0090"]')).toHaveCount(0);
+  });
+
+  test('"Since I was away" sums up what happened', async ({ signedIn: page }) => {
+    await page.goto('/office');
+    await page.locator('[data-away-button]').click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('combobox', { name: 'Since' }).selectOption({ label: '8 hours ago' });
+    await expect(dialog.locator('[data-away-headline]')).toContainText(/\d+ agents? finished/);
+    await expect(dialog.locator('[data-away-headline]')).toContainText(/\d+ MRs? raised/);
+    await expect(dialog.locator('[data-away-headline]')).toContainText(/≈ \$\d+\.\d\d spent/);
+    const events = dialog.getByRole('list', { name: 'What happened' });
+    await expect(events.locator('[data-away-event="finished"]', { hasText: 'Percival' })).toBeVisible();
+    await expect(events.locator('[data-away-event="mr_raised"]', { hasText: 'Raised !31' })).toBeVisible();
+    await expect(
+      events.locator('[data-away-event="failed"]', { hasText: 'Pipeline failed on !11' }),
+    ).toContainText('Isolde');
+    await expect(events.locator('[data-away-event="needed_you"]', { hasText: 'Tristan' })).toBeVisible();
+    await axe(page, 'since I was away');
+    // An hour back, the morning's work is not in it.
+    await dialog.getByRole('combobox', { name: 'Since' }).selectOption({ label: 'An hour ago' });
+    await expect(dialog.locator('[data-away-headline]')).toBeVisible();
+    await expect(events.locator('[data-away-event="finished"]', { hasText: 'Percival' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+  });
+
   test('the daemon keeps an office history of who went where', async ({ signedIn: page }) => {
     const from = new Date(Date.now() - 6 * 60 * 60_000).toISOString();
     await expect

@@ -523,7 +523,8 @@ export function OfficeRoster({
                     showProject
                     onSelect={focus.onSelect}
                     steal={!!focus.steal}
-                    extra={<RestoreButton w={w} />}
+                    // In history mode there is nothing to restore: it is the past.
+                    extra={w.mark?.archivedAt ? <RestoreButton w={w} /> : undefined}
                   />
                 ))}
               </ul>

@@ -2,6 +2,7 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeSession, PLAN_MENU, startFakeAoe, type FakeAoe } from '../packages/fake-aoe/src/server.ts';
+import { seedHistory } from './history-seed.ts';
 import {
   seedControlChat,
   seedPermissionWait,
@@ -440,6 +441,9 @@ export async function startDemo(opts: {
       capturedAt: inMin(-2),
     }),
   );
+
+  // A made-up day of office history, for history mode and "Since I was away".
+  seedHistory(stateDir);
 
   const daemon = spawn(process.execPath, [CLI, 'daemon'], {
     env: { ...env, SUPERCHARGE_LOG_STDERR: opts.log ? '1' : '0', SUPERCHARGE_DEMO: '1' },

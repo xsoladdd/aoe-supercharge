@@ -119,7 +119,7 @@ away}` (IANA zones) · `office.weather.{enabled, latitude, longitude}` · `offic
 | 5 | Token/cost meter on desks, characters and header; runaway detection, warning, notification | 4 | 0.5.0 | Done |
 | 6 | Idle "go home" prompt (Archive / Keep / Snooze 30m), auto-archive, Archived list with Restore | 5 | 0.5.0 | Done |
 | 7 | Activity lighting (day, dim, night), clocks with time difference, Stockholm weather, window ambience | 6 | 0.5.0 | Done |
-| 8 | History mode (scrubber, play 1x/10x/60x, filters, Back to Live), "Since I was away" | 7 | 0.5.0 | |
+| 8 | History mode (scrubber, play 1x/10x/60x, filters, Back to Live), "Since I was away" | 7 | 0.5.0 | Done |
 
 Every phase: unit tests for its pure logic, Playwright for its UI (all three engines), README and SPEC
 updated, demo data extended so it can be seen without real agents.
@@ -182,6 +182,15 @@ updated, demo data extended so it can be seen without real agents.
 - **Night** starts an hour after the last status change on the floor with nobody working; that time
   stands in for "idle for a long period". The clocks are in the header row (it wraps), on the floor and
   in the list, rather than a floating panel over the floor.
+
+- **History mode** reads the whole range once and replays it in the browser (filters too), rather than
+  asking the daemon at every scrub. It is on the floor view (and its list); the list view at
+  `?view=list` stays live. Spend in the history is the cost a character carried at its last move or
+  frame, so "Since I was away" ends at the live meters instead.
+- **"Your last visit"** is kept in the browser's local storage (per browser), noted every minute while
+  the office is open; without it, 8 hours.
+- The made-up history (`e2e/history-seed.ts`: Percival, Isolde, Tristan) is written for the demo and
+  the E2E suite; all three have left by now, so the live floor is unchanged.
 
 ## Open questions
 

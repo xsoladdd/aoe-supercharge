@@ -27,6 +27,10 @@ history.
 - **Runaway workers are flagged.** Over a token limit, spending fast, or working half an hour without
   changing anything: a red warning on the floor, a toast, a desktop notification, and a "needs
   attention" count in the header. Set the limits in Settings, Office (`office.runaway`).
+- **Office history mode and "Since I was away".** Replay the office: a scrubber over the last hour to
+  7 days, play at 1×, 10× or 60×, filters by project and agent, and Back to Live always in view.
+  "Since I was away" sums up what happened since your last visit: agents finished, MRs raised,
+  pipelines failed, who needed you, and the estimated spend.
 - **Day and night, clocks and weather.** The office lights follow the work: bright while anyone works,
   dimmed when nobody does, a warm night after an hour of quiet, easing between them. The header shows
   two clocks (Stockholm and Manila by default) and the time between them, right through daylight
@@ -38,6 +42,8 @@ history.
   under Archived with Restore, and comes back by itself when it works or needs you. Its session,
   worktree and history are never touched. `office.idle.autoArchiveMinutes` sends idle workers home by
   themselves (off by default).
+- **Fixed:** a character leaving the floor while everyone was placed again at once (a reconnect) could
+  stop the floor drawing.
 - **The office keeps a history.** The daemon writes down every time someone in the office moves, or
   their reason changes, in a file per day under `~/.local/state/supercharge/history/`. It keeps 30 days
   (`office.history.retentionDays`). `GET /api/office/history` reads it back. History starts with this
