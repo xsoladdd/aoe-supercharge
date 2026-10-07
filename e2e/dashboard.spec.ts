@@ -2,12 +2,36 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { PERMISSION_MENU } from '../packages/fake-aoe/src/server.ts';
+import type { Locator, Page } from '@playwright/test';
 import { axe, expect, fake, test, world } from './fixtures.ts';
 
 /** The fake AoE id of the session whose title starts with `prefix`. */
 async function sessionId(prefix: string): Promise<string> {
   const state = (await fake('/__fake/state')) as { sessions: { id: string; title: string }[] };
   return state.sessions.find((s) => s.title.startsWith(prefix))!.id;
+}
+
+/** Everything in the dialog (and the dialog itself) sits inside its box: nothing spills out or scrolls sideways. */
+async function expectContained(page: Page, dialog: Locator) {
+  const box = (await dialog.boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+  const parts = dialog.locator('pre, ul, [data-slot="alert-dialog-footer"], button');
+  const count = await parts.count();
+  expect(count).toBeGreaterThan(2);
+  for (let i = 0; i < count; i++) {
+    const part = (await parts.nth(i).boundingBox())!;
+    expect(part.x, `part ${i} left`).toBeGreaterThanOrEqual(box.x - 0.5);
+    expect(part.x + part.width, `part ${i} right`).toBeLessThanOrEqual(box.x + box.width + 0.5);
+  }
+  const overflow = await dialog.evaluate(
+    (el) =>
+      [el, ...el.querySelectorAll('pre, ul, [data-slot="alert-dialog-footer"]')].filter(
+        (e) => e.scrollWidth > e.clientWidth,
+      ).length,
+  );
+  expect(overflow).toBe(0);
 }
 
 test.describe('auth', () => {
@@ -443,6 +467,7 @@ test.describe('project', () => {
     await expect(dialog).toContainText('supercharge task new "Build page templates"');
     await expect(dialog).toContainText("through Claude Code's shell mode");
     await axe(page, 'run command');
+    await expectContained(page, dialog);
     const before = await lastSent();
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     expect(await lastSent()).toBe(before);
@@ -477,6 +502,10 @@ test.describe('project', () => {
     const dialog = page.getByRole('alertdialog', { name: 'Run this command?' });
     await expect(dialog).toContainText('aoe session list-trash');
     await axe(page, 'run in terminal');
+    await expectContained(page, dialog);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expectContained(page, dialog);
+    await page.setViewportSize({ width: 1440, height: 900 });
     await dialog.getByRole('button', { name: 'Run in terminal' }).click();
     await expect(page.getByRole('tab', { name: 'Shell' })).toHaveAttribute('aria-selected', 'true');
     const screen = page.locator('.xterm-rows');
