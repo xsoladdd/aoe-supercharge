@@ -11,7 +11,15 @@ import {
   UsersThreeIcon,
 } from '@phosphor-icons/react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import type { NoteRecord } from '@aoe-supercharge/core/shared';
+import {
+  activityLight,
+  AMBIENCE,
+  weatherKind,
+  windowLook,
+  type NoteRecord,
+  type OfficeState,
+} from '@aoe-supercharge/core/shared';
+import { OfficeClocks } from '@/components/office/clocks';
 import { CostSummary } from '@/components/office/cost';
 import { OfficeRoster } from '@/components/office/roster';
 import { WhiteboardCard } from '@/components/office/whiteboard-card';
@@ -116,6 +124,8 @@ export interface FloorProps {
   epoch?: number;
   /** `office.runaway.sessionTokens`: a full meter. */
   tokenLimit?: number;
+  /** The clocks, the windows and the weather at home (`snap.office`). */
+  ambience?: Pick<OfficeState, 'clocks' | 'windows' | 'weather'>;
 }
 
 /**
@@ -136,6 +146,7 @@ export default function OfficeFloor({
   animations = true,
   epoch = 0,
   tokenLimit = 50_000_000,
+  ambience,
 }: FloorProps) {
   const host = useRef<HTMLDivElement>(null);
   const [scene, setScene] = useState<OfficeScene | null>(null);
@@ -267,6 +278,17 @@ export default function OfficeFloor({
   useEffect(() => scene?.setBoard(boardLines(notes)), [scene, notes]);
   useEffect(() => scene?.setTheme(theme), [scene, theme]);
   useEffect(() => scene?.setDoorLabel(door), [scene, door]);
+
+  // The light follows what the office is doing; the windows can show the weather at home instead.
+  const light = activityLight(office, now);
+  const weather = ambience?.weather ?? null;
+  const weatherWindows = ambience?.windows === 'weather' && !!weather;
+  const look = windowLook(ambience?.windows ?? 'activity', AMBIENCE[light.mode], weather);
+  useEffect(
+    () => scene?.setLight(AMBIENCE[light.mode], look, weatherWindows),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scene, light.mode, look.sky, look.cloud, look.precip, weatherWindows],
+  );
   useEffect(() => scene?.setReducedMotion(reduced), [scene, reduced]);
   useEffect(() => scene?.setLimits({ sessionTokens: tokenLimit }), [scene, tokenLimit]);
   useEffect(() => scene?.select(sel ? sel.key : null), [scene, sel]);
@@ -378,6 +400,8 @@ export default function OfficeFloor({
       data-called={called ?? ''}
       data-selected={sel?.key ?? ''}
       data-rooms={office.teams.map((t) => t.project).join(',')}
+      data-light={light.mode}
+      data-windows={weatherWindows && weather ? weatherKind(weather.code).kind : 'activity'}
       className="flex min-h-0 flex-1 flex-col"
       onKeyDown={onKey}
     >
@@ -389,6 +413,7 @@ export default function OfficeFloor({
           {office.away.length ? ` · ${office.away.length} away` : ''}
         </p>
         <CostSummary office={office} onAttention={(key) => pick(key, 'roster')} />
+        <OfficeClocks clocks={ambience?.clocks} weather={weather} />
         <p className="sr-only" role="status" aria-live="polite">
           {announcement}
         </p>

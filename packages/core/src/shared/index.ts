@@ -17,6 +17,7 @@ export * from './office-history.ts';
 export * from './office-moves.ts';
 export * from './office-cost.ts';
 export * from './office-idle.ts';
+export * from './office-ambience.ts';
 export * from './model-prices.ts';
 export * from './office-layout.ts';
 export * from './pathfind.ts';

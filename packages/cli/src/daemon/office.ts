@@ -12,6 +12,11 @@ import {
   floorStates,
   historyDay,
   markChange,
+  parseWeather,
+  WEATHER_STALE_MS,
+  WEATHER_TTL_MS,
+  weatherUrl,
+  type Weather,
   nextOfficeLook,
   type CharState,
   type HistoryRecord,
@@ -78,11 +83,15 @@ export class OfficeWatcher {
   async reloadMarks() {
     try {
       const o = this.ctx.config.office;
+      // Read first: the rest of the office state (the weather) may change while this waits.
+      const marks = await readOfficeMarks(this.ctx.paths);
       this.store.setOffice({
         ...this.store.office,
-        marks: await readOfficeMarks(this.ctx.paths),
+        marks,
         runaway: o.runaway,
         idle: o.idle,
+        clocks: o.clocks,
+        windows: o.windows,
       });
     } catch (err) {
       this.ctx.logger.warn('office state unreadable', { err: (err as Error).message });
@@ -261,5 +270,75 @@ export class CostWatcher {
     this.flagged = now2;
     this.armed = true;
     return costs;
+  }
+}
+
+/**
+ * The weather at home for the office's clock (SPEC §14.5), from Open-Meteo's forecast API: fetched by
+ * the daemon (never the browser), every 15 minutes while `office.weather.enabled`. A failed fetch keeps
+ * the last reading for up to an hour, then the clock shows without it. Off by default: Open-Meteo's
+ * free API is for non-commercial use, so the owner reviews its terms before turning it on.
+ */
+export class WeatherWatcher {
+  private timer: NodeJS.Timeout | null = null;
+  /** What it is fetching for; null before the first `reload`. */
+  private key: string | null = null;
+
+  constructor(
+    private ctx: Ctx,
+    private store: Store,
+    private fetchImpl: typeof fetch = fetch,
+    private now: () => Date = () => new Date(),
+    private base: string = process.env.SUPERCHARGE_WEATHER_URL || 'https://api.open-meteo.com',
+  ) {}
+
+  /** Starts, stops or restarts with the config. */
+  reload() {
+    const { weather, clocks } = this.ctx.config.office;
+    const key = weather.enabled ? JSON.stringify([weather.latitude, weather.longitude, clocks.home]) : '';
+    if (key === this.key) return;
+    this.key = key;
+    this.stop();
+    if (!key) {
+      this.set(null);
+      return;
+    }
+    const loop = async () => {
+      await this.tick();
+      this.timer = setTimeout(() => void loop(), WEATHER_TTL_MS);
+      this.timer.unref();
+    };
+    void loop();
+  }
+
+  stop() {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+  }
+
+  /** Fetches once. Exposed for tests. */
+  async tick(): Promise<Weather | null> {
+    const { weather, clocks } = this.ctx.config.office;
+    const url = weatherUrl(this.base, weather.latitude, weather.longitude, clocks.home);
+    const now = this.now();
+    try {
+      const res = await this.fetchImpl(url, { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const reading = parseWeather(await res.json(), now);
+      if (!reading) throw new Error('unexpected response');
+      this.set(reading);
+      return reading;
+    } catch (err) {
+      this.ctx.logger.warn('office weather failed', { err: (err as Error).message });
+      const last = this.store.office.weather ?? null;
+      const keep = last && now.getTime() - Date.parse(last.fetchedAt) < WEATHER_STALE_MS ? last : null;
+      this.set(keep);
+      return keep;
+    }
+  }
+
+  private set(weather: Weather | null) {
+    if ((this.store.office.weather ?? null) === weather) return;
+    this.store.setOffice({ ...this.store.office, weather });
   }
 }

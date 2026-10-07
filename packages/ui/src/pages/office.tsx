@@ -3,6 +3,7 @@ import { lazy, Suspense } from 'react';
 import { Link } from 'wouter';
 import { doorLabel, type Snapshot } from '@aoe-supercharge/core/shared';
 import { CommandLine } from '@/components/copy';
+import { OfficeClocks } from '@/components/office/clocks';
 import { OfficeRoster } from '@/components/office/roster';
 import { HeaderActions } from '@/lib/header-slot';
 import { useLive } from '@/lib/live';
@@ -116,6 +117,7 @@ export function OfficePage({ snap, standalone = false }: { snap: Snapshot; stand
             animations={snap.ui.officeAnimations ?? true}
             epoch={epoch}
             tokenLimit={snap.office?.runaway?.sessionTokens}
+            ambience={snap.office}
           />
         </Suspense>
       </>
@@ -128,6 +130,7 @@ export function OfficePage({ snap, standalone = false }: { snap: Snapshot; stand
         title="Office"
         sub="Each worker stands where its status puts it: at your door, at a desk, or in the pantry."
       />
+      <OfficeClocks clocks={snap.office?.clocks} weather={snap.office?.weather} />
       <p className="sr-only" role="status" aria-live="polite">
         {announcement}
       </p>

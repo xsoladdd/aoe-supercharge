@@ -126,6 +126,8 @@ export async function startDemo(opts: {
     SUPERCHARGE_AOE_HOOKS_DIR: hooksDir,
     PATH: `${SHIMS}:${process.env.PATH}`,
     FAKE_AOE_URL: fake.url,
+    // The office clock's weather comes from the fake, never from Open-Meteo.
+    SUPERCHARGE_WEATHER_URL: fake.url,
     FAKE_GLAB_DIR: glabDir,
     NO_COLOR: '1',
     GIT_AUTHOR_NAME: 'demo',
@@ -147,6 +149,13 @@ export async function startDemo(opts: {
     ['ui.sound', 'false'],
   ] as const)
     await sc(env, ['config', 'set', k, v], home);
+  // The demo's clock shows the fake's weather in the windows (the fake stands in for Open-Meteo).
+  if (opts.rich)
+    for (const [k, v] of [
+      ['office.weather.enabled', 'true'],
+      ['office.windows', 'weather'],
+    ] as const)
+      await sc(env, ['config', 'set', k, v], home);
 
   // Pre-existing AoE sessions Supercharge doesn't manage (like a hand-made control + workers setup).
   const opsParent = makeSession({

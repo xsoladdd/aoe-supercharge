@@ -16,7 +16,7 @@ import { claudeModelsCheck } from '../src/commands/doctor.ts';
 import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '../src/statusline.ts';
 import { renderCaddyfile } from '../src/commands/proxy.ts';
 import { MrWatcher } from '../src/daemon/mr-watcher.ts';
-import { CostWatcher, OfficeWatcher } from '../src/daemon/office.ts';
+import { CostWatcher, OfficeWatcher, WeatherWatcher } from '../src/daemon/office.ts';
 import { at, project, session as view, T0, task as taskRecord } from '../../core/test/office-fixtures.ts';
 import { Store } from '../src/daemon/store.ts';
 import { countUnresolvedThreads, GitLabProvider, parseMrView } from '../src/mr/gitlab.ts';
@@ -281,6 +281,74 @@ describe('office idle timeout (OfficeWatcher)', () => {
     } finally {
       await rm(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe('office weather (WeatherWatcher)', () => {
+  const reading = { temperature_2m: 3.2, weather_code: 71, is_day: 0 };
+  const make = () => {
+    const config = defaultConfig();
+    config.office.weather.enabled = true;
+    const ctx = { config, logger: { warn() {}, info() {} } } as never;
+    const store = new Store({ daemon: {}, aoe: {}, config: {} } as never, {
+      waitingDebounceSeconds: () => 0,
+    });
+    let now = new Date(T0);
+    let ok = true;
+    const urls: string[] = [];
+    const fetchImpl = (async (url: string) => {
+      urls.push(url);
+      if (!ok) throw new Error('offline');
+      return new Response(
+        JSON.stringify({ current: { time: '2026-10-06T14:00', interval: 900, ...reading } }),
+      );
+    }) as unknown as typeof fetch;
+    const w = new WeatherWatcher(ctx, store, fetchImpl, () => now, 'http://weather.test');
+    return {
+      w,
+      store,
+      config,
+      urls,
+      fail: () => (ok = false),
+      later: (min: number) => (now = new Date(T0 + min * 60_000)),
+    };
+  };
+
+  it('fetches the weather at home into the snapshot', async () => {
+    const { w, store, urls } = make();
+    await w.tick();
+    expect(store.office.weather).toEqual({
+      tempC: 3.2,
+      code: 71,
+      isDay: false,
+      at: '2026-10-06T14:00',
+      fetchedAt: new Date(T0).toISOString(),
+    });
+    expect(urls[0]).toBe(
+      'http://weather.test/v1/forecast?latitude=59.33&longitude=18.07&current=temperature_2m%2Cweather_code%2Cis_day&timezone=Europe%2FStockholm',
+    );
+  });
+
+  it('keeps the last reading through a failure for up to an hour, then shows the clock alone', async () => {
+    const { w, store, fail, later } = make();
+    await w.tick();
+    fail();
+    later(30);
+    await w.tick();
+    expect(store.office.weather?.tempC).toBe(3.2);
+    later(61);
+    await w.tick();
+    expect(store.office.weather).toBeNull();
+  });
+
+  it('is off by default, and turning it off clears it', async () => {
+    expect(defaultConfig().office.weather.enabled).toBe(false);
+    const { w, store, config } = make();
+    await w.tick();
+    config.office.weather.enabled = false;
+    w.reload();
+    expect(store.office.weather).toBeNull();
+    w.stop();
   });
 });
 

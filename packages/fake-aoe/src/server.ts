@@ -228,6 +228,40 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
 
   // ── test/shim control plane (no auth; loopback only) ──
   app.get('/__fake/state', (c) => c.json(state));
+  // A stand-in for Open-Meteo's forecast API (the office clock's weather), in its response shape.
+  // Made-up readings; `/__fake/weather` sets the next one, `{ fail: true }` makes it answer 503.
+  let weather: { temperature_2m: number; weather_code: number; is_day: number; fail?: boolean } = {
+    temperature_2m: 4.5,
+    weather_code: 61,
+    is_day: 1,
+  };
+  app.put('/__fake/weather', async (c) => {
+    weather = await c.req.json();
+    return c.json({ ok: true });
+  });
+  app.get('/v1/forecast', (c) => {
+    if (weather.fail) return c.json({ error: true, reason: 'unavailable' }, 503);
+    const timezone = c.req.query('timezone') ?? 'GMT';
+    return c.json({
+      latitude: Number(c.req.query('latitude')),
+      longitude: Number(c.req.query('longitude')),
+      timezone,
+      current_units: {
+        time: 'iso8601',
+        interval: 'seconds',
+        temperature_2m: '°C',
+        weather_code: 'wmo code',
+        is_day: '',
+      },
+      current: {
+        time: new Date().toISOString().slice(0, 16),
+        interval: 900,
+        temperature_2m: weather.temperature_2m,
+        weather_code: weather.weather_code,
+        is_day: weather.is_day,
+      },
+    });
+  });
   app.get('/__fake/cli/list', (c) =>
     c.json(state.sessions.filter((s) => inScope(s, c.req.query('state'))).map(toCliEntry)),
   );

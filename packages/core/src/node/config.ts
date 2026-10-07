@@ -4,6 +4,7 @@ import { parse as tomlParse } from 'smol-toml';
 import { z } from 'zod';
 import { ensureDir, writeFileAtomic } from './fs.ts';
 import type { Paths } from './paths.ts';
+import { validTimeZone } from '../shared/office-ambience.ts';
 
 /** Arguments that land on AoE's shell launch line must not contain shell metacharacters (SPEC §10.1). */
 export const SAFE_ARG = /^[A-Za-z0-9_@%+=:,./-]+$/;
@@ -311,6 +312,48 @@ export const ConfigSchema = z.strictObject({
             ),
         })
         .prefault({}),
+      clocks: z
+        .strictObject({
+          home: z
+            .string()
+            .refine(validTimeZone, 'Expected an IANA time zone, like Europe/Stockholm')
+            .default('Europe/Stockholm')
+            .describe('Your time zone, for the first clock (an IANA name, like Europe/Stockholm).'),
+          away: z
+            .string()
+            .refine(validTimeZone, 'Expected an IANA time zone, like Asia/Manila')
+            .default('Asia/Manila')
+            .describe('A second time zone to keep an eye on (an IANA name, like Asia/Manila).'),
+        })
+        .prefault({}),
+      weather: z
+        .strictObject({
+          enabled: z
+            .boolean()
+            .default(false)
+            .describe(
+              "Show the weather at home beside its clock, from Open-Meteo's free API. Off by default: review Open-Meteo's terms (non-commercial use) before turning it on.",
+            ),
+          latitude: z
+            .number()
+            .min(-90)
+            .max(90)
+            .default(59.33)
+            .describe('Where the weather is for (Stockholm).'),
+          longitude: z
+            .number()
+            .min(-180)
+            .max(180)
+            .default(18.07)
+            .describe('Where the weather is for (Stockholm).'),
+        })
+        .prefault({}),
+      windows: z
+        .enum(['activity', 'weather'])
+        .default('activity')
+        .describe(
+          "What the office windows show: the office's own activity, or the real sky at home (needs the weather on).",
+        ),
     })
     .prefault({}),
   logging: z

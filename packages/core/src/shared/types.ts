@@ -3,6 +3,7 @@ import type { SessionPrompt } from './prompt.ts';
 import type { Stage } from './stages.ts';
 import type { RunawayLimits, SessionCost } from './office-cost.ts';
 import type { IdleLimits } from './office-idle.ts';
+import type { Weather, WindowsMode } from './office-ambience.ts';
 import type { UsageReport } from './usage.ts';
 
 export type Actor = 'worker' | 'daemon' | 'user' | 'control';
@@ -247,6 +248,12 @@ export interface OfficeState {
   runaway?: RunawayLimits;
   /** `office.idle` from the config, for the "go home" prompt. */
   idle?: IdleLimits;
+  /** `office.clocks`: the two time zones in the header. */
+  clocks?: { home: string; away: string };
+  /** `office.windows`: what the windows show. */
+  windows?: WindowsMode;
+  /** The weather at home, when `office.weather.enabled` and the last fetch worked. */
+  weather?: Weather | null;
 }
 
 export interface Snapshot {

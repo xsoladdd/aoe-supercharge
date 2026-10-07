@@ -215,6 +215,18 @@ stallMinutes = 30                  # working and spending, nothing changed
 promptMinutes = 30                 # idle in the pantry: ask it to go home
 autoArchiveMinutes = 0             # idle this long: send it home (office-only)
 
+[office.clocks]                    # IANA time zones
+home = "Europe/Stockholm"
+away = "Asia/Manila"
+
+[office.weather]                   # review Open-Meteo's terms before turning this on
+enabled = false
+latitude = 59.33
+longitude = 18.07
+
+[office]
+windows = "activity"               # or "weather": the real sky at home in the windows
+
 [projects.my-repo]                 # per-project overrides
 baseBranch = "develop"
 gitlabHost = "gitlab.example.com"
@@ -245,6 +257,8 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - Workers with an MR out wait in the **review lounge**, round the pool table, holding a folder: green when it is ready for review, amber while the pipeline runs or review threads are open, red when the pipeline failed or the MR was closed. A badge under each shows the MR number, the pipeline and the open threads; click it to open the MR. An MR ready for review still shows in Needs you, but no longer queues at your door.
   - Idle workers take a break in the pantry after 15 seconds idle.
   - A **meter** under everyone shows the tokens of their live Claude Code conversation and what it would cost on the Claude API (an estimate: "≈ $1.20"; on a Claude plan it is not a bill). The header adds today's and the floor's total. Models without a price show tokens only. Prices live in one file, `packages/core/src/shared/model-prices.ts`.
+  - The lights follow the work: bright while anyone works, dimmed when nobody does, and a warm night look after an hour of quiet.
+  - The header has two **clocks** (Stockholm and Manila by default, `office.clocks`) and the time between them, right through daylight saving. It can add the **weather** at home from [Open-Meteo](https://open-meteo.com), and the windows can show it. The weather is **off by default**: Open-Meteo's free API is for non-commercial use, so review [its terms](https://open-meteo.com/en/terms) before setting `office.weather.enabled = true`.
   - A worker idle in the pantry for half an hour is asked to **go home**: Archive, Keep, or Snooze 30m. Archive (after a confirmation) only changes the office: the worker walks out and is listed under Archived with Restore; its session, worktree and history stay. It comes back by itself when it starts working or needs you.
   - A worker burning tokens is flagged as a **runaway**: over a token limit, spending fast, or working for a while without changing a file or a stage. It gets a red warning, a toast and a desktop notification, and the header counts who needs attention. The limits are under Settings, Office.
   - Each worker has a desk number and an outfit picked from seven dress codes, from business formal to medieval garb.

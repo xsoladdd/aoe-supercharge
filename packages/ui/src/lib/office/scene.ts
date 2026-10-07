@@ -2,6 +2,11 @@
 import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Text } from 'pixi.js';
 import {
+  AMBIENCE,
+  approach,
+  sameAmbience,
+  type Ambience,
+  type WindowLook,
   EntranceQueue,
   findPath,
   fnv1a,
@@ -17,10 +22,10 @@ import {
   type Zone,
 } from '@aoe-supercharge/core/shared';
 import type { OfficeModel, OfficeWorker } from '@/lib/office';
-import { BOARD_H, buildStatic, FONT, type StaticOffice } from './art';
+import { BOARD_H, buildStatic, drawSky, FONT, type StaticOffice } from './art';
 import { Camera, MAX_ZOOM } from './camera';
 import { Character, type Badge, type Hands, type Meter, type Stance } from './character';
-import { depth, iso, TILE_H, TILE_W, toGrid, WALL_H, wallA, type Pt } from './iso';
+import { depth, iso, mix, TILE_H, TILE_W, toGrid, WALL_H, wallA, type Pt } from './iso';
 import { makePalette, type Palette } from './palette';
 
 /**
@@ -163,6 +168,12 @@ export class OfficeScene {
   private ground = new Container();
   private objects = new Container();
   private overlay = new Container();
+  /** The light over the whole floor (SPEC §14.5): a cool or warm shade, under the names. */
+  private shadeLayer = new Graphics();
+  private light: Ambience = AMBIENCE.day;
+  private lightTarget: Ambience = AMBIENCE.day;
+  private look: WindowLook = { sky: 1, cloud: 0, precip: null };
+  private weatherWindows = false;
   private office: StaticOffice | null = null;
   /** What is written on the whiteboard, over the wall it hangs on. */
   private boardLayer = new Container();
@@ -225,7 +236,7 @@ export class OfficeScene {
     app.ticker?.stop();
     this.palette = makePalette(opts.theme);
     this.objects.sortableChildren = true;
-    this.world.addChild(this.ground, this.objects, this.overlay);
+    this.world.addChild(this.ground, this.objects, this.shadeLayer, this.overlay);
     app.stage.addChild(this.world);
     const canvas = app.canvas as HTMLCanvasElement;
     canvas.style.display = 'block';
@@ -632,6 +643,11 @@ export class OfficeScene {
     const dt = this.last ? Math.min(50, now - this.last) : 16;
     this.last = now;
     let busy = this.camera.step(now, dt);
+    if (!sameAmbience(this.light, this.lightTarget)) {
+      this.light = approach(this.light, this.lightTarget, dt);
+      this.drawLight();
+      busy = true;
+    }
     let walking = 0;
     for (const w of [...this.walkers.values()]) {
       if (this.step(w, now, dt)) busy = true;
@@ -747,6 +763,7 @@ export class OfficeScene {
     this.drawBoard();
     this.objects.addChild(...this.office.pieces);
     this.office.door.setOpen(!!this.called && this.walkers.has(this.called));
+    this.drawLight();
     const L = this.layout;
     const corners = [iso(0, 0), iso(L.width, 0), iso(0, L.height), iso(L.width, L.height)];
     this.camera.bounds = {
@@ -757,6 +774,39 @@ export class OfficeScene {
     };
     if (!this.moved) this.focus(this.focusName, true);
     this.wake();
+  }
+
+  /**
+   * The office's light and what its windows show (SPEC §14.5). It eases there over a few seconds; with
+   * reduced motion, or before the first frame, it is there at once.
+   */
+  setLight(target: Ambience, look: WindowLook, weather: boolean) {
+    const lookChanged =
+      look.sky !== this.look.sky || look.cloud !== this.look.cloud || look.precip !== this.look.precip;
+    if (sameAmbience(target, this.lightTarget) && !lookChanged && weather === this.weatherWindows) return;
+    this.lightTarget = target;
+    this.look = look;
+    this.weatherWindows = weather;
+    if (this.opts.reducedMotion || !this.placed) this.light = target;
+    this.drawLight();
+    this.wake();
+  }
+
+  private drawLight() {
+    const office = this.office;
+    if (!office) return;
+    // The windows follow the office's light as it eases, unless they show the weather.
+    const look = this.weatherWindows ? this.look : { ...this.look, sky: this.light.sky };
+    drawSky(office.sky, office.windows, this.palette, look);
+    const g = this.shadeLayer;
+    g.clear();
+    if (this.light.shade <= 0.001) return;
+    const b = this.camera.bounds;
+    const pad = 4000;
+    g.rect(b.minX - pad, b.minY - pad, b.maxX - b.minX + 2 * pad, b.maxY - b.minY + 2 * pad).fill({
+      color: mix(0x0a1430, 0x2b1606, this.light.warmth),
+      alpha: this.light.shade,
+    });
   }
 
   setTheme(theme: 'dark' | 'light') {

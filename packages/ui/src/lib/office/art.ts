@@ -5,6 +5,7 @@ import {
   type Furniture,
   type OfficeLayout,
   type TeamPlan,
+  type WindowLook,
 } from '@aoe-supercharge/core/shared';
 import { box, depth, diamond, iso, mix, quad, shade, tint, wallA, wallB, WALL_H, type Pt } from './iso';
 import type { Palette } from './palette';
@@ -33,6 +34,10 @@ export interface StaticOffice {
   door: { graphics: Graphics; hit: Pt[]; setOpen: (open: boolean) => void };
   /** Little "Back later" cards, one per desk, shown while its worker is away. */
   awaySigns: Map<string, Graphics>;
+  /** Where each window starts along the left wall (in tiles); the sky is drawn into them (`drawSky`). */
+  windows: number[];
+  /** The layer between the panes and the curtains that `drawSky` draws on. */
+  sky: Graphics;
 }
 
 const teamColor = (p: Palette, index: number) => p.carpets[index % p.carpets.length]!;
@@ -270,11 +275,56 @@ function whiteboard(g: Graphics, p: Palette, x0: number, x1: number) {
   quad(g, wallRect(x1 - 0.9, x1 - 0.45, bottom - 5.5, bottom - 3)).fill(0x3a3f45);
 }
 
+/** The windows along the left wall, up to the entrance: where each starts, in tiles. */
+function windowsOf(layout: OfficeLayout): number[] {
+  const out: number[] = [];
+  for (let gy = 1.2; gy + 1.8 < layout.entrance.y - 0.4; gy += 3.4) out.push(gy);
+  return out;
+}
+
+const DAY_SKY = 0x9fd3f2;
+const GREY_SKY = 0xaeb7bf;
+const NIGHT_SKY = 0x0b1524;
+
+/**
+ * The sky in the windows (SPEC §14.5): bright by day, grey under cloud, deep blue at night, with rain
+ * or snow when the windows show the weather. Drawn over the panes, with the mullion on top.
+ */
+export function drawSky(g: Graphics, windows: number[], p: Palette, look: WindowLook) {
+  g.clear();
+  const sky = mix(mix(DAY_SKY, GREY_SKY, look.cloud), NIGHT_SKY, 1 - look.sky);
+  const color = p.theme === 'dark' ? mix(sky, NIGHT_SKY, 0.25) : sky;
+  for (const gy of windows) {
+    quad(g, [wallB(gy, 28), wallB(gy + 1.8, 28), wallB(gy + 1.8, 70), wallB(gy, 70)]).fill(color);
+    if (look.precip === 'rain')
+      for (let i = 0; i < 7; i++) {
+        const x = gy + 0.15 + i * 0.24;
+        for (const h of [36 + ((i * 13) % 20), 54 + ((i * 7) % 12)]) {
+          const a = wallB(x, h + 6);
+          const b = wallB(x - 0.06, h);
+          g.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ width: 1, color: 0xdbe8f2, alpha: 0.7 });
+        }
+      }
+    if (look.precip === 'snow')
+      for (let i = 0; i < 9; i++) {
+        const c = wallB(gy + 0.12 + i * 0.19, 32 + ((i * 17) % 34));
+        g.circle(c.x, c.y, 1.2).fill({ color: 0xffffff, alpha: 0.9 });
+      }
+    quad(g, [wallB(gy + 0.9, 28), wallB(gy + 0.9, 70), wallB(gy + 0.92, 70), wallB(gy + 0.92, 28)]).fill(
+      p.windowFrame,
+    );
+    quad(g, [wallB(gy + 0.2, 60), wallB(gy + 0.6, 66), wallB(gy + 0.6, 62), wallB(gy + 0.2, 56)]).fill({
+      color: 0xffffff,
+      alpha: (p.theme === 'dark' ? 0.08 : 0.4) * look.sky,
+    });
+  }
+}
+
 function drawWalls(
   layout: OfficeLayout,
   p: Palette,
   doorLabel: string,
-): { walls: Container; door: StaticOffice['door'] } {
+): { walls: Container; door: StaticOffice['door']; sky: Graphics } {
   const walls = new Container();
   const g = new Graphics();
   walls.addChild(g);
@@ -297,28 +347,26 @@ function drawWalls(
   quad(g, capB).fill(p.wallTop);
   quad(g, capA).fill(p.wallTop);
 
-  // Windows along the left wall, up to the entrance near the front, with curtains.
-  for (let gy = 1.2; gy + 1.8 < layout.entrance.y - 0.4; gy += 3.4) {
+  // Windows along the left wall, up to the entrance near the front, with curtains. The sky goes in
+  // between the panes and the curtains (`drawSky`).
+  const sky = new Graphics();
+  const drapes = new Graphics();
+  walls.addChild(sky, drapes);
+  for (const gy of windowsOf(layout)) {
     const pts = [wallB(gy, 28), wallB(gy + 1.8, 28), wallB(gy + 1.8, 70), wallB(gy, 70)];
     quad(g, pts).fill(p.window).stroke({ width: 2.5, color: p.windowFrame });
-    quad(g, [wallB(gy + 0.9, 28), wallB(gy + 0.9, 70), wallB(gy + 0.92, 70), wallB(gy + 0.92, 28)]).fill(
-      p.windowFrame,
-    );
-    quad(g, [wallB(gy + 0.2, 60), wallB(gy + 0.6, 66), wallB(gy + 0.6, 62), wallB(gy + 0.2, 56)]).fill({
-      color: 0xffffff,
-      alpha: p.theme === 'dark' ? 0.08 : 0.5,
-    });
     // Curtains either side, gathered at the bottom, and the rod across.
     for (const [a, b] of [
       [gy - 0.3, gy + 0.12],
       [gy + 1.68, gy + 2.1],
     ] as const) {
-      quad(g, [wallB(a, 14), wallB(b, 16), wallB(b, 76), wallB(a, 76)]).fill(p.curtain);
-      g.moveTo(wallB((a + b) / 2, 18).x, wallB((a + b) / 2, 18).y)
+      quad(drapes, [wallB(a, 14), wallB(b, 16), wallB(b, 76), wallB(a, 76)]).fill(p.curtain);
+      drapes
+        .moveTo(wallB((a + b) / 2, 18).x, wallB((a + b) / 2, 18).y)
         .lineTo(wallB((a + b) / 2, 74).x, wallB((a + b) / 2, 74).y)
         .stroke({ width: 1, color: shade(p.curtain, 0.15), alpha: 0.7 });
     }
-    quad(g, [wallB(gy - 0.4, 77), wallB(gy + 2.2, 77), wallB(gy + 2.2, 79), wallB(gy - 0.4, 79)]).fill(
+    quad(drapes, [wallB(gy - 0.4, 77), wallB(gy + 2.2, 77), wallB(gy + 2.2, 79), wallB(gy - 0.4, 79)]).fill(
       p.brass,
     );
   }
@@ -413,7 +461,7 @@ function drawWalls(
   text.position.set(signAt.x, signAt.y);
   walls.addChild(plate, text);
 
-  return { walls, door: { graphics: doorG, hit: frame, setOpen } };
+  return { walls, door: { graphics: doorG, hit: frame, setOpen }, sky };
 }
 
 function piece(z: number, ...gs: Container[]): Container {
@@ -627,7 +675,7 @@ function doorPlate(p: Palette, t: TeamPlan, color: number): Container {
 
 export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string): StaticOffice {
   const floor = drawFloor(layout, p);
-  const { walls, door } = drawWalls(layout, p, doorLabel);
+  const { walls, door, sky } = drawWalls(layout, p, doorLabel);
   const pieces: Container[] = [];
   const awaySigns = new Map<string, Graphics>();
   const teamIndex = new Map(layout.teams.map((t, i) => [t.project, i]));
@@ -878,5 +926,5 @@ export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string)
   for (const s of layout.pantry.spots.filter((x) => x.seat === 'chair'))
     pieces.push(piece(zOf(s.tile.x, s.tile.y, -20), stoolPiece(p, s.tile.x, s.tile.y)));
 
-  return { floor, walls, pieces, door, awaySigns };
+  return { floor, walls, pieces, door, awaySigns, windows: windowsOf(layout), sky };
 }

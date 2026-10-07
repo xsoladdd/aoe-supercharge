@@ -105,7 +105,7 @@ leaves the app working. All eight ship together as **0.5.0** (task AS-0001). Thi
 
 `ui.officeAnimations` · `office.history.retentionDays` · `office.runaway.{sessionTokens, usdPerHour,
 stallMinutes}` · `office.idle.{promptMinutes, autoArchiveMinutes}` (0 = off) · `office.clocks.{home,
-away}.{label, timeZone, latitude, longitude}` · `office.weather.enabled` · `office.windows`
+away}` (IANA zones) · `office.weather.{enabled, latitude, longitude}` · `office.windows`
 (`activity` default, or `weather` to follow the home city's real day/night and weather).
 
 ## Phases
@@ -118,7 +118,7 @@ away}.{label, timeZone, latitude, longitude}` · `office.weather.enabled` · `of
 | 4 | Review lounge (pool table), folders, MR badges (click opens the MR), header count | 3 | 0.5.0 | Done |
 | 5 | Token/cost meter on desks, characters and header; runaway detection, warning, notification | 4 | 0.5.0 | Done |
 | 6 | Idle "go home" prompt (Archive / Keep / Snooze 30m), auto-archive, Archived list with Restore | 5 | 0.5.0 | Done |
-| 7 | Activity lighting (day, dim, night), clocks with time difference, Stockholm weather, window ambience | 6 | 0.5.0 | |
+| 7 | Activity lighting (day, dim, night), clocks with time difference, Stockholm weather, window ambience | 6 | 0.5.0 | Done |
 | 8 | History mode (scrubber, play 1x/10x/60x, filters, Back to Live), "Since I was away" | 7 | 0.5.0 | |
 
 Every phase: unit tests for its pure logic, Playwright for its UI (all three engines), README and SPEC
@@ -171,6 +171,17 @@ updated, demo data extended so it can be seen without real agents.
   or the card (the canvas has no buttons). "Archived" in List view is the roster's Archived section.
 - **Restore** counts as Keep for the current idle stretch, so a restored worker is not asked again at
   once. A worker that comes back by itself has its mark cleared by the daemon.
+
+- **Weather is built but off** (`office.weather.enabled = false`): Open-Meteo's terms (checked
+  2026-10-07) allow the free API for non-commercial use only, with CC BY 4.0 attribution (the tooltip
+  names Open-Meteo). This runs on a work laptop, so the owner decides. The response shape was checked
+  against the docs and a live call on 2026-10-07.
+- **Clock settings are simpler than planned**: `office.clocks.home` and `.away` are IANA zone names
+  (the city shown is the zone's last part), and the weather's place is `office.weather.latitude` /
+  `longitude`, since only home has weather. No separate labels.
+- **Night** starts an hour after the last status change on the floor with nobody working; that time
+  stands in for "idle for a long period". The clocks are in the header row (it wraps), on the floor and
+  in the list, rather than a floating panel over the floor.
 
 ## Open questions
 

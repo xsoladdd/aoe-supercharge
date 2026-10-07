@@ -12,7 +12,7 @@ import { attachShellSockets } from './shell.ts';
 import { PromptReader } from '../prompt.ts';
 import { TranscriptStore } from '../transcript.ts';
 import { MrWatcher } from './mr-watcher.ts';
-import { CostWatcher, OfficeWatcher } from './office.ts';
+import { CostWatcher, OfficeWatcher, WeatherWatcher } from './office.ts';
 import { Store } from './store.ts';
 import { AoeWatcher, ConfigWatcher, LedgerWatcher, NotesWatcher } from './watchers.ts';
 
@@ -129,9 +129,11 @@ async function runWorker(): Promise<void> {
   const mrWatcher = new MrWatcher(ctx, store, () => mrProvider(ctx.config, ctx.env));
   const officeWatcher = new OfficeWatcher(ctx, store);
   const costWatcher = new CostWatcher(ctx, store, officeWatcher, transcripts);
+  const weatherWatcher = new WeatherWatcher(ctx, store);
   const configWatcher = new ConfigWatcher(ctx, store, () => {
     aoeWatcher.nudge();
     void officeWatcher.reloadMarks();
+    weatherWatcher.reload();
   });
 
   store.subscribe((e) => {
@@ -149,6 +151,7 @@ async function runWorker(): Promise<void> {
     configWatcher.stop();
     officeWatcher.stop();
     costWatcher.stop();
+    weatherWatcher.stop();
     await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
     setTimeout(() => process.exit(code), 50).unref();
     process.exit(code);
@@ -184,6 +187,7 @@ async function runWorker(): Promise<void> {
   mrWatcher.start();
   await officeWatcher.start();
   costWatcher.start();
+  weatherWatcher.reload();
 
   await new Promise<void>((resolveListen, rejectListen) => {
     server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port }, () => resolveListen());

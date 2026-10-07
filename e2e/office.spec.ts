@@ -1,3 +1,4 @@
+import { timeDifference } from '../packages/core/src/shared/office-ambience.ts';
 import { axe, expect, fake, test } from './fixtures.ts';
 
 /** The fake AoE id of the session whose title starts with `prefix`. */
@@ -101,6 +102,56 @@ test.describe('office', () => {
       .getByRole('button', { name: 'Review lounge' })
       .click();
     await expect(floor).toHaveAttribute('data-camera-focus', 'review');
+  });
+
+  test('the header has clocks for home and away; the weather is off until turned on; the light follows the work', async ({
+    signedIn: page,
+  }) => {
+    const setOffice = (patch: Record<string, unknown>) =>
+      page.evaluate(async (office) => {
+        const { token } = (await (await fetch('/api/csrf')).json()) as { token: string };
+        const res = await fetch('/api/config', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', 'x-csrf-token': token },
+          body: JSON.stringify({ patch: { office } }),
+        });
+        return res.status;
+      }, patch);
+    await page.goto('/office');
+    const clocks = page.locator('[data-office-floor] [data-office-clocks]');
+    await expect(clocks.locator('[data-clock="home"]')).toContainText(/Stockholm\s*\d\d:\d\d/);
+    await expect(clocks.locator('[data-clock="away"]')).toContainText(/Manila\s*\d\d:\d\d/);
+    // The difference comes from the time zones, so it is right either side of a DST change.
+    const diff = timeDifference('Europe/Stockholm', 'Asia/Manila', new Date());
+    await expect(clocks).toHaveAttribute('data-difference', String(diff.minutes));
+    await expect(clocks.locator('[data-time-difference]')).toHaveText(diff.label);
+    // Off by default: no weather, and the windows follow the office's own light.
+    await expect(clocks.locator('[data-weather]')).toHaveCount(0);
+    const floor = page.locator('[data-office-floor]');
+    await expect(floor).toHaveAttribute('data-windows', 'activity');
+    // Workers are working in the demo: the lights are up.
+    await expect(floor).toHaveAttribute('data-light', 'day');
+
+    try {
+      // Turned on, the daemon fetches it (here from the fake, standing in for Open-Meteo).
+      expect(await setOffice({ weather: { enabled: true }, windows: 'weather' })).toBe(200);
+      const weather = clocks.locator('[data-weather="rain"]');
+      await expect(weather).toContainText('5°C', { timeout: 15_000 });
+      await expect(weather).toHaveAttribute('title', /Rain, 4\.5°C in Stockholm/);
+      await expect(floor).toHaveAttribute('data-windows', 'rain');
+      await axe(page, 'office: clocks and weather');
+      // The list view has the clocks too.
+      await page.goto('/office?view=list');
+      await expect(page.locator('[data-office-clocks] [data-weather="rain"]')).toBeVisible();
+      // Another place's clock: the difference follows.
+      expect(await setOffice({ clocks: { away: 'Asia/Kolkata' } })).toBe(200);
+      const kolkata = timeDifference('Europe/Stockholm', 'Asia/Kolkata', new Date());
+      await expect(page.locator('[data-office-clocks] [data-time-difference]')).toHaveText(kolkata.label);
+      expect(await setOffice({ clocks: { away: 'Not/AZone' } })).toBe(422);
+    } finally {
+      await setOffice({ weather: { enabled: false }, windows: 'activity', clocks: { away: 'Asia/Manila' } });
+    }
+    await expect(page.locator('[data-office-clocks] [data-weather]')).toHaveCount(0, { timeout: 15_000 });
   });
 
   test('every worker shows what its conversation cost, as an estimate; a runaway is flagged', async ({

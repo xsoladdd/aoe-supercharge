@@ -27,6 +27,12 @@ history.
 - **Runaway workers are flagged.** Over a token limit, spending fast, or working half an hour without
   changing anything: a red warning on the floor, a toast, a desktop notification, and a "needs
   attention" count in the header. Set the limits in Settings, Office (`office.runaway`).
+- **Day and night, clocks and weather.** The office lights follow the work: bright while anyone works,
+  dimmed when nobody does, a warm night after an hour of quiet, easing between them. The header shows
+  two clocks (Stockholm and Manila by default) and the time between them, right through daylight
+  saving. The weather at home (Open-Meteo) can sit beside its clock and show in the windows. **It is off
+  by default (`office.weather.enabled`): Open-Meteo's free API is for non-commercial use, so the owner
+  must review its terms before turning it on.**
 - **Idle workers go home.** After half an hour idle in the pantry a worker asks to go home: Archive,
   Keep, or Snooze 30m. Archive asks first and only changes the office: the worker walks out and waits
   under Archived with Restore, and comes back by itself when it works or needs you. Its session,
