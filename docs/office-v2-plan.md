@@ -1,7 +1,7 @@
 # Office v2 plan
 
-Seven features for `/office` (SPEC §14.5), built in eight phases. Each phase is its own commit(s), leaves
-the app working, and ships as a release. This file is kept up to date as phases land. The owner's brief is
+Seven features for `/office` (SPEC §14.5), built in eight phases. Each phase is its own commit(s) and
+leaves the app working. All eight ship together as **0.5.0** (task AS-0001). This file is kept up to date as phases land. The owner's brief is
 [office-v2-brief.md](office-v2-brief.md).
 
 ## Working on it
@@ -66,7 +66,7 @@ the app working, and ships as a release. This file is kept up to date as phases 
   doorway, and a nameplate. Pathfinding learns edge walls (`Grid.wall`) so nobody walks through glass.
 - **`buildOffice` moves to core** (pure, with the hold memory passed in), so the daemon can compute the
   floor for the history log and runaway/idle checks with the same rules as the UI.
-- **Office state** (`<data>/office.json`, written under a lock): per character `archivedAt`,
+- **Office state** (`<data>/office/office.json`, written under the `office/` folder's lock): per character `archivedAt`,
   `keptAt` (idle prompt dismissed for this idle stretch), `snoozedUntil`.
 
 ## Event model (history)
@@ -112,14 +112,14 @@ away}.{label, timeZone, latitude, longitude}` · `office.weather.enabled` · `of
 
 | # | Phase | Feature | Release | Status |
 |---|---|---|---|---|
-| 1 | `buildOffice` in core, office state file, history log + API, `officeAt` | 7 backend, 1 model | 0.5.0 | |
+| 1 | `buildOffice` in core, office state file, history log + API, `officeAt` | 7 backend, 1 model | 0.5.0 | Done |
 | 2 | Rooms: glass partitions with doorways, nameplates, edge walls in A\*, review/room layout capacity tests | 1 | 0.5.0 | |
-| 3 | Finish errand (walk to the lead, hand over a folder, then on), spawn queue at the entrance, animations toggle | 2 | 0.6.0 | |
-| 4 | Review lounge (pool table), folders, MR badges (click opens the MR), header count | 3 | 0.7.0 | |
-| 5 | Token/cost meter on desks, characters and header; runaway detection, warning, notification | 4 | 0.8.0 | |
-| 6 | Idle "go home" prompt (Archive / Keep / Snooze 30m), auto-archive, Archived list with Restore | 5 | 0.9.0 | |
-| 7 | Activity lighting (day, dim, night), clocks with time difference, Stockholm weather, window ambience | 6 | 0.10.0 | |
-| 8 | History mode (scrubber, play 1x/10x/60x, filters, Back to Live), "Since I was away" | 7 | 0.11.0 | |
+| 3 | Finish errand (walk to the lead, hand over a folder, then on), spawn queue at the entrance, animations toggle | 2 | 0.5.0 | |
+| 4 | Review lounge (pool table), folders, MR badges (click opens the MR), header count | 3 | 0.5.0 | |
+| 5 | Token/cost meter on desks, characters and header; runaway detection, warning, notification | 4 | 0.5.0 | |
+| 6 | Idle "go home" prompt (Archive / Keep / Snooze 30m), auto-archive, Archived list with Restore | 5 | 0.5.0 | |
+| 7 | Activity lighting (day, dim, night), clocks with time difference, Stockholm weather, window ambience | 6 | 0.5.0 | |
+| 8 | History mode (scrubber, play 1x/10x/60x, filters, Back to Live), "Since I was away" | 7 | 0.5.0 | |
 
 Every phase: unit tests for its pure logic, Playwright for its UI (all three engines), README and SPEC
 updated, demo data extended so it can be seen without real agents.
@@ -132,6 +132,11 @@ updated, demo data extended so it can be seen without real agents.
 - "Today" in the header is the local calendar day; "now" is the sum over the conversations of the
   characters on the floor.
 - History starts when phase 1 ships; there is no backfill.
+- A history file is kept while any of its UTC day is inside the retention, so up to `retentionDays + 1`
+  files exist. A daemon that starts again first writes a frame of the last state it had recorded, then
+  the moves to the floor it finds, so what changed while it was down is one record at its start.
+- The daemon logs nothing until both the ledger and AoE have loaded, so a start never records everyone
+  leaving and coming back.
 - Rooms keep the current grid of team blocks (2 to 3 per row) and grow with desks; 10 desks per project
   and 3 projects are tested not to overlap.
 

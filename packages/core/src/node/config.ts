@@ -239,6 +239,21 @@ export const ConfigSchema = z.strictObject({
         ),
     })
     .prefault({}),
+  office: z
+    .strictObject({
+      history: z
+        .strictObject({
+          retentionDays: z
+            .number()
+            .int()
+            .min(1)
+            .max(365)
+            .default(30)
+            .describe('Days of office history to keep. Older days are deleted.'),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
   logging: z
     .strictObject({
       level: z.enum(['debug', 'info', 'warn', 'error']).default('info').describe('Daemon log level.'),

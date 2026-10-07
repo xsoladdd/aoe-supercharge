@@ -599,6 +599,7 @@ Bound to **127.0.0.1 only**. Requests are rejected unless the `Host` header is `
 | GET | `/api/notes[?archived=1]` | ✓ | Notes and todos (§14.6) not archived, or only the archived ones |
 | POST | `/api/notes` | ✓+CSRF | Body `{ kind: "note" \| "todo", text, project }` (`project: null` is global); `by: you` |
 | PATCH | `/api/notes/:id` | ✓+CSRF | Body `{ done }`, `{ text }` or `{ archived }`: tick a todo, edit, archive or restore |
+| GET | `/api/office/history?from&to[&project][&key]` | ✓ | The office history (§14.5): `{ start, records }`, the state at `from` as a frame, then the records up to `to` (ISO times; default the last 24 h), narrowed to a project or a character key |
 
 - **Auth model:** an `Authenticator` chain with two strategies: the `sc_session` cookie (browser) and `Authorization: Bearer <auth.token>` (CLI).
 - **CSRF** applies to cookie-authenticated mutating requests: an `X-CSRF-Token` header plus `Origin` equal to the configured origin.
@@ -850,6 +851,14 @@ A Restaurant City style office at `/office`, for tracking every worker at once. 
 - **Theme:** the art palette follows the page's theme and reads the status colours and accent from the page's tokens.
 - **Office window** (`/office/window`, from **New window** on the floor): the floor and its list and nothing else, to keep on another screen. It opens as a popup named `supercharge-office`, so a second click brings the same one back. Pages opened from it (Open task, Open chat, a list row) open in the dashboard window that opened it, by a same-origin `postMessage` that the dashboard only accepts as a path on itself, or in a window named `supercharge-main` when there is no opener. Only the dashboard window plays the Needs-you sound and badges the tab title. The window keeps its own Show/Hide list setting.
 - **No renderer** (no WebGL or canvas): a note, and the roster in place of the floor. The dashboard's CSP forbids `eval`, so the floor loads `pixi.js/unsafe-eval`, which swaps Pixi's generated code for plain functions. Despite its name, it is what makes Pixi run *without* unsafe-eval.
+
+#### Office v2 (0.5.0)
+
+Seven features from the owner's brief (`docs/office-v2-brief.md`), planned in `docs/office-v2-plan.md`.
+
+- **One model.** `buildOffice` (`office-model.ts`) builds the floor from the snapshot, pure, with the hold memory passed in: the dashboard keeps one across visits, the daemon its own. Zones are `door`, `desk`, `pantry`, `review`, `away`, `archived` and `gone`.
+- **Office marks** (`$XDG_DATA_HOME/supercharge/office/office.json`, written atomically under a lock): per character key, `archivedAt`, `keptAt` and `snoozedUntil`. They are office-only and never touch a session, worktree or transcript. The snapshot carries them as `office.marks`, and an `office` event sends changes.
+- **History.** The daemon (`OfficeWatcher`) builds the floor 250 ms after every change (and when a hold runs out) and appends one `move` record per character whose zone, reason, prop, stage, desk or MR (state, pipeline) changed, its arrival (`from: null`) and its departure (`zone: "gone"`). A move carries `{ ts, key, sessionId, parentId, project, taskId, worktree, name, role, desk, from, zone, reason, prop, stage, cost, mr }`. A `frame` (everyone's state just before) is written at daemon start, at the first write of each UTC day, and at least every 6 hours. The state at any time is the latest frame before it plus the moves after it (`officeAt`, pure). Records go in `$XDG_STATE_HOME/supercharge/history/YYYY-MM-DD.jsonl` (UTC days). Days older than `office.history.retentionDays` (default 30) are deleted at start and daily. History starts when 0.5.0 runs; there is no backfill. `GET /api/office/history` serves it (§12).
 
 **Exceptions to §14.0, for this page only** (they apply from Phase B):
 - Characters walk to a new spot when their status changes, then hold a still pose. There are no perpetual loops. Under `prefers-reduced-motion` they jump instead.

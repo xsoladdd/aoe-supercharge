@@ -202,6 +202,9 @@ waitingDebounceSeconds = 20
 theme = "dark"                     # dark | light | system
 displayName = "Ericson"            # on your office door: "Ericson’s office"
 
+[office.history]
+retentionDays = 30                 # days of office history kept
+
 [projects.my-repo]                 # per-project overrides
 baseBranch = "develop"
 gitlabHost = "gitlab.example.com"
@@ -240,6 +243,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - Put your name on the door under Settings, Appearance. **Show in office** in any worker's right-click menu jumps to them.
   - The **whiteboard** by your door has your todos and notes. Click it to zoom in and open it: tick, archive or add one.
   - **New window** opens the office on its own, to keep on another screen.
+  - The daemon keeps an **office history**: who went where and when, one file per day, for 30 days (`office.history.retentionDays`).
 - **Notes** (`/notes`, under Office): every project's todos and notes, then the global ones. Add one, tick a todo, **Archive** it (or all the ticked ones at once); **Archived** lists them, to restore.
 - **Settings:** every config key, validated, with restart handling.
 
@@ -298,8 +302,8 @@ To go back to a tested AoE, reinstall that release: `curl -fsSL …/scripts/inst
 
 ```
 ~/.config/supercharge/            config.toml, auth.token (0600)
-~/.local/share/supercharge/       projects/<p>/project.json, tasks/<id>/{task.json, plan.md, session-prompt.md}, notes/{<p>,_global}.json
-~/.local/state/supercharge/       logs/daemon.log (rotated), audit.jsonl, daemon.json, compat.local.json
+~/.local/share/supercharge/       projects/<p>/project.json, tasks/<id>/{task.json, plan.md, session-prompt.md}, notes/{<p>,_global}.json, office/office.json
+~/.local/state/supercharge/       logs/daemon.log (rotated), audit.jsonl, daemon.json, compat.local.json, history/YYYY-MM-DD.jsonl
 ~/.claude/skills/supercharge-*    user-level skills, and note, todo, gnote (marker-owned; your own edits are never overwritten)
 ~/Library/LaunchAgents/com.github.xsoladdd.aoe-supercharge.plist     (macOS)
 ~/.config/systemd/user/aoe-supercharge.service                       (Linux)

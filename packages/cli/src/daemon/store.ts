@@ -3,6 +3,7 @@ import {
   type Health,
   type NeedsYouItem,
   type NoteRecord,
+  type OfficeState,
   type ProjectRecord,
   type SessionView,
   type Snapshot,
@@ -32,6 +33,7 @@ export class Store {
   needsYou: NeedsYouItem[] = [];
   notes: NoteRecord[] = [];
   usage: UsageReport | null = null;
+  office: OfficeState = { marks: {} };
   ui: Snapshot['ui'] = {
     theme: 'dark',
     density: 'comfortable',
@@ -62,6 +64,7 @@ export class Store {
       needsYou: this.needsYou,
       notes: this.notes,
       usage: this.usage,
+      office: this.office,
       ui: this.ui,
     };
   }
@@ -145,6 +148,12 @@ export class Store {
     if (same(usage, this.usage)) return;
     this.usage = usage;
     this.emit({ type: 'usage', data: usage });
+  }
+
+  setOffice(office: OfficeState) {
+    if (same(office, this.office)) return;
+    this.office = office;
+    this.emit({ type: 'office', data: office });
   }
 
   setUi(ui: Snapshot['ui']) {

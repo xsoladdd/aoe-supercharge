@@ -12,5 +12,7 @@ export * from './names.ts';
 export * from './hash.ts';
 export * from './outfit.ts';
 export * from './office.ts';
+export * from './office-model.ts';
+export * from './office-history.ts';
 export * from './office-layout.ts';
 export * from './pathfind.ts';

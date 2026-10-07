@@ -7,13 +7,15 @@ import type { NeedsYouItem, NeedsYouKind, SessionView, TaskRecord } from './type
  * the dashboard and the CLI agree.
  */
 
-export type Zone = 'door' | 'desk' | 'pantry' | 'away' | 'gone';
+export type Zone = 'door' | 'desk' | 'pantry' | 'review' | 'away' | 'archived' | 'gone';
 
 export const ZONE_LABEL: Record<Zone, string> = {
   door: 'At your door',
   desk: 'At their desk',
   pantry: 'In the pantry',
+  review: 'In the review lounge',
   away: 'Away',
+  archived: 'Archived',
   gone: 'Gone home',
 };
 

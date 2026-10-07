@@ -11,7 +11,11 @@ export interface Paths {
   /** Notes and todos (SPEC §14.6): `<project>.json` per project and `_global.json`. */
   notesDir: string;
   rolesDir: string;
+  /** The office's own state (SPEC §14.5): who is archived, kept or snoozed. */
+  officeDir: string;
   stateDir: string;
+  /** The office history, one JSON-lines file per UTC day (SPEC §14.5). */
+  historyDir: string;
   /** Files you attach in a chat, one folder per session; Claude reads them from here (never the repo). */
   uploadsDir: string;
   /** Your last reported 5-hour and weekly Claude usage, written by Supercharge's status line. */
@@ -52,7 +56,9 @@ export function resolvePaths(
     projectsDir: join(dataDir, 'projects'),
     notesDir: join(dataDir, 'notes'),
     rolesDir: join(dataDir, 'agent', 'claude-code', 'roles'),
+    officeDir: join(dataDir, 'office'),
     stateDir,
+    historyDir: join(stateDir, 'history'),
     uploadsDir: join(stateDir, 'uploads'),
     usageFile: join(stateDir, 'usage.json'),
     claudeSettingsFile: join(stateDir, 'claude-settings.json'),

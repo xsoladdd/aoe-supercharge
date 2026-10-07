@@ -67,6 +67,7 @@ const SECTION_TITLE: Record<string, string> = {
   mr: 'Merge requests',
   notifications: 'Notifications',
   ui: 'Appearance',
+  office: 'Office',
   logging: 'Logging',
 };
 
@@ -113,6 +114,7 @@ const LABEL: Record<string, string> = {
   'notifications.waitingDebounceSeconds': 'Waiting debounce (s)',
   'ui.theme': 'Theme',
   'ui.density': 'Density',
+  'office.history.retentionDays': 'History kept (days)',
   'logging.level': 'Log level',
   'logging.maxFileMb': 'Rotate at (MB)',
   'logging.maxFiles': 'Rotated files kept',

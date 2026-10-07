@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import type { ChatResponse, NoteRecord, Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
+import type { HistoryRange } from '@aoe-supercharge/core/node';
 import {
   ASK_MENU,
   PERMISSION_MENU,
@@ -511,6 +512,30 @@ describe('daemon: security, live state and the MR watcher', () => {
     });
     expect(snap.needsYou.find((n) => n.kind === 'mr_ready')?.taskId).toBe('NO-0001');
   }, 40_000);
+
+  it('logs the office history and serves it, filtered (GET /api/office/history)', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const from = new Date(Date.now() - 60 * 60_000).toISOString();
+    const history = await until(async () => {
+      const h = (await (
+        await fetch(`${base()}/api/office/history?from=${from}`, { headers: auth })
+      ).json()) as HistoryRange;
+      return h.records.some(
+        (r) => r.type === 'move' && r.taskId === 'NO-0001' && r.stage === 'ready_for_review',
+      )
+        ? h
+        : null;
+    });
+    expect(history.start.type).toBe('frame');
+    expect(history.records.some((r) => r.type === 'move' && r.key === 'northwind/lead')).toBe(true);
+    const one = (await (
+      await fetch(`${base()}/api/office/history?from=${from}&key=northwind/NO-0001`, { headers: auth })
+    ).json()) as HistoryRange;
+    expect(one.records.length).toBeGreaterThan(0);
+    expect(one.records.every((r) => r.type === 'frame' || r.key === 'northwind/NO-0001')).toBe(true);
+    const bad = await fetch(`${base()}/api/office/history?from=nope`, { headers: auth });
+    expect(bad.status).toBe(400);
+  });
 
   it('a waiting worker session becomes an approval item', async () => {
     const snap0 = (await (

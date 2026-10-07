@@ -70,6 +70,22 @@ test.describe('office', () => {
     await page.evaluate(() => document.documentElement.classList.add('dark'));
   });
 
+  test('the daemon keeps an office history of who went where', async ({ signedIn: page }) => {
+    const from = new Date(Date.now() - 6 * 60 * 60_000).toISOString();
+    await expect
+      .poll(async () => {
+        const res = await page.request.get(`/api/office/history?from=${from}`);
+        const h = (await res.json()) as { records: { type: string; key?: string }[] };
+        return h.records.filter((r) => r.type === 'move').length;
+      })
+      .toBeGreaterThan(0);
+    const one = (await (
+      await page.request.get(`/api/office/history?from=${from}&project=northwind-web`)
+    ).json()) as { start: { chars: { project: string }[] }; records: { type: string; project?: string }[] };
+    expect(one.records.every((r) => r.type === 'frame' || r.project === 'northwind-web')).toBe(true);
+    expect(one.start.chars.every((c) => c.project === 'northwind-web')).toBe(true);
+  });
+
   test('a worker walks to your door when it starts waiting, and back to its desk', async ({
     signedIn: page,
   }) => {

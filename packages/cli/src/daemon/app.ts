@@ -7,6 +7,7 @@ import { streamSSE } from 'hono/streaming';
 import {
   appendAudit,
   ConfigValidationError,
+  readHistory,
   configJsonSchema,
   hmac,
   loadConfig,
@@ -44,6 +45,7 @@ import {
   type QuestionAnswer,
   type SessionAction,
 } from '../workflow.ts';
+import type { OfficeWatcher } from './office.ts';
 import type { Store } from './store.ts';
 
 export interface AppDeps {
@@ -58,6 +60,7 @@ export interface AppDeps {
   onClientConnected: () => void;
   testNotification: () => Promise<boolean>;
   transcripts: TranscriptStore;
+  office?: OfficeWatcher;
 }
 
 export const SESSION_COOKIE = 'sc_session';
@@ -889,6 +892,22 @@ export function createApp(deps: AppDeps) {
     } catch (err) {
       return c.json({ error: 'bad_request', message: (err as Error).message }, 400);
     }
+  });
+
+  // The office history (SPEC §14.5): the state at `from`, then what happened up to `to`.
+  app.get('/api/office/history', async (c) => {
+    const now = Date.now();
+    const parse = (v: string | undefined, def: number) => (v ? Date.parse(v) : def);
+    const to = parse(c.req.query('to'), now);
+    const from = parse(c.req.query('from'), to - 24 * 60 * 60 * 1000);
+    if (!Number.isFinite(from) || !Number.isFinite(to) || from > to)
+      return c.json({ error: 'bad_request', message: 'Expected ISO times with from <= to' }, 400);
+    const oldest = now - ctx.config.office.history.retentionDays * 24 * 60 * 60 * 1000;
+    const history = await readHistory(ctx.paths, Math.max(from, oldest - 24 * 60 * 60 * 1000), to, {
+      project: c.req.query('project') || null,
+      key: c.req.query('key') || null,
+    });
+    return c.json(history);
   });
 
   app.put('/api/config', async (c) => {

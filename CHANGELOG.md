@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.0 (unreleased)
+
+Office v2: rooms, errands, a review lounge, a cost meter, going home, day and night, and the office's
+history.
+
+- **The office keeps a history.** The daemon writes down every time someone in the office moves, or
+  their reason changes, in a file per day under `~/.local/state/supercharge/history/`. It keeps 30 days
+  (`office.history.retentionDays`). `GET /api/office/history` reads it back. History starts with this
+  version.
+
 ## 0.4.0 (2026-10-07)
 
 Notes and todos, for you and Claude, and a proper line at your door.

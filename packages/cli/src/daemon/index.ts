@@ -12,6 +12,7 @@ import { attachShellSockets } from './shell.ts';
 import { PromptReader } from '../prompt.ts';
 import { TranscriptStore } from '../transcript.ts';
 import { MrWatcher } from './mr-watcher.ts';
+import { OfficeWatcher } from './office.ts';
 import { Store } from './store.ts';
 import { AoeWatcher, ConfigWatcher, LedgerWatcher, NotesWatcher } from './watchers.ts';
 
@@ -126,6 +127,7 @@ async function runWorker(): Promise<void> {
   const notesWatcher = new NotesWatcher(ctx, store);
   const mrWatcher = new MrWatcher(ctx, store, () => mrProvider(ctx.config, ctx.env));
   const configWatcher = new ConfigWatcher(ctx, store, () => aoeWatcher.nudge());
+  const officeWatcher = new OfficeWatcher(ctx, store);
 
   store.subscribe((e) => {
     if (!notifier.isArmed && store.sessionsLoaded && store.ledgerLoaded) notifier.arm(store.needsYou);
@@ -140,6 +142,7 @@ async function runWorker(): Promise<void> {
     notesWatcher.stop();
     mrWatcher.stop();
     configWatcher.stop();
+    officeWatcher.stop();
     await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
     setTimeout(() => process.exit(code), 50).unref();
     process.exit(code);
@@ -158,6 +161,7 @@ async function runWorker(): Promise<void> {
     onClientConnected: () => aoeWatcher.nudge(),
     testNotification: () => notify('Supercharge', 'Notifications are working.'),
     transcripts,
+    office: officeWatcher,
   });
 
   await ledgerWatcher.start();
@@ -172,6 +176,7 @@ async function runWorker(): Promise<void> {
     aoeWatcher.start();
   }
   mrWatcher.start();
+  await officeWatcher.start();
 
   await new Promise<void>((resolveListen, rejectListen) => {
     server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port }, () => resolveListen());

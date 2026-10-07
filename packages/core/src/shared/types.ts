@@ -227,6 +227,22 @@ export interface Health {
   remoteControl: boolean;
 }
 
+/**
+ * A character's mark in the office (SPEC §14.5), by its key. Office-only: archiving takes it off the
+ * floor and leaves its session, worktree and history alone.
+ */
+export interface OfficeMark {
+  archivedAt: string | null;
+  /** "Keep" on the go-home prompt: not asked again for this idle stretch (the one that began before it). */
+  keptAt: string | null;
+  snoozedUntil: string | null;
+}
+
+/** What the office needs beyond the ledger and AoE: its marks. */
+export interface OfficeState {
+  marks: Record<string, OfficeMark>;
+}
+
 export interface Snapshot {
   seq: number;
   generatedAt: string;
@@ -239,6 +255,7 @@ export interface Snapshot {
   notes: NoteRecord[];
   /** Your 5-hour and weekly usage and whether another worker may start (null until the daemon has read it). */
   usage: UsageReport | null;
+  office: OfficeState;
   ui: {
     theme: 'dark' | 'light' | 'system';
     density: 'comfortable' | 'compact';
@@ -257,6 +274,7 @@ export type SnapshotEvent =
   | { type: 'needs_you'; data: NeedsYouItem[] }
   | { type: 'notes'; data: NoteRecord[] }
   | { type: 'usage'; data: UsageReport }
+  | { type: 'office'; data: OfficeState }
   | { type: 'health'; data: Health };
 
 export interface ProjectStatus {
