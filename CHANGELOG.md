@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.1 (2026-10-07)
+
+Claude's questions one at a time, and the sessions a control chat starts on its own.
+
+- **Previous and Next on Claude's questions.** When Claude asks several questions in one go, the card
+  shows them one at a time, the way Claude's terminal does, with a chip per question that marks it
+  answered. Enter moves to the next question, and the last one sends. Sending with a question unanswered
+  takes you back to it. The card used to stack every question in one long scrolling form.
+- The control skill asks Claude to put several questions in one call (up to four), instead of one call
+  per question numbered "[2/5]", where only the one in front of you could be answered.
+- **Sessions a control chat starts through AoE are listed with its project.** A worker started with
+  `aoe add -P <control>` instead of `supercharge task new` used to land under Other AoE sessions as
+  Standalone. It now shows in the sidebar under its project, and on the project page under Started by
+  the control chat.
+
 ## 0.3.0 (2026-10-07)
 
 The office floor, commands you can run from the chat, and control chats that stay on Opus.
