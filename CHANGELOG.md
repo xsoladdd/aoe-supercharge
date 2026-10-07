@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.7 (2026-10-07)
+
+- **A message you send from the chat shows once.** A message of several lines showed twice: once as
+  Claude Code recorded it, wrapped in `<pasted_content>` tags, and once as the dashboard's own "Sent"
+  or "Queued" copy, which never matched it. The chat now shows what you wrote, once.
+
 ## 0.3.6 (2026-10-07)
 
 - **Message a control chat from the office.** Pick a team's lead on the office floor and its card has a
