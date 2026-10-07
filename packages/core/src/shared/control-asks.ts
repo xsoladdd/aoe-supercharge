@@ -22,8 +22,12 @@ function bare(line: string): string {
     .trim();
 }
 
-/** The heading, maybe with a subtitle: "NEEDS YOU", "Needs you: questions from the testers". */
-const NEEDS_YOU = /^needs (?:you|your (?:input|attention|answers?|decisions?))\b\s*(?:[:—–-]\s*.{0,80})?$/i;
+/**
+ * The heading, in the words control chats use for it, maybe with a subtitle: "NEEDS YOU", "Needs you:
+ * questions from the testers", "Still waiting on you", "Blocked on you", "Your call".
+ */
+const NEEDS_YOU =
+  /^(?:still\s+)?(?:needs? (?:you|your \w+)|waiting (?:on|for) (?:you|your \w+)|blocked on you|for you|your (?:turn|calls?|decisions?|input|answers?))\b\s*(?:[:—–(-].{0,80})?$/i;
 /** Another section starts: a heading, a rule, or a short line led by a status emoji or in capitals. */
 function sectionStart(line: string): boolean {
   const t = line.trim();

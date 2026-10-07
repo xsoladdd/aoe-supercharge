@@ -49,6 +49,12 @@ describe('controlAsks: what a control chat says needs you', () => {
         '**🔴 NEEDS YOU: questions from the testers**\n1. **[web]** May the tester edit the quote?',
       ),
     ).toEqual([{ text: '[web] May the tester edit the quote?', blocker: false }]);
+    for (const heading of ['**🔴 Still waiting on you**', '🔴 Waiting for your answers', '### Your call'])
+      expect(controlAsks(`${heading}\n1. Who owns the brand?`)).toEqual([
+        { text: 'Who owns the brand?', blocker: false },
+      ]);
+    // Words that only mention it are not the heading.
+    expect(controlAsks('The tester is waiting on you to log in.\n1. Who owns the brand?')).toEqual([]);
   });
 
   it('has nothing when there is no NEEDS YOU section, or it says none', () => {
