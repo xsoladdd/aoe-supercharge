@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.5 (2026-10-07)
+
+Names for every worker, and the office in a window of its own.
+
+- **Workers your control chat starts through AoE get names** like the ones `supercharge task new` gives
+  ("Conrad", "William"), the first time Supercharge sees them. The name shows in the office, the sidebar,
+  the project page and the chat's breadcrumb, with the session's AoE title beside it. A name is never
+  given twice in a project, and a session adopted as a task keeps its name.
+- **New window** on the office floor opens the office on its own, with no sidebar or header, to keep on
+  another screen. Whatever you open from it (a task, a chat) opens in your dashboard window, so the
+  office stays put. It keeps its own Show/Hide list setting, and leaves the Needs-you sound to the
+  dashboard window.
+
 ## 0.3.4 (2026-10-07)
 
 Run a command in your control chat's own terminal.
