@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
-import type { ChatResponse, Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
+import type { ChatResponse, NoteRecord, Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
 import {
   ASK_MENU,
   PERMISSION_MENU,
@@ -102,7 +102,14 @@ beforeAll(async () => {
   );
   git('remote', 'add', 'origin', 'git@gitlab.example.com:acme/northwind.git');
   port = await freePort();
-  const { AOE_INSTANCE_ID: _a, SUPERCHARGE_SERVICE: _b, SUPERCHARGE_SUPERVISED: _c, ...base } = process.env;
+  // Not from the session running these tests: CLAUDECODE would make every note Claude's.
+  const {
+    AOE_INSTANCE_ID: _a,
+    SUPERCHARGE_SERVICE: _b,
+    SUPERCHARGE_SUPERVISED: _c,
+    CLAUDECODE: _d,
+    ...base
+  } = process.env;
   env = {
     ...base,
     HOME: home,
@@ -154,7 +161,7 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(fake.state.sessions.find((s) => s.id === controlId)?.title).toBe('northwind control');
     // Control chats run on Opus (agent.controlModel); workers get the model the control chat picks.
     expect(fake.state.sessions.find((s) => s.id === controlId)?.extra_args).toContain('--model opus');
-    for (const s of ['supercharge-control', 'supercharge-worker']) {
+    for (const s of ['supercharge-control', 'supercharge-worker', 'note', 'todo', 'gnote']) {
       expect(existsSync(join(home, '.claude/skills', s, 'SKILL.md'))).toBe(true);
       expect(existsSync(join(home, '.claude/skills', s, '.supercharge-managed'))).toBe(true);
     }
@@ -1237,6 +1244,71 @@ describe('daemon: security, live state and the MR watcher', () => {
     big.send(Buffer.alloc((1 << 20) + 1));
     expect(await closed).toBe(1009);
     expect((await fetch(`${base()}/healthz`)).status).toBe(200);
+  });
+
+  it('keeps notes and todos: Claude adds them from a session; the dashboard ticks and archives them', async () => {
+    // As Claude does through /note: from the project's folder, the text on stdin.
+    const n = await sc(['note', 'add', '-', '--json'], {
+      input: 'Staging is read-only until Friday\n',
+      extraEnv: { CLAUDECODE: '1' },
+    });
+    expect(n.code, n.stderr).toBe(0);
+    const note = JSON.parse(n.stdout);
+    expect(note).toMatchObject({ project: 'northwind', kind: 'note', by: 'claude' });
+    expect(note.text).toBe('Staging is read-only until Friday');
+    const todo = JSON.parse(
+      (await sc(['todo', 'add', 'Ask', 'Jonas', 'about', 'the', 'export', '--json'])).stdout,
+    );
+    expect(todo).toMatchObject({ project: 'northwind', kind: 'todo', done: false, by: 'you' });
+    const global = JSON.parse(
+      (await sc(['note', 'add', '--global', 'Renew the token', '--json'], { cwd: home })).stdout,
+    );
+    expect(global.project).toBeNull();
+    // Outside a project, without --global: refused, with the way out.
+    const outside = await sc(['note', 'add', 'Lost'], { cwd: home });
+    expect(outside.code).toBe(2);
+    expect(outside.stderr).toMatch(/--global/);
+    expect((await sc(['todo', 'done', note.id])).stderr).toMatch(/is a note, not a todo/);
+    // Readable as a board: the project's todos and notes, then the global ones.
+    expect((await sc(['notes'])).stdout).toBe(
+      [
+        'northwind',
+        '  To do',
+        `    [ ] ${todo.id}  Ask Jonas about the export`,
+        '  Notes',
+        `    -   ${note.id}  Staging is read-only until Friday`,
+        '',
+        'Global',
+        '  Notes',
+        `    -   ${global.id}  Renew the token`,
+        '',
+      ].join('\n'),
+    );
+
+    // The dashboard has them live, ticks the todo and archives the note.
+    const auth = { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' };
+    const snapshot = async () =>
+      (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    await until(async () => (await snapshot()).notes.length === 3);
+    const patch = (id: string, body: unknown) =>
+      fetch(`${base()}/api/notes/${id}`, { method: 'PATCH', headers: auth, body: JSON.stringify(body) });
+    const ticked = (await (await patch(todo.id, { done: true })).json()) as { note: NoteRecord };
+    expect(ticked.note).toMatchObject({ done: true });
+    expect(ticked.note.doneAt).toBeTruthy();
+    expect((await patch(note.id, { archived: true })).status).toBe(200);
+    expect((await patch('zzzz', { done: true })).status).toBe(404);
+    expect((await snapshot()).notes.map((x) => x.id).sort()).toEqual([global.id, todo.id].sort());
+    const archived = (await (await fetch(`${base()}/api/notes?archived=1`, { headers: auth })).json()) as {
+      notes: NoteRecord[];
+    };
+    expect(archived.notes.map((x) => x.id)).toEqual([note.id]);
+    expect((await sc(['notes'])).stdout).toContain(`[x] ${todo.id}`);
+    const added = await fetch(`${base()}/api/notes`, {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ kind: 'todo', text: 'From the board', project: 'nope' }),
+    });
+    expect(added.status).toBe(404);
   });
 
   it('serves the project status in the control-chat format', async () => {

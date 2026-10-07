@@ -8,6 +8,8 @@ export interface Paths {
   tokenFile: string;
   dataDir: string;
   projectsDir: string;
+  /** Notes and todos (SPEC §14.6): `<project>.json` per project and `_global.json`. */
+  notesDir: string;
   rolesDir: string;
   stateDir: string;
   /** Files you attach in a chat, one folder per session; Claude reads them from here (never the repo). */
@@ -48,6 +50,7 @@ export function resolvePaths(
     tokenFile: join(configDir, 'auth.token'),
     dataDir,
     projectsDir: join(dataDir, 'projects'),
+    notesDir: join(dataDir, 'notes'),
     rolesDir: join(dataDir, 'agent', 'claude-code', 'roles'),
     stateDir,
     uploadsDir: join(stateDir, 'uploads'),

@@ -444,6 +444,58 @@ export class LedgerWatcher {
   }
 }
 
+/** Notes and todos (SPEC §14.6): the CLI writes them, so they arrive like the ledger's changes. */
+export class NotesWatcher {
+  private watcher: FSWatcher | null = null;
+  private timer: NodeJS.Timeout | null = null;
+  private debounce: NodeJS.Timeout | null = null;
+
+  constructor(
+    private ctx: Ctx,
+    private store: Store,
+  ) {}
+
+  async start() {
+    await mkdir(this.ctx.paths.notesDir, { recursive: true });
+    await this.reload();
+    try {
+      this.watcher = watch(this.ctx.paths.notesDir, (_e, file) => {
+        if (file && !String(file).endsWith('.json')) return;
+        if (this.debounce) clearTimeout(this.debounce);
+        this.debounce = setTimeout(() => void this.reload(), 80);
+      });
+      this.watcher.on('error', (err) => this.ctx.logger.warn('notes watch error', { err: err.message }));
+    } catch (err) {
+      this.ctx.logger.warn('fs.watch unavailable for notes; relying on periodic rescans', {
+        err: (err as Error).message,
+      });
+    }
+    this.schedule();
+  }
+
+  private schedule() {
+    this.timer = setTimeout(async () => {
+      await this.reload();
+      this.schedule();
+    }, this.ctx.config.poll.reconcile * 1000);
+    this.timer.unref();
+  }
+
+  async reload(): Promise<void> {
+    try {
+      this.store.setNotes(await this.ctx.notes.all());
+    } catch (err) {
+      this.ctx.logger.error('notes reload failed', { err });
+    }
+  }
+
+  stop() {
+    this.watcher?.close();
+    if (this.timer) clearTimeout(this.timer);
+    if (this.debounce) clearTimeout(this.debounce);
+  }
+}
+
 /** Hot-reloads config.toml; changes to server/aoe/agent are flagged "restart required" (SPEC §5). */
 export class ConfigWatcher {
   private watcher: FSWatcher | null = null;

@@ -109,6 +109,8 @@ export function OfficePage({ snap, standalone = false }: { snap: Snapshot; stand
             linkFocus={focusParam}
             announcement={announcement}
             standalone={standalone}
+            notes={snap.notes}
+            projects={snap.projects.map((p) => p.name)}
           />
         </Suspense>
       </>

@@ -596,6 +596,9 @@ Bound to **127.0.0.1 only**. Requests are rejected unless the `Host` header is `
 | POST | `/api/notifications/test` | ✓+CSRF | |
 | POST | `/api/tasks/:id/reply` | ✓+CSRF | Phase 4. Body `{ message, confirm: true }` → audit + `aoe send` |
 | GET (WebSocket) | `/api/sessions/:id/shell/ws` | cookie + dashboard `Origin` | The session's paired shell (AoE's Terminal tab), relayed from AoE's `/sessions/{id}/terminal/live-ws`. A `{type:"run",command}` message is audited (`command_run`, `where: terminal`), then pasted (bracketed) and entered |
+| GET | `/api/notes[?archived=1]` | ✓ | Notes and todos (§14.6) not archived, or only the archived ones |
+| POST | `/api/notes` | ✓+CSRF | Body `{ kind: "note" \| "todo", text, project }` (`project: null` is global); `by: you` |
+| PATCH | `/api/notes/:id` | ✓+CSRF | Body `{ done }`, `{ text }` or `{ archived }`: tick a todo, edit, archive or restore |
 
 - **Auth model:** an `Authenticator` chain with two strategies: the `sc_session` cookie (browser) and `Authorization: Bearer <auth.token>` (CLI).
 - **CSRF** applies to cookie-authenticated mutating requests: an `X-CSRF-Token` header plus `Origin` equal to the configured origin.
@@ -853,6 +856,19 @@ A Restaurant City style office at `/office`, for tracking every worker at once. 
 - Props and character art on the canvas are drawn, not Phosphor icons. Their colours are art (`outfit.ts`), not UI tokens. The UI around the canvas keeps every rule above.
 
 ---
+
+### 14.6 Notes and todos
+
+A shared notebook for you and Claude, per project and global: on a **whiteboard** in the office, on the **Notes** page (in the sidebar under Office), and in the CLI.
+
+- **Records** (`NoteRecord`): `kind` (`note` or `todo`), `text` (up to 4000 characters), `project` (null for a global note), `done` and `doneAt` for todos, `archivedAt`, `by` (`claude` when written from a Claude Code shell, where `CLAUDECODE=1`, else `you`), `sessionId` (`AOE_INSTANCE_ID`, when there is one) and times. The id is four letters and digits without look-alikes (no 0/o, 1/l/i), so it can be read off the board and typed.
+- **Storage:** `$XDG_DATA_HOME/supercharge/notes/<project>.json` and `_global.json` (project names are slugs, so they can't clash), written atomically under one lock. Archiving keeps a note, out of sight; nothing deletes one.
+- **CLI:** `supercharge note add <text>`, `todo add <text>` (`-` reads stdin), `todo done|reopen <id>`, `note archive <id>`, `notes [--project|--global|--all] [--archived] [--json]`. Without `--project` or `--global`, a note goes to the project of the folder you are in, else to the project whose control chat started (or is) this AoE session (`crew`, `controlSessionId`, a task's session); else it is refused with a hint. `supercharge notes` prints the board as text: per project then Global, todos as `[ ]`/`[x]` with ids, then notes.
+- **Skills:** `note`, `todo` and `gnote` are user-level skills (`~/.claude/skills`, installed and removed with the role skills, never committed into a repository), so `/note`, `/todo` and `/gnote` work in any Claude Code session. They pipe the text to the CLI. `/todo done <id or words>` ticks one. The control skill reads the open todos at the start and for status, and ticks a todo off when its work is done. Only you archive.
+- **Daemon:** a watcher on the notes folder (and a periodic rescan) puts the notes that are not archived in the snapshot (`notes`) and sends a `notes` event on change. The dashboard writes through `/api/notes` (§12).
+- **Notes page** (`/notes`): add a todo or a note for a project or Global (Enter adds), filter chips per project, each scope's todos (open first) with a box to tick, then its notes; every row has who wrote it, when, its id and **Archive**; `Archive N done` clears the ticked ones. `?archived=1` lists the archive with **Restore**. The sidebar item shows the number of open todos.
+- **Whiteboard:** it hangs on the back wall just west of your corner (`layout.board`, four tiles; the world map moves over). The scene writes the open todos, the ticked ones (struck through) and the notes, newest first, one line each, slanted along the wall and rendered at 8x so they stay sharp at 250%; what does not fit becomes "+N more". Clicking it (or the **Whiteboard** chip) flies the camera close enough to read and opens the whiteboard card: the same board as the Notes page, with boxes to tick, Archive and a line to add. Double-click zooms to it. Escape closes the card.
+- **Later:** phone sync. Google Keep's API cannot tick a checkbox, archive or label a note (create, get, list and delete only), so the candidate is Google Tasks (a list per project, Global and Archive; `tasks.move` with `destinationTasklist`), as a separate adapter over this store.
 
 ## 15. Resource targets
 - **Idle RSS < 100 MB.** Expected around 55–70 MB on Node 24 **[measure]**. Exposed in `/api/snapshot.health` and `doctor`. CI starts the daemon against fake AoE, idles 60 s, samples RSS, fails above 100 MB on Ubuntu, and reports numbers in the job summary for both OSes.

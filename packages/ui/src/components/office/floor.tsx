@@ -1,6 +1,7 @@
 import {
   AppWindowIcon,
   ArrowsOutIcon,
+  ChalkboardSimpleIcon,
   CoffeeIcon,
   DoorOpenIcon,
   ListBulletsIcon,
@@ -9,9 +10,12 @@ import {
   UsersThreeIcon,
 } from '@phosphor-icons/react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { NoteRecord } from '@aoe-supercharge/core/shared';
 import { OfficeRoster } from '@/components/office/roster';
+import { WhiteboardCard } from '@/components/office/whiteboard-card';
 import { WorkerCard } from '@/components/office/worker-card';
 import { Button } from '@/components/ui/button';
+import { boardLines } from '@/lib/notes';
 import type { OfficeModel } from '@/lib/office';
 import { openOfficeWindow } from '@/lib/office-window';
 import { OfficeScene, type SceneEvents } from '@/lib/office/scene';
@@ -101,6 +105,9 @@ export interface FloorProps {
   announcement: string;
   /** In the office window, which has no way to open another. */
   standalone?: boolean;
+  /** What is on the whiteboard, and the projects to file new notes under. */
+  notes: NoteRecord[];
+  projects: string[];
 }
 
 /**
@@ -116,6 +123,8 @@ export default function OfficeFloor({
   linkFocus,
   announcement,
   standalone = false,
+  notes,
+  projects,
 }: FloorProps) {
   const host = useRef<HTMLDivElement>(null);
   const [scene, setScene] = useState<OfficeScene | null>(null);
@@ -123,6 +132,7 @@ export default function OfficeFloor({
   const theme = usePageTheme();
   const reduced = useReducedMotion();
   const [selected, setSelected] = useState<string | null>(linkWorker);
+  const [boardOpen, setBoardOpen] = useState(!linkWorker && linkFocus === 'board');
   const [steal, setSteal] = useState(!!linkWorker);
   const [called, setCalled] = useState<string | null>(null);
   const [following, setFollowing] = useState<string | null>(null);
@@ -140,6 +150,7 @@ export default function OfficeFloor({
 
   function pick(key: string | null, from: 'floor' | 'roster' | 'link' | 'call') {
     setSelected(key);
+    if (key) setBoardOpen(false);
     setSteal(from === 'link');
     if (!key || from === 'floor' || from === 'call') return;
     if (scene) scene.focusWorker(key, cardShift());
@@ -162,6 +173,18 @@ export default function OfficeFloor({
   function close() {
     setSelected(null);
     setFollowing(null);
+    setBoardOpen(false);
+  }
+
+  /** Up to the whiteboard, close enough to read, with its card open. */
+  function openBoard() {
+    setSelected(null);
+    setFollowing(null);
+    setBoardOpen(true);
+    // The card is 26rem plus its margin; on a narrow floor it covers the board whatever we do.
+    const cover = (host.current?.clientWidth ?? 0) > 760 ? 430 : 0;
+    if (scene) scene.focusBoard(cover);
+    else pending.current = { area: 'board' };
   }
 
   // The scene calls back through this, so it always sees the latest state.
@@ -174,6 +197,7 @@ export default function OfficeFloor({
     },
     walking: setWalking,
     door: callNext,
+    board: openBoard,
     zoom: setZoom,
   };
 
@@ -188,6 +212,7 @@ export default function OfficeFloor({
       focus: (a) => handlers.current?.focus(a),
       walking: (n) => handlers.current?.walking(n),
       door: () => handlers.current?.door(),
+      board: () => handlers.current?.board(),
       zoom: (z) => handlers.current?.zoom(z),
     };
     OfficeScene.create(el, { theme, reducedMotion: reduced, doorLabel: door, events })
@@ -211,6 +236,7 @@ export default function OfficeFloor({
   }, []);
 
   useEffect(() => scene?.setModel(office), [scene, office]);
+  useEffect(() => scene?.setBoard(boardLines(notes)), [scene, notes]);
   useEffect(() => scene?.setTheme(theme), [scene, theme]);
   useEffect(() => scene?.setDoorLabel(door), [scene, door]);
   useEffect(() => scene?.setReducedMotion(reduced), [scene, reduced]);
@@ -250,7 +276,7 @@ export default function OfficeFloor({
 
   // Escape closes the card from anywhere on the page (Safari does not focus buttons on click), but not
   // while typing an answer or when a menu or dialog has it.
-  const open = !!sel;
+  const open = !!sel || boardOpen;
   useEffect(() => {
     if (!open) return;
     const onEscape = (e: KeyboardEvent) => {
@@ -261,6 +287,7 @@ export default function OfficeFloor({
       e.preventDefault();
       setSelected(null);
       setFollowing(null);
+      setBoardOpen(false);
       host.current?.focus();
     };
     window.addEventListener('keydown', onEscape);
@@ -410,6 +437,9 @@ export default function OfficeFloor({
             <Chip icon={CoffeeIcon} {...at('pantry')}>
               Pantry
             </Chip>
+            <Chip icon={ChalkboardSimpleIcon} pressed={boardOpen} onClick={openBoard}>
+              Whiteboard
+            </Chip>
             {office.teams.map((t) => (
               <Chip key={t.project} icon={UsersThreeIcon} {...at(t.project)}>
                 {t.project}
@@ -467,10 +497,24 @@ export default function OfficeFloor({
             </div>
           )}
 
-          {!sel && (
+          {!sel && !boardOpen && (
             <p className="pointer-events-none absolute bottom-4 left-4 hidden max-w-[calc(100%-18rem)] truncate rounded-full bg-card/80 px-3 py-1.5 text-sm text-muted-foreground backdrop-blur xl:block">
               Drag to look around, scroll to zoom, double-click to zoom in
             </p>
+          )}
+
+          {boardOpen && !sel && (
+            <div className="pointer-events-none absolute top-16 bottom-16 left-3 flex flex-col justify-end">
+              <WhiteboardCard
+                notes={notes}
+                projects={projects}
+                now={now}
+                onClose={() => {
+                  close();
+                  host.current?.focus();
+                }}
+              />
+            </div>
           )}
 
           {sel && (

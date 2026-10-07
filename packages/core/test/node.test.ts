@@ -8,6 +8,7 @@ import {
   ConfigValidationError,
   ensureToken,
   Ledger,
+  Notes,
   loadConfig,
   parseAoeVersion,
   patchConfig,
@@ -250,5 +251,53 @@ describe('ledger', () => {
     expect(await ledger.readLocks()).toEqual([]);
     await Promise.all([ledger.setLocked(['a', 'b'], true), ledger.setLocked(['c'], true)]);
     expect(await ledger.setLocked(['b'], false)).toEqual(['a', 'c']);
+  });
+});
+
+describe('notes', () => {
+  it('keeps notes per project and global, with short ids, ticks, edits and archives them', async () => {
+    const notes = new Notes(paths);
+    const at = new Date('2026-10-07T10:00:00.000Z');
+    const todo = await notes.add(
+      { project: 'demo', kind: 'todo', text: '  Ask Jonas  ', by: 'claude', sessionId: 's1' },
+      at,
+    );
+    const global = await notes.add(
+      { project: null, kind: 'note', text: 'Renew the token', by: 'you' },
+      new Date('2026-10-07T10:05:00.000Z'),
+    );
+    expect(todo).toMatchObject({
+      project: 'demo',
+      text: 'Ask Jonas',
+      done: false,
+      archivedAt: null,
+      sessionId: 's1',
+    });
+    expect(todo.id).toMatch(/^[a-hjkmnp-z2-9]{4}$/);
+    expect(await readFile(join(paths.notesDir, '_global.json'), 'utf8')).toContain('Renew the token');
+    expect((await notes.all()).map((n) => n.id)).toEqual([todo.id, global.id]);
+
+    const later = new Date('2026-10-07T11:00:00.000Z');
+    const ticked = await notes.update(todo.id, { done: true }, later);
+    expect(ticked).toMatchObject({ done: true, doneAt: later.toISOString(), updatedAt: later.toISOString() });
+    expect((await notes.update(todo.id, { done: false }))?.doneAt).toBeNull();
+    expect((await notes.update(global.id, { text: ' Renew it ' }))?.text).toBe('Renew it');
+    expect(await notes.update('zzzz', { done: true })).toBeNull();
+    await expect(notes.add({ project: null, kind: 'note', text: '   ', by: 'you' })).rejects.toThrow(
+      /needs some text/,
+    );
+    await expect(notes.update(global.id, { text: 'x'.repeat(4001) })).rejects.toThrow(/at most 4000/);
+  });
+
+  it('never loses a note when the CLI and the dashboard write at once', async () => {
+    const notes = new Notes(paths);
+    await Promise.all(
+      Array.from({ length: 16 }, (_, i) =>
+        notes.add({ project: i % 2 ? 'demo' : null, kind: 'todo', text: `todo ${i}`, by: 'you' }),
+      ),
+    );
+    const all = await notes.all();
+    expect(all).toHaveLength(16);
+    expect(new Set(all.map((n) => n.id)).size).toBe(16);
   });
 });

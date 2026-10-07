@@ -37,7 +37,7 @@ export async function getJson<T>(path: string): Promise<T> {
 
 /** Cookie-authenticated writes carry the CSRF token; the browser adds Origin itself. */
 export async function sendJson<T>(
-  method: 'POST' | 'PUT' | 'DELETE',
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   path: string,
   body?: unknown,
 ): Promise<T> {

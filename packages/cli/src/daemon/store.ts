@@ -2,6 +2,7 @@ import {
   computeNeedsYou,
   type Health,
   type NeedsYouItem,
+  type NoteRecord,
   type ProjectRecord,
   type SessionView,
   type Snapshot,
@@ -29,6 +30,7 @@ export class Store {
   projects: ProjectRecord[] = [];
   tasks: TaskRecord[] = [];
   needsYou: NeedsYouItem[] = [];
+  notes: NoteRecord[] = [];
   usage: UsageReport | null = null;
   ui: Snapshot['ui'] = {
     theme: 'dark',
@@ -58,6 +60,7 @@ export class Store {
       projects: this.projects,
       tasks: this.tasks,
       needsYou: this.needsYou,
+      notes: this.notes,
       usage: this.usage,
       ui: this.ui,
     };
@@ -111,6 +114,14 @@ export class Store {
       changed = true;
     }
     if (changed) this.recomputeNeedsYou();
+  }
+
+  /** Every note; the dashboard gets the ones not archived. */
+  setNotes(all: NoteRecord[]) {
+    const open = all.filter((n) => !n.archivedAt);
+    if (same(open, this.notes)) return;
+    this.notes = open;
+    this.emit({ type: 'notes', data: open });
   }
 
   setHealth(health: Health) {

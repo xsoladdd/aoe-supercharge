@@ -29,6 +29,7 @@ import { useSearchParam } from '@/lib/nav';
 import { startLive, useLive, type Connection } from '@/lib/live';
 import { setThemePref, useResolvedTheme, useSyncScaleFrom, useSyncThemeFrom } from '@/lib/theme';
 import { cn } from '@/lib/utils';
+import { NotesPage } from '@/pages/notes';
 import { OverviewPage } from '@/pages/overview';
 import { ProjectPage } from '@/pages/project';
 import { SettingsPage } from '@/pages/settings';
@@ -47,6 +48,7 @@ function crumbsFor(location: string, snap: Snapshot): Crumb[] {
   const parts = location.split('/').filter(Boolean).map(decodeURIComponent);
   if (parts[0] === 'settings') return [{ label: 'Settings' }];
   if (parts[0] === 'office') return [{ label: 'Office' }];
+  if (parts[0] === 'notes') return [{ label: 'Notes' }];
   if (parts[0] === 'p' && parts[1]) {
     const c: Crumb[] = [{ label: parts[1], href: `/p/${parts[1]}` }];
     if (parts[2] === 'settings') c.push({ label: 'Settings' });
@@ -368,6 +370,9 @@ export function App() {
                       >
                         <OfficePage snap={snap} />
                       </Suspense>
+                    </Route>
+                    <Route path="/notes">
+                      <NotesPage snap={snap} />
                     </Route>
                     <Route path="/settings">
                       <SettingsPage

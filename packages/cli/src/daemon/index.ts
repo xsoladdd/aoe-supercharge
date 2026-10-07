@@ -13,7 +13,7 @@ import { PromptReader } from '../prompt.ts';
 import { TranscriptStore } from '../transcript.ts';
 import { MrWatcher } from './mr-watcher.ts';
 import { Store } from './store.ts';
-import { AoeWatcher, ConfigWatcher, LedgerWatcher } from './watchers.ts';
+import { AoeWatcher, ConfigWatcher, LedgerWatcher, NotesWatcher } from './watchers.ts';
 
 export const RESTART_EXIT_CODE = 75;
 
@@ -123,6 +123,7 @@ async function runWorker(): Promise<void> {
   );
   const aoeWatcher = new AoeWatcher(ctx, store, new PromptReader(ctx, transcripts), transcripts);
   const ledgerWatcher = new LedgerWatcher(ctx, store);
+  const notesWatcher = new NotesWatcher(ctx, store);
   const mrWatcher = new MrWatcher(ctx, store, () => mrProvider(ctx.config, ctx.env));
   const configWatcher = new ConfigWatcher(ctx, store, () => aoeWatcher.nudge());
 
@@ -136,6 +137,7 @@ async function runWorker(): Promise<void> {
   const shutdown = async (code: number) => {
     aoeWatcher.stop();
     ledgerWatcher.stop();
+    notesWatcher.stop();
     mrWatcher.stop();
     configWatcher.stop();
     await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
@@ -159,6 +161,7 @@ async function runWorker(): Promise<void> {
   });
 
   await ledgerWatcher.start();
+  await notesWatcher.start();
   await configWatcher.start();
   if (compat.ok) aoeWatcher.start();
   else {

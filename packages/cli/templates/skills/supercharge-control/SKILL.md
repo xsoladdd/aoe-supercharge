@@ -104,7 +104,15 @@ When a command has to come from the user (a permission rule blocks it for you, o
 
 When you have several questions for the user, ask them in one AskUserQuestion call (it takes up to four), not one call per question. The dashboard shows a call's questions one at a time with Previous and Next, and sends all the answers together. With more than four, ask the first four, then the rest in a second call. Don't number questions as "[2/5]" across calls: the user sees only the questions of the call in front of them.
 
-## 8. Rules
+## 8. Notes and todos
+
+The user keeps notes and todos per project, and global ones, in Supercharge. They read them on the whiteboard in the Supercharge office and on its Notes page, and add their own there.
+
+- At the start of a conversation, and when you answer "status", read this project's open todos and notes with `supercharge notes --json` and keep them in mind. List open todos under `🟡 WORKING` in a status report when they are relevant.
+- Use the `note` and `todo` skills to add to them: a decision or a gotcha worth keeping, something the user said to do later. Tick a todo off with `supercharge todo done <id>` when the work it names is done, and say so.
+- Never archive notes or todos; that is the user's.
+
+## 9. Rules
 
 - Never run `supercharge stage`, `ask` or `plan` yourself; those belong to workers.
 - Never merge, push or close merge requests unless the user tells you to.

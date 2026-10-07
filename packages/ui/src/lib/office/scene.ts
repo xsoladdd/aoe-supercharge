@@ -1,12 +1,12 @@
 // The dashboard's CSP forbids eval; this swaps Pixi's generated shader code for plain functions.
 import 'pixi.js/unsafe-eval';
-import { Application, Container } from 'pixi.js';
+import { Application, Container, Graphics, Text } from 'pixi.js';
 import { findPath, fnv1a, officeLayout, type OfficeLayout, type Tile } from '@aoe-supercharge/core/shared';
 import type { OfficeModel, OfficeWorker } from '@/lib/office';
-import { buildStatic, type StaticOffice } from './art';
-import { Camera } from './camera';
+import { BOARD_H, buildStatic, FONT, type StaticOffice } from './art';
+import { Camera, MAX_ZOOM } from './camera';
 import { Character, type Hands, type Stance } from './character';
-import { depth, iso, toGrid, WALL_H, type Pt } from './iso';
+import { depth, iso, TILE_H, TILE_W, toGrid, WALL_H, wallA, type Pt } from './iso';
 import { makePalette, type Palette } from './palette';
 
 /**
@@ -22,7 +22,16 @@ export interface SceneEvents {
   focus(area: string): void;
   walking(count: number): void;
   door(): void;
+  /** The whiteboard was clicked. */
+  board(): void;
   zoom(zoom: number): void;
+}
+
+/** A line written on the whiteboard (SPEC §14.6). */
+export interface BoardLine {
+  kind: 'head' | 'todo' | 'note';
+  text: string;
+  done?: boolean;
 }
 
 export interface SceneOptions {
@@ -110,6 +119,12 @@ export class OfficeScene {
   private objects = new Container();
   private overlay = new Container();
   private office: StaticOffice | null = null;
+  /** What is written on the whiteboard, over the wall it hangs on. */
+  private boardLayer = new Container();
+  private boardLines: BoardLine[] = [];
+  private boardHit: Pt[] = [];
+  /** Screen px the whiteboard card covers on the left, kept clear when flying to the board. */
+  private boardCover = 0;
   private walkers = new Map<string, Walker>();
   private pantrySeat = new Map<string, number>();
   private model: OfficeModel | null = null;
@@ -558,7 +573,8 @@ export class OfficeScene {
     }
     this.office = buildStatic(this.layout, this.palette, this.opts.doorLabel);
     this.ground.removeChildren();
-    this.ground.addChild(this.office.floor, this.office.walls);
+    this.ground.addChild(this.office.floor, this.office.walls, this.boardLayer);
+    this.drawBoard();
     this.objects.addChild(...this.office.pieces);
     this.office.door.setOpen(!!this.called && this.walkers.has(this.called));
     const L = this.layout;
@@ -589,6 +605,83 @@ export class OfficeScene {
     this.apply();
   }
 
+  /** Write these lines on the whiteboard; what does not fit becomes "+N more". */
+  setBoard(lines: BoardLine[]) {
+    if (JSON.stringify(lines) === JSON.stringify(this.boardLines)) return;
+    this.boardLines = lines;
+    this.drawBoard();
+    this.wake();
+  }
+
+  /**
+   * Marker on the board, slanted along the wall it hangs on. Small, so it fits a good few lines, and
+   * rendered finely enough to read when you zoom right in.
+   */
+  private drawBoard() {
+    for (const c of this.boardLayer.removeChildren()) c.destroy({ children: true });
+    const { x0, x1 } = this.layout.board;
+    const { bottom, top } = BOARD_H;
+    const along = Math.hypot(TILE_W / 2, TILE_H / 2);
+    this.boardHit = [wallA(x0, bottom), wallA(x1, bottom), wallA(x1, top), wallA(x0, top)];
+    const b = this.palette.board;
+    const writing = new Container();
+    const origin = wallA(x0, top);
+    writing.position.set(origin.x, origin.y);
+    writing.skew.set(0, Math.atan2(TILE_H / 2, TILE_W / 2));
+    const width = (x1 - x0) * along;
+    const pad = 5;
+    const lineH = 6.6;
+    const room = Math.floor((top - bottom - pad * 2 + 1.5) / lineH);
+    let lines = this.boardLines;
+    if (lines.length > room) {
+      const rest = lines.slice(room - 1).filter((l) => l.kind !== 'head').length;
+      lines = [...lines.slice(0, room - 1), { kind: 'note', text: `+${rest} more: click to read` }];
+    }
+    const g = new Graphics();
+    writing.addChild(g);
+    lines.forEach((l, i) => {
+      const y = pad + i * lineH;
+      let x = pad;
+      const color = l.done ? b.done : b.ink;
+      if (l.kind === 'todo') {
+        g.rect(x, y + 1.2, 3.4, 3.4).stroke({ width: 0.55, color });
+        if (l.done)
+          g.moveTo(x + 0.6, y + 2.9)
+            .lineTo(x + 1.5, y + 3.9)
+            .lineTo(x + 3, y + 1.6)
+            .stroke({ width: 0.6, color: b.red });
+        x += 5.4;
+      } else if (l.kind === 'note' && i > 0) {
+        g.circle(x + 1.2, y + 2.9, 0.75).fill(color);
+        x += 4;
+      }
+      const t = new Text({
+        text: l.text,
+        style: {
+          fontFamily: FONT,
+          fontSize: l.kind === 'head' ? 5.2 : 4.8,
+          fontWeight: l.kind === 'head' ? '700' : '500',
+          fill: l.kind === 'head' ? b.red : color,
+        },
+        resolution: 8,
+      });
+      // Cut what does not fit the board, a few letters at a time.
+      const max = width - x - pad;
+      let cut = l.text.length;
+      while (t.width > max && cut > 1) {
+        cut = Math.max(1, Math.min(cut - 1, Math.floor((cut * max) / t.width)));
+        t.text = `${l.text.slice(0, cut).trimEnd()}…`;
+      }
+      t.position.set(x, y);
+      writing.addChild(t);
+      if (l.done)
+        g.moveTo(x, y + 3.1)
+          .lineTo(x + t.width, y + 3.1)
+          .stroke({ width: 0.45, color });
+    });
+    this.boardLayer.addChild(writing);
+  }
+
   setReducedMotion(reduced: boolean) {
     this.opts.reducedMotion = reduced;
   }
@@ -609,6 +702,7 @@ export class OfficeScene {
   /** Fly to an area: `office`, `door`, `pantry` or a project. */
   focus(name: string, instant = false) {
     const b = this.areaBox(name);
+    if (name === 'board') return this.focusBoard(this.boardCover, instant);
     const zoom =
       name === 'office'
         ? this.camera.fitZoom(b.w, b.h, 24)
@@ -617,6 +711,36 @@ export class OfficeScene {
     this.camera.follow = null;
     this.camera.flyTo({ x: b.x, y: b.y, zoom }, performance.now(), instant || this.opts.reducedMotion);
     this.setFocus(name);
+    this.moved = false;
+    this.wake();
+  }
+
+  /**
+   * Up to the whiteboard, as close as it fits, in the room right of a card `cover` px wide on the left:
+   * its writing reads at full zoom.
+   */
+  focusBoard(cover = this.boardCover, instant = false) {
+    this.boardCover = cover;
+    const pts = this.boardHit;
+    if (!pts.length) return;
+    const minX = Math.min(...pts.map((p) => p.x));
+    const maxX = Math.max(...pts.map((p) => p.x));
+    const minY = Math.min(...pts.map((p) => p.y));
+    const maxY = Math.max(...pts.map((p) => p.y));
+    const c = this.camera;
+    const zoom = Math.min(
+      MAX_ZOOM,
+      (c.width - cover - 64) / Math.max(1, maxX - minX),
+      (c.height - 128) / Math.max(1, maxY - minY),
+    );
+    this.following = null;
+    c.follow = null;
+    c.flyTo(
+      { x: (minX + maxX) / 2 - cover / 2 / zoom, y: (minY + maxY) / 2, zoom },
+      performance.now(),
+      instant || this.opts.reducedMotion,
+    );
+    this.setFocus('board');
     this.moved = false;
     this.wake();
   }
@@ -767,8 +891,10 @@ export class OfficeScene {
     }
     // Hover: a hand cursor and a nameplate over whoever is under the pointer.
     const w = this.hit(p.x, p.y);
-    const overDoor = !w && inPolygon(this.camera.toWorld(p.x, p.y), this.office?.door.hit ?? []);
-    (this.app.canvas as HTMLCanvasElement).style.cursor = w || overDoor ? 'pointer' : 'grab';
+    const world = this.camera.toWorld(p.x, p.y);
+    const overThing =
+      !w && (inPolygon(world, this.office?.door.hit ?? []) || inPolygon(world, this.boardHit));
+    (this.app.canvas as HTMLCanvasElement).style.cursor = w || overThing ? 'pointer' : 'grab';
     const key = w?.key ?? null;
     if (key !== this.hovered) {
       const before = this.hovered;
@@ -807,6 +933,10 @@ export class OfficeScene {
       this.opts.events.door();
       return;
     }
+    if (inPolygon(this.camera.toWorld(p.x, p.y), this.boardHit)) {
+      this.opts.events.board();
+      return;
+    }
     this.opts.events.select(null);
   };
 
@@ -842,6 +972,7 @@ export class OfficeScene {
     const w = this.hit(p.x, p.y);
     if (w) return this.focusWorker(w.key);
     const world = this.camera.toWorld(p.x, p.y);
+    if (inPolygon(world, this.boardHit)) return this.focusBoard();
     const g = toGrid(world.x, world.y);
     const L = this.layout;
     const inside = (r: { x: number; y: number; w: number; h: number }) =>

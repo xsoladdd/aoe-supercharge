@@ -4,7 +4,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readJson, writeFileAtomic, writeJsonAtomic, type Paths } from '@aoe-supercharge/core/node';
 
+/** The role skills; `init --commit` can also commit these into a repository. */
 export const SKILL_NAMES = ['supercharge-control', 'supercharge-worker'] as const;
+/** Your /note, /todo and /gnote (SPEC §14.6): for every Claude session, so only ever in ~/.claude/skills. */
+export const NOTE_SKILLS = ['note', 'todo', 'gnote'] as const;
+const USER_SKILLS = [...SKILL_NAMES, ...NOTE_SKILLS];
 export const MARKER = '.supercharge-managed';
 
 /** Works from both src/ (tests) and dist/supercharge.mjs (published): templates/ is a sibling of either. */
@@ -54,7 +58,7 @@ async function inspect(
 
 export async function skillsStatus(paths: Paths, version: string): Promise<SkillReport[]> {
   return Promise.all(
-    SKILL_NAMES.map(async (n) => {
+    USER_SKILLS.map(async (n) => {
       const { name, dir, state } = await inspect(paths, n, version);
       return { name, dir, state };
     }),
@@ -67,7 +71,7 @@ export async function skillsStatus(paths: Paths, version: string): Promise<Skill
  */
 export async function installUserSkills(paths: Paths, version: string): Promise<SkillReport[]> {
   const out: SkillReport[] = [];
-  for (const n of SKILL_NAMES) {
+  for (const n of USER_SKILLS) {
     const info = await inspect(paths, n, version);
     if (info.state === 'missing' || info.state === 'outdated') {
       await writeFileAtomic(join(info.dir, 'SKILL.md'), info.wanted);
@@ -82,7 +86,7 @@ export async function installUserSkills(paths: Paths, version: string): Promise<
 
 export async function removeUserSkills(paths: Paths, version: string): Promise<SkillReport[]> {
   const out: SkillReport[] = [];
-  for (const n of SKILL_NAMES) {
+  for (const n of USER_SKILLS) {
     const info = await inspect(paths, n, version);
     if (info.state === 'current' || info.state === 'outdated') {
       await rm(info.dir, { recursive: true, force: true });

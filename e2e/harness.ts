@@ -102,7 +102,14 @@ export async function startDemo(opts: {
     port: opts.aoePort,
     transcripts: { claudeDir: join(opts.dir, '.claude'), hooksDir },
   });
-  const { AOE_INSTANCE_ID: _a, SUPERCHARGE_SERVICE: _b, SUPERCHARGE_SUPERVISED: _c, ...base } = process.env;
+  // CLAUDECODE comes from a Claude session running the demo; it would make every note Claude's.
+  const {
+    AOE_INSTANCE_ID: _a,
+    SUPERCHARGE_SERVICE: _b,
+    SUPERCHARGE_SUPERVISED: _c,
+    CLAUDECODE: _d,
+    ...base
+  } = process.env;
   const env: NodeJS.ProcessEnv = {
     ...base,
     HOME: opts.dir,
@@ -269,6 +276,13 @@ export async function startDemo(opts: {
   await as('dns', ['stage', 'mr_raised', '--mr', mrUrl(35, 'northwind/web')]);
   writeFileSync(join(glabDir, 'mr-35.json'), mrJson(35, 'northwind/web', 'merged', 'success'));
   writeFileSync(join(glabDir, 'discussions-35.json'), unresolved(0));
+
+  // The whiteboard (SPEC §14.6): what Claude and you noted for the launch.
+  const claude = { CLAUDECODE: '1' };
+  await sc(env, ['todo', 'add', 'Confirm the cutover window with the client'], nw, claude);
+  await sc(env, ['todo', 'add', 'Book a QA pass on the iPad'], nw);
+  await sc(env, ['note', 'add', 'Staging is read-only on Fridays from 15:00'], nw, claude);
+  await sc(env, ['note', 'add', '--global', 'Renew the GitLab token before the 1st'], nw);
 
   // Project 2: apollo-api
   const ap = repo(home, 'apollo-api', 'git@gitlab.example.com:apollo/api.git');

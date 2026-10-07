@@ -78,7 +78,12 @@ describe('office layout', () => {
     ]);
     expect(big.teams[0]!.desks.map((d) => d.n).slice(0, 9)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(big.width * big.height).toBeGreaterThan(small.width * small.height);
-    expect(Object.keys(big.areas).sort()).toEqual(['a', 'b', 'c', 'door', 'office', 'pantry']);
+    expect(Object.keys(big.areas).sort()).toEqual(['a', 'b', 'board', 'c', 'door', 'office', 'pantry']);
+    // The whiteboard hangs between the pantry and your corner, in every office.
+    for (const l of [small, big]) {
+      expect(l.board.x1).toBeLessThanOrEqual(l.suite.x);
+      expect(l.board.x0).toBeGreaterThanOrEqual(l.pantry.area.x + l.pantry.area.w);
+    }
     // The front of the line sits on the chair beside your door; the first few spots are chairs.
     expect(big.queue[0]).toEqual({ x: big.door.x - 1, y: big.door.y });
     expect(big.queueSeats).toBeGreaterThan(0);

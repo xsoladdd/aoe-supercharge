@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react';
 import type {
   Health,
   NeedsYouItem,
+  NoteRecord,
   ProjectRecord,
   SessionView,
   Snapshot,
@@ -63,6 +64,7 @@ function connectEvents() {
   });
   on<ProjectRecord[]>('projects', (projects) => patchSnapshot({ projects }));
   on<NeedsYouItem[]>('needs_you', (needsYou) => patchSnapshot({ needsYou }));
+  on<NoteRecord[]>('notes', (notes) => patchSnapshot({ notes }));
   on<Health>('health', (health) => patchSnapshot({ health }));
   on<UsageReport>('usage', (usage) => patchSnapshot({ usage }));
   source.onopen = () => set({ connection: 'live' });

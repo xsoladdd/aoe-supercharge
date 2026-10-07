@@ -241,6 +241,27 @@ function worldMap(g: Graphics, p: Palette, x0: number, x1: number) {
     });
 }
 
+/** How high the whiteboard's writing surface runs on the wall, in px. */
+export const BOARD_H = { bottom: 20, top: 76 } as const;
+
+/** The whiteboard (SPEC §14.6): an aluminium frame and a marker tray. The scene writes your notes on it. */
+function whiteboard(g: Graphics, p: Palette, x0: number, x1: number) {
+  const { bottom, top } = BOARD_H;
+  const b = p.board;
+  quad(g, wallRect(x0 - 0.07, x1 + 0.07, bottom - 3, top + 3)).fill(b.frame);
+  quad(g, wallRect(x0, x1, bottom, top)).fill(b.surface);
+  // A faint sheen, and the ghost of something wiped off.
+  quad(g, wallRect(x0 + 0.08, x0 + 1.2, top - 9, top - 2)).fill({ color: 0xffffff, alpha: 0.3 });
+  quad(g, wallRect(x1 - 1.4, x1 - 0.3, bottom + 4, bottom + 9)).fill({ color: b.ink, alpha: 0.04 });
+  // The tray, with three markers and an eraser.
+  quad(g, wallRect(x0 + 0.25, x1 - 0.25, bottom - 6, bottom - 3)).fill(shade(b.frame, 0.15));
+  [b.ink, b.red, 0x2f7a4a].forEach((color, i) => {
+    const at = x0 + 0.5 + i * 0.32;
+    quad(g, wallRect(at, at + 0.24, bottom - 4.6, bottom - 3)).fill(color);
+  });
+  quad(g, wallRect(x1 - 0.9, x1 - 0.45, bottom - 5.5, bottom - 3)).fill(0x3a3f45);
+}
+
 function drawWalls(
   layout: OfficeLayout,
   p: Palette,
@@ -313,14 +334,15 @@ function drawWalls(
     g.moveTo(m.x, m.y).lineTo(n.x, n.y).stroke({ width: 1.5, color: p.wood.right });
   }
 
-  // A framed world map over the teams.
+  // A framed world map over the teams, clear of the whiteboard, and the whiteboard by your corner.
   const s = layout.suite;
-  const mapSpan = s.x - (pa.x + pa.w);
+  const mapSpan = layout.board.x0 - 0.5 - (pa.x + pa.w);
   if (mapSpan >= 5) {
     const mid = pa.x + pa.w + mapSpan / 2;
     const half = Math.min(3, mapSpan / 2 - 1);
     worldMap(g, p, mid - half, mid + half);
   }
+  whiteboard(g, p, layout.board.x0, layout.board.x1);
 
   // Your corner: painted panelling with a moulding, built-in bookcases, sconces and your door.
   const doorX = layout.door.x;

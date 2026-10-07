@@ -7,7 +7,7 @@ import type { Grid, Tile } from './pathfind.ts';
  * leather waiting chairs beside it and a waiting area on a runner in front. The entrance is at the front
  * of the left wall. It grows with the teams.
  *
- *   wall A (y = -1): pantry | world map ... | shelves, chairs, YOUR DOOR, shelves
+ *   wall A (y = -1): pantry | world map ... whiteboard | shelves, chairs, YOUR DOOR, shelves
  *   x = 0 entrance | pantry | team blocks   | waiting area
  */
 
@@ -73,11 +73,13 @@ export interface OfficeLayout {
   queueSeats: number;
   /** Your corner of the back wall: the panelled stretch round your door. */
   suite: Rect;
+  /** The whiteboard with your notes and todos (SPEC §14.6): the stretch of wall A it hangs on, by your corner. */
+  board: { x0: number; x1: number };
   pantry: { area: Rect; spots: { tile: Tile; seat: PantrySeat }[] };
   teams: TeamPlan[];
   furniture: Furniture[];
   floors: { kind: 'carpet' | 'pantry' | 'runner'; rect: Rect; team?: string }[];
-  /** Camera targets: `office`, `door`, `pantry` and each project name. */
+  /** Camera targets: `office`, `door`, `pantry`, `board` and each project name. */
   areas: Record<string, Rect>;
 }
 
@@ -88,6 +90,8 @@ const WAITING_CHAIRS = 4;
 const SUITE_W = WAITING_CHAIRS + 3;
 /** Rows of runner in front of the chairs; people stand on every other one, clear of the chairs. */
 const WAIT_ROWS = 4;
+/** Tiles of wall the whiteboard takes, just west of your corner. */
+const BOARD_W = 4;
 
 export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   const teams = input.length ? input : [];
@@ -203,7 +207,11 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   put({ kind: 'plant', x: 0, y: height - 1, w: 1, h: 1 });
   put({ kind: 'plant', x: width - 1, y: height - 1, w: 1, h: 1 });
 
+  // The whiteboard: on the wall just west of your corner, past the teams (always clear of the pantry).
+  const board = { x0: sx - 0.5 - BOARD_W, x1: sx - 0.5 };
+
   areas.office = { x: 0, y: 0, w: width, h: height };
+  areas.board = { x: Math.floor(board.x0), y: 0, w: BOARD_W + 1, h: 2 };
   areas.door = { x: sx - 1, y: 0, w: SUITE_W + 2, h: WAIT_ROWS + 3 };
   areas.pantry = pantryArea;
 
@@ -220,6 +228,7 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
     queue,
     queueSeats: WAITING_CHAIRS,
     suite,
+    board,
     pantry: { area: pantryArea, spots },
     teams: plans,
     furniture,

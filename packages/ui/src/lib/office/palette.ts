@@ -42,6 +42,8 @@ export interface Palette {
   runner: { base: number; border: number; pattern: number };
   glow: number;
   map: { paper: number; land: number; frame: number };
+  /** The whiteboard: its surface and aluminium frame, and the marker colours written on it. */
+  board: { surface: number; frame: number; ink: number; done: number; red: number };
   books: number[];
   shadow: number;
   ink: number;
@@ -116,6 +118,8 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
       runner: { base: 0x2a2d31, border: 0x3a3f45, pattern: 0x33373c },
       glow: 0xffc87a,
       map: { paper: 0xe2d4b8, land: 0x8a5a36, frame: 0x6e4a32 },
+      // A little dimmer than paper white, so it does not glare in the dark study.
+      board: { surface: 0xdde1e4, frame: 0x8e979f, ink: 0x1d3a6b, done: 0x7d8891, red: 0xb3392f },
       books: [0x7a3b22, 0x8c4a28, 0x5a3420, 0x9a5a30, 0x6b2f2a, 0xb07a4a],
       shadow: 0x000000,
       ink: 0x2a2421,
@@ -168,6 +172,7 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
     runner: { base: 0xe6dfd1, border: 0xcfc5b2, pattern: 0xd9d0bf },
     glow: 0xffd28a,
     map: { paper: 0xf3ecdd, land: 0x9a6a44, frame: 0x7a4e30 },
+    board: { surface: 0xf8f9fa, frame: 0xa9b1b8, ink: 0x1d3a6b, done: 0x8a949c, red: 0xb3392f },
     books: [0x7a3b22, 0x8c4a28, 0xb07a4a, 0x2f4a5c, 0x5a3420, 0xd8c7a8],
     shadow: 0x2a2d35,
     ink: 0x2a2421,
