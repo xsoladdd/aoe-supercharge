@@ -23,6 +23,8 @@ export const KIND: Record<NeedsYouKind, { icon: Icon; label: string; color: stri
   permission: { icon: ShieldCheckIcon, label: 'Permission needed', color: 'text-st-yellow' },
   control_waiting: { icon: HandPalmIcon, label: 'Control chat waiting', color: 'text-st-yellow' },
   control_replied: { icon: ChatCircleDotsIcon, label: 'Control chat replied', color: 'text-st-violet' },
+  control_blocker: { icon: HandPalmIcon, label: 'Blocked on you', color: 'text-st-red' },
+  control_needs: { icon: ClipboardTextIcon, label: 'Control chat needs you', color: 'text-st-yellow' },
   session_error: { icon: WarningOctagonIcon, label: 'Session error', color: 'text-st-red' },
   session_missing: { icon: WarningOctagonIcon, label: 'Session missing', color: 'text-st-red' },
   mr_ready: { icon: CheckCircleIcon, label: 'Ready for review', color: 'text-st-green' },
@@ -32,8 +34,7 @@ export const KIND: Record<NeedsYouKind, { icon: Icon; label: string; color: stri
 export function hrefFor(item: NeedsYouItem): string {
   // Task items open the task page, whose first tab shows its question or menu with the answer.
   if (item.project && item.taskId) return `/p/${item.project}/t/${item.taskId}`;
-  if (item.sessionId && (item.kind === 'control_waiting' || item.kind === 'control_replied'))
-    return chatHref(item.sessionId);
+  if (item.sessionId && item.kind.startsWith('control_')) return chatHref(item.sessionId);
   if (item.project) return `/p/${item.project}`;
   if (item.sessionId) return chatHref(item.sessionId);
   return '/';

@@ -1,3 +1,4 @@
+import { fnv1a } from './hash.ts';
 import { workerLabel } from './names.ts';
 import type { SessionPrompt } from './prompt.ts';
 import type { NeedsYouItem, ProjectRecord, SessionView, TaskRecord } from './types.ts';
@@ -143,6 +144,24 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         since,
       });
     }
+  }
+
+  // What the control chats' latest replies list under NEEDS YOU.
+  for (const s of sessions) {
+    if (s.archived || !s.asks?.items.length) continue;
+    const project = projectByControl.get(s.id) ?? null;
+    if (!project && !parentIds.has(s.id)) continue;
+    for (const a of s.asks.items)
+      items.push({
+        id: `control_needs:${s.id}:${fnv1a(a.text).toString(16)}`,
+        kind: a.blocker ? 'control_blocker' : 'control_needs',
+        project: project?.name ?? null,
+        taskId: null,
+        sessionId: s.id,
+        title: `${project ? project.name : s.title} control chat`,
+        detail: a.text,
+        since: s.asks.at,
+      });
   }
 
   return items.sort((a, b) => Date.parse(a.since) - Date.parse(b.since));

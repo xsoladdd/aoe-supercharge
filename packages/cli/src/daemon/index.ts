@@ -120,7 +120,7 @@ async function runWorker(): Promise<void> {
     process.env.SUPERCHARGE_AOE_HOOKS_DIR || `/tmp/aoe-hooks-${process.getuid?.() ?? 0}`,
     ctx.aoeCli,
   );
-  const aoeWatcher = new AoeWatcher(ctx, store, new PromptReader(ctx, transcripts));
+  const aoeWatcher = new AoeWatcher(ctx, store, new PromptReader(ctx, transcripts), transcripts);
   const ledgerWatcher = new LedgerWatcher(ctx, store);
   const mrWatcher = new MrWatcher(ctx, store, () => mrProvider(ctx.config, ctx.env));
   const configWatcher = new ConfigWatcher(ctx, store, () => aoeWatcher.nudge());

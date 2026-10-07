@@ -10,7 +10,7 @@ const setStatus = async (id: string, status: string) =>
   fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ status, menu: null }) });
 
 test.describe('office', () => {
-  test('every open worker stands in exactly one place; the door queue is oldest first', async ({
+  test('every open worker stands in exactly one place; at the door, blockers first, then oldest first', async ({
     signedIn: page,
   }) => {
     await page.goto('/office');
@@ -44,11 +44,20 @@ test.describe('office', () => {
 
     const queue = page.getByRole('list', { name: 'Queue at your door' });
     await expect(queue).toBeVisible();
-    const since = await queue
-      .locator(':scope > li')
-      .evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.since ?? ''));
-    expect(since.length).toBeGreaterThan(0);
-    expect([...since].sort()).toEqual(since);
+    const line = await queue.locator(':scope > li').evaluateAll((els) =>
+      els.map((e) => ({
+        since: (e as HTMLElement).dataset.since ?? '',
+        blocks: (e as HTMLElement).dataset.blocks === 'true',
+      })),
+    );
+    expect(line.length).toBeGreaterThan(0);
+    // Whoever blocks work stands in front; each part of the line is oldest first.
+    const blockers = line.filter((r) => r.blocks);
+    expect(line.slice(0, blockers.length).every((r) => r.blocks)).toBe(true);
+    for (const part of [blockers, line.filter((r) => !r.blocks)]) {
+      const since = part.map((r) => r.since);
+      expect([...since].sort()).toEqual(since);
+    }
     // The worker asking a question is in the queue with its reason, never colour alone.
     const rowena = queue.locator('li[data-task="NW-0002"]');
     if (await rowena.count()) await expect(rowena.getByText(/Question|Waiting in AoE/)).toBeVisible();
@@ -78,6 +87,53 @@ test.describe('office', () => {
       await expect(row).toHaveAttribute('data-zone', 'desk', { timeout: 15_000 });
     } finally {
       await setStatus(id, 'Running');
+    }
+  });
+
+  test("a control chat's NEEDS YOU list waits on you until a reply has none", async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    const mk = (body: Record<string, unknown>) =>
+      fake('/__fake/sessions', { method: 'POST', body: JSON.stringify(body) }) as Promise<{ id: string }>;
+    // A control chat of its own (it has a worker), so other engines' lines are left alone.
+    const control = await mk({
+      title: `boss ${browserName}`,
+      project_path: `/tmp/boss-${browserName}`,
+      status: 'Idle',
+    });
+    const worker = await mk({
+      title: `boss-worker ${browserName}`,
+      project_path: `/tmp/boss-${browserName}-w`,
+      parent_session_id: control.id,
+      status: 'Running',
+    });
+    const reply = (text: string) =>
+      fake(`/__fake/sessions/${control.id}/reply`, { method: 'POST', body: JSON.stringify({ text }) });
+    try {
+      await reply(
+        [
+          'Both testers are running.',
+          '',
+          '🔴 **NEEDS YOU**',
+          `1. **Owner (${browserName}):** who sets the brand on the catalogue?`,
+          `2. **Quote (${browserName}):** may the tester edit it? Blocked until you say.`,
+          '',
+          '🟡 **WORKING**',
+          '- tester: checking the header',
+        ].join('\n'),
+      );
+      await page.goto('/');
+      const needs = page.locator('section[aria-labelledby="needs-you-heading"]');
+      const blocker = needs.locator('li', { hasText: `Quote (${browserName})` });
+      await expect(blocker.getByText('Blocked on you')).toBeVisible({ timeout: 15_000 });
+      await expect(
+        needs.locator('li', { hasText: `Owner (${browserName})` }).getByText('Control chat needs you'),
+      ).toBeVisible();
+      await reply('All done, nothing needs you.');
+      await expect(needs.getByText(`Quote (${browserName})`)).toHaveCount(0, { timeout: 15_000 });
+    } finally {
+      for (const id of [worker.id, control.id]) await fake(`/__fake/sessions/${id}`, { method: 'DELETE' });
     }
   });
 

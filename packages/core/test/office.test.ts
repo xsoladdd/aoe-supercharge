@@ -166,6 +166,27 @@ describe('office: where a worker stands (SPEC §14.5)', () => {
     expect(sorted).toEqual(['C', 'A', 'B']);
   });
 
+  it('a NEEDS YOU list puts the lead in line; one that blocks work goes to the front', () => {
+    const asks = [item('control_needs', ago(60_000)), item('control_needs', ago(60_000))];
+    expect(leadSpot(session('idle'), asks)).toMatchObject({
+      zone: 'door',
+      prop: 'clipboard',
+      reason: 'Needs you (2 things)',
+    });
+    expect(leadSpot(session('idle'), [...asks, item('control_blocker', ago(60_000))])).toMatchObject({
+      prop: 'hand',
+      reason: 'Blocked on you (3 things)',
+    });
+    // The lead has waited longest, but a worker with a question blocks work, and so does a blocker.
+    const line = [
+      { id: 'lead', spot: leadSpot(session('idle'), asks) },
+      { id: 'mr', spot: officeSpot(task('ready_for_review'), null, [item('mr_ready', ago(30_000))]) },
+      { id: 'asker', spot: officeSpot(task('blocked'), null, [item('question', ago(1_000))]) },
+      { id: 'boss', spot: leadSpot(session('idle'), [item('control_blocker', ago(2_000))]) },
+    ];
+    expect(line.sort(byQueue).map((x) => x.id)).toEqual(['boss', 'asker', 'lead', 'mr']);
+  });
+
   it('the door reads your name once it is set', () => {
     expect(doorLabel('Ericson')).toBe('Ericson’s office');
     expect(doorLabel('  ')).toBe('Your office');

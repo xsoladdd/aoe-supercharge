@@ -66,12 +66,25 @@ const URGENCY: NeedsYouKind[] = [
   'plan_approval',
   'approval',
   'control_waiting',
+  'control_blocker',
   'session_error',
   'session_missing',
   'mr_closed',
+  'control_needs',
   'mr_ready',
   'control_replied',
 ];
+
+/** Work is stopped until you act: these stand at the front of the line. */
+const BLOCKING = new Set<NeedsYouKind>([
+  'question',
+  'permission',
+  'plan_approval',
+  'approval',
+  'control_waiting',
+  'control_blocker',
+  'session_error',
+]);
 
 const DOOR: Record<NeedsYouKind, { prop: Exclude<Prop, null>; reason: string }> = {
   question: { prop: 'speech', reason: 'Has a question' },
@@ -84,6 +97,8 @@ const DOOR: Record<NeedsYouKind, { prop: Exclude<Prop, null>; reason: string }> 
   mr_closed: { prop: 'folder_closed', reason: 'MR was closed' },
   mr_ready: { prop: 'folder', reason: 'MR ready for review' },
   control_replied: { prop: 'envelope', reason: 'Control chat replied' },
+  control_blocker: { prop: 'hand', reason: 'Blocked on you' },
+  control_needs: { prop: 'clipboard', reason: 'Needs you' },
 };
 
 const DESK_POSE: Record<Stage, Pose> = {
@@ -101,11 +116,17 @@ function atDoor(items: NeedsYouItem[]): OfficeSpot | null {
   if (!items.length) return null;
   const kind = URGENCY.find((k) => items.some((i) => i.kind === k)) ?? items[0]!.kind;
   const since = items.map((i) => i.since).sort()[0]!;
+  // A control chat's NEEDS YOU list: how much is on it.
+  const asks = items.filter((i) => i.kind === 'control_blocker' || i.kind === 'control_needs').length;
+  const reason =
+    (kind === 'control_blocker' || kind === 'control_needs') && asks > 1
+      ? `${DOOR[kind].reason} (${asks} things)`
+      : DOOR[kind].reason;
   return {
     zone: 'door',
     pose: 'waiting',
     prop: DOOR[kind].prop,
-    reason: DOOR[kind].reason,
+    reason,
     hold: false,
     holdUntil: null,
     kind,
@@ -178,9 +199,21 @@ export function leadSpot(
   return spot('desk', 'reading', null, 'At the lead desk', session.status !== 'idle');
 }
 
-/** Door queue order: who started waiting first stands at the front; ties go by id. */
+/** Whether a spot at the door is there because work is stopped until you act. */
+export function blocksWork(spot: OfficeSpot): boolean {
+  return !!spot.kind && BLOCKING.has(spot.kind);
+}
+
+/**
+ * Door queue order: whoever blocks work stands at the front; then who started waiting first; ties go
+ * by id.
+ */
 export function byQueue<T extends { id: string; spot: OfficeSpot }>(a: T, b: T): number {
-  return (a.spot.queuedSince ?? '').localeCompare(b.spot.queuedSince ?? '') || a.id.localeCompare(b.id);
+  return (
+    Number(blocksWork(b.spot)) - Number(blocksWork(a.spot)) ||
+    (a.spot.queuedSince ?? '').localeCompare(b.spot.queuedSince ?? '') ||
+    a.id.localeCompare(b.id)
+  );
 }
 
 /** "Ericson’s office" on the door, or "Your office" until you set `ui.displayName`. */

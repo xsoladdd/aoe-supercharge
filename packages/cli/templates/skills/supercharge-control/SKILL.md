@@ -82,6 +82,10 @@ Summarise it in this order, briefly:
 
 Do not paste the raw JSON.
 
+### 4.1 What needs the user
+
+In any reply that leaves the user something to do (a status report, a summary after relaying answers), put those things first, under a line that reads `🔴 NEEDS YOU`, one numbered item each, then end the list with the next section (`🟡 WORKING`, `✅ DONE`). Write "Blocked" in an item when a worker or task is stopped until the user acts. The dashboard reads that list from your latest reply: your control chat waits in line at the user's door in the office until a reply has nothing under NEEDS YOU, and blocked items go to the front of the line. Leave the heading out when nothing needs them.
+
 ## 5. Relaying answers to workers
 
 Only when the user **explicitly** asks you to pass something to a worker:

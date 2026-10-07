@@ -13,7 +13,7 @@ import {
 } from '@phosphor-icons/react';
 import { useEffect, useRef } from 'react';
 import { Link } from 'wouter';
-import { DRESS_CODE_LABEL, relativeTime, type Prop } from '@aoe-supercharge/core/shared';
+import { blocksWork, DRESS_CODE_LABEL, relativeTime, type Prop } from '@aoe-supercharge/core/shared';
 import { Avatar } from '@/components/office/avatar';
 import { KIND } from '@/components/needs-you';
 import { LiveStatus, StageBadge } from '@/components/status';
@@ -156,6 +156,7 @@ function WorkerRow({
       data-role={w.role}
       data-zone={w.zone}
       data-since={w.since ?? undefined}
+      data-blocks={w.zone === 'door' ? String(blocksWork(w.spot)) : undefined}
     >
       {onSelect ? (
         <button

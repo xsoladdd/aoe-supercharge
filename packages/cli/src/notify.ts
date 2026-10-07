@@ -32,13 +32,17 @@ export async function notify(
   return false;
 }
 
-const TOGGLE: Record<NeedsYouKind, keyof Config['notifications']> = {
+/** The setting that turns a kind's notification on; null: never notified on its own. */
+const TOGGLE: Record<NeedsYouKind, keyof Config['notifications'] | null> = {
   question: 'blocked',
   approval: 'aoeWaiting',
   plan_approval: 'aoeWaiting',
   permission: 'aoeWaiting',
   control_waiting: 'controlWaiting',
   control_replied: 'controlWaiting',
+  control_blocker: 'blocked',
+  // The rest of a NEEDS YOU list arrives with the reply, which "Control chat replied" announces.
+  control_needs: null,
   session_error: 'error',
   session_missing: 'error',
   mr_ready: 'readyForReview',
@@ -52,6 +56,8 @@ const TITLE: Record<NeedsYouKind, string> = {
   permission: 'Permission needed',
   control_waiting: 'Control chat waiting',
   control_replied: 'Control chat replied',
+  control_blocker: 'Blocked on you',
+  control_needs: 'Control chat needs you',
   session_error: 'Session error',
   session_missing: 'Session missing',
   mr_ready: 'Ready for review',
@@ -88,7 +94,10 @@ export class Notifier {
     const fresh = items.filter((i) => !this.seen.has(i.id));
     for (const i of fresh) this.seen.add(i.id);
     if (!n.enabled) return [];
-    const toSend = fresh.filter((i) => n[TOGGLE[i.kind]]);
+    const toSend = fresh.filter((i) => {
+      const toggle = TOGGLE[i.kind];
+      return toggle !== null && n[toggle];
+    });
     for (const i of toSend) await this.send(TITLE[i.kind], `${i.title}: ${i.detail}`);
     return toSend;
   }

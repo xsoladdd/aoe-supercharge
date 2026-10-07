@@ -268,6 +268,15 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     Object.assign(s, { status: 'Waiting', menu: ASK_MENU });
     return c.json({ ok: true });
   });
+  // Claude replies with this text (a control chat's report, say); the session goes idle.
+  app.post('/__fake/sessions/:id/reply', async (c) => {
+    const s = state.sessions.find((x) => x.id === c.req.param('id'));
+    if (!s || !transcripts) return c.json({ error: 'not_found' }, 404);
+    const { text } = (await c.req.json()) as { text: string };
+    transcripts.for(s.id, s.project_path).assistant({ type: 'text', text });
+    Object.assign(s, { status: 'Idle', menu: null, idle_entered_at: new Date().toISOString() });
+    return c.json({ ok: true });
+  });
   app.post('/__fake/version', async (c) => {
     state.version = ((await c.req.json()) as { version: string }).version;
     return c.json({ ok: true });

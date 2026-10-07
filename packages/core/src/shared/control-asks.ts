@@ -1,0 +1,82 @@
+/**
+ * What a control chat's latest reply says needs you: the items under its "NEEDS YOU" heading, the
+ * report format control chats use (🔴 NEEDS YOU, ✅ DONE, 🟡 WORKING). The office lines its lead up at
+ * your door while there are any, and the ones that block work go to the front.
+ */
+
+export interface ControlAsk {
+  text: string;
+  /** Work is stopped until you answer (the item says it blocks). */
+  blocker: boolean;
+}
+
+const MAX_ASKS = 8;
+const MAX_TEXT = 300;
+
+/** Markdown emphasis, heading marks and a leading status emoji, gone; what is left is the words. */
+function bare(line: string): string {
+  return line
+    .replace(/^\s*(?:#{1,6}\s+|>\s*)?/, '')
+    .replace(/[*_]{1,3}/g, '')
+    .replace(/^[\s\p{Extended_Pictographic}️‍]+/u, '')
+    .trim();
+}
+
+/** The heading, maybe with a subtitle: "NEEDS YOU", "Needs you: questions from the testers". */
+const NEEDS_YOU = /^needs (?:you|your (?:input|attention|answers?|decisions?))\b\s*(?:[:—–-]\s*.{0,80})?$/i;
+/** Another section starts: a heading, a rule, or a short line led by a status emoji or in capitals. */
+function sectionStart(line: string): boolean {
+  const t = line.trim();
+  if (/^#{1,6}\s/.test(t) || /^(?:-{3,}|\*{3,}|_{3,})$/.test(t)) return true;
+  if (
+    /^(?:\*\*)?\s*[\p{Extended_Pictographic}]/u.test(t) &&
+    bare(t).length <= 40 &&
+    !/^[-*+]\s|^\d+[.)]\s/.test(t)
+  )
+    return true;
+  const words = bare(t).replace(/:$/, '');
+  return words.length >= 3 && words.length <= 40 && words === words.toUpperCase() && /[A-Z]{3}/.test(words);
+}
+
+const LIST_ITEM = /^\s*(?:[-*+•]|\d+[.)])\s+/;
+const NOTHING = /^(?:none|nothing|n\/a|all clear)\b/i;
+const BLOCKS = /\bblock(?:s|er|ers|ed|ing)?\b/i;
+const NOT_BLOCKING = /\b(?:no|not|non|un)[- ]?block|\bno(?:thing)? (?:is )?blocking\b/i;
+
+/** The NEEDS YOU items of a reply, in order; empty when it has none. */
+export function controlAsks(reply: string): ControlAsk[] {
+  const lines = reply.replace(/\r/g, '').split('\n');
+  const start = lines.findIndex((l) => NEEDS_YOU.test(bare(l)));
+  if (start < 0) return [];
+  const items: string[] = [];
+  let inFence = false;
+  for (const line of lines.slice(start + 1)) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) {
+      // A command to run belongs to the item above it.
+      if (items.length && line.trim()) items[items.length - 1] += ` ${line.trim()}`;
+      continue;
+    }
+    if (!line.trim()) continue;
+    if (sectionStart(line)) break;
+    if (LIST_ITEM.test(line) && !/^\s{2,}/.test(line)) items.push(line.replace(LIST_ITEM, ''));
+    else if (/^\s{2,}/.test(line) && items.length) items[items.length - 1] += ` ${line.trim()}`;
+    else items.push(line);
+  }
+  return items
+    .map((i) =>
+      i
+        .replace(/[*_]{2,3}/g, '')
+        .replace(/\s+/g, ' ')
+        .trim(),
+    )
+    .filter((i) => i && !NOTHING.test(i))
+    .slice(0, MAX_ASKS)
+    .map((text) => ({
+      text: text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT - 1)}…` : text,
+      blocker: BLOCKS.test(text) && !NOT_BLOCKING.test(text),
+    }));
+}

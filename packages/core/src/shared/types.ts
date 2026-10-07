@@ -1,3 +1,4 @@
+import type { ControlAsk } from './control-asks.ts';
 import type { SessionPrompt } from './prompt.ts';
 import type { Stage } from './stages.ts';
 import type { UsageReport } from './usage.ts';
@@ -133,6 +134,11 @@ export interface SessionView {
   archived: boolean;
   /** Locked in Supercharge: it cannot be archived, deleted, stopped or cleared until unlocked. */
   locked: boolean;
+  /**
+   * A control chat only: what its latest reply lists under NEEDS YOU, and since when it has had
+   * something there. Kept while it works on the next reply.
+   */
+  asks?: { at: string; items: ControlAsk[] } | null;
 }
 
 export type NeedsYouKind =
@@ -142,6 +148,9 @@ export type NeedsYouKind =
   | 'permission'
   | 'control_waiting'
   | 'control_replied'
+  /** An item under NEEDS YOU in a control chat's latest reply; a blocker when it says work is stopped. */
+  | 'control_blocker'
+  | 'control_needs'
   | 'session_error'
   | 'session_missing'
   | 'mr_ready'

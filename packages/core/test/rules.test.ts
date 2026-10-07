@@ -160,6 +160,34 @@ describe('computeNeedsYou', () => {
     expect(items.map((i) => i.kind)).toEqual(['question', 'control_waiting', 'approval', 'mr_ready']);
     expect(items.find((i) => i.kind === 'approval')?.taskId).toBe('NW-0001');
   });
+  it("lists a control chat's NEEDS YOU items, blockers marked, with the same id for the same item", () => {
+    const asks = {
+      at: '2026-10-05T11:40:00Z',
+      items: [
+        { text: 'Who owns the brand setting?', blocker: false },
+        { text: 'May the tester edit the quote? Blocked until then.', blocker: true },
+      ],
+    };
+    const args = { now, aoeReachable: true, waitingDebounceSeconds: 20, projects: [], tasks: [] };
+    const items = computeNeedsYou({
+      ...args,
+      sessions: [session({ id: 'ctrl', asks }), session({ id: 'w', parentId: 'ctrl' })],
+    });
+    expect(items.map((i) => [i.kind, i.detail, i.since])).toEqual([
+      ['control_needs', 'Who owns the brand setting?', asks.at],
+      ['control_blocker', 'May the tester edit the quote? Blocked until then.', asks.at],
+    ]);
+    const again = computeNeedsYou({
+      ...args,
+      sessions: [
+        session({ id: 'ctrl', asks: { ...asks, items: asks.items.slice(1) } }),
+        session({ id: 'w', parentId: 'ctrl' }),
+      ],
+    });
+    expect(again[0]!.id).toBe(items[1]!.id);
+    // Only a control chat's replies count.
+    expect(computeNeedsYou({ ...args, sessions: [session({ id: 'w', asks })] })).toEqual([]);
+  });
   it('flags missing sessions only when AoE is reachable', () => {
     const args = {
       now,

@@ -10,12 +10,14 @@ import {
   type Config,
 } from '@aoe-supercharge/core/node';
 import {
+  controlAsks,
   countActiveWorkers,
   deskChanges,
   normalizeAoeStatus,
   pickWorkerName,
   usageReport,
   type AoeState,
+  type ControlAsk,
   type Health,
   type LiveStatus,
   type SessionView,
@@ -24,6 +26,7 @@ import { AoeError } from '../aoe/client.ts';
 import type { AoeCliListEntry, AoeSession } from '../aoe/schemas.ts';
 import { SHIPPED_COMPAT, type Ctx } from '../context.ts';
 import type { PromptReader } from '../prompt.ts';
+import type { TranscriptStore } from '../transcript.ts';
 import type { Store } from './store.ts';
 
 const nowIso = () => new Date().toISOString();
@@ -41,11 +44,14 @@ export class AoeWatcher {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private stopped = false;
+  /** Each control chat's NEEDS YOU list, kept while it works on its next reply. */
+  private asks = new Map<string, { at: string; items: ControlAsk[] } | null>();
 
   constructor(
     private ctx: Ctx,
     private store: Store,
     private prompts: PromptReader | null = null,
+    private transcripts: TranscriptStore | null = null,
   ) {}
 
   start() {
@@ -166,6 +172,7 @@ export class AoeWatcher {
           }),
       );
     }
+    await this.readAsks(views);
     this.store.setSessions(views);
     for (const id of [...this.since.keys()]) if (!live.some((s) => s.id === id)) this.since.delete(id);
     await this.followRemovedSessions(new Set(live.map((s) => s.id)), trashed).catch((err) =>
@@ -179,6 +186,41 @@ export class AoeWatcher {
       fix: null,
       lastPollAt: nowIso(),
     });
+  }
+
+  /**
+   * What each control chat's latest reply lists under NEEDS YOU. Read once a reply is finished (idle,
+   * or waiting on a menu); while it works on the next one the last list stands, so its lead keeps its
+   * place at your door. The list keeps the time it first had something on it.
+   */
+  private async readAsks(views: SessionView[]): Promise<void> {
+    if (!this.transcripts) return;
+    const transcripts = this.transcripts;
+    const controls = new Set<string>([
+      ...this.store.projects.map((p) => p.controlSessionId).filter((x): x is string => !!x),
+      ...views.map((v) => v.parentId).filter((x): x is string => !!x),
+    ]);
+    await Promise.all(
+      views
+        .filter((v) => controls.has(v.id) && !v.archived)
+        .map(async (v) => {
+          if (v.status === 'idle' || v.status === 'waiting') {
+            const chat = await transcripts.read(v.id, v.projectPath).catch(() => null);
+            const last = chat?.messages.at(-1);
+            if (last?.role === 'assistant') {
+              const text = last.blocks.map((b) => (b.kind === 'text' ? b.text : '')).join('\n');
+              const items = controlAsks(text);
+              const prev = this.asks.get(v.id);
+              this.asks.set(
+                v.id,
+                items.length ? { at: prev?.items.length ? prev.at : last.at, items } : null,
+              );
+            }
+          }
+          v.asks = this.asks.get(v.id) ?? null;
+        }),
+    );
+    for (const id of [...this.asks.keys()]) if (!controls.has(id)) this.asks.delete(id);
   }
 
   private absent = new Map<string, { polls: number; since: number }>();
