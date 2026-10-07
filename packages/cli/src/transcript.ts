@@ -14,6 +14,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** Command echoes and harness notes Claude Code records as user turns; they aren't things you typed. */
 const NOT_TYPED =
   /^\s*(<(command-|local-command|system-reminder|bash-|task-notification|user-memory)|\[Request interrupted by user)/;
+/**
+ * A paste (every message the dashboard sends arrives as one) is recorded wrapped in
+ * `<pasted_content id="…">` and `</pasted_content id="…">` (Claude Code 2.1.285). Shown as the text.
+ */
+const PASTED = /<pasted_content(?: id="[^"]*")?>\n?([\s\S]*?)\n?<\/pasted_content(?: id="[^"]*")?>/g;
+const unwrapPasted = (text: string) => text.replace(PASTED, '$1');
 const MAX_MESSAGES = 300;
 // Terminal colour codes, which Claude Code leaves in command output.
 const ANSI = /\x1b\[[0-9;]*m/g;
@@ -112,7 +118,7 @@ export class TranscriptParser {
     if (typeof content === 'string') {
       if (this.shell(content, id, at)) return;
       if (!content.trim() || NOT_TYPED.test(content)) return;
-      this.messages.push({ id, role: 'user', at, blocks: [{ kind: 'text', text: content }] });
+      this.messages.push({ id, role: 'user', at, blocks: [{ kind: 'text', text: unwrapPasted(content) }] });
       return;
     }
     if (!Array.isArray(content)) return;
@@ -125,7 +131,7 @@ export class TranscriptParser {
           tool.isError = b.is_error === true;
         }
       } else if (b.type === 'text' && typeof b.text === 'string' && !NOT_TYPED.test(b.text)) {
-        texts.push(b.text);
+        texts.push(unwrapPasted(b.text));
       } else if (b.type === 'image') {
         texts.push('*(image)*');
       }

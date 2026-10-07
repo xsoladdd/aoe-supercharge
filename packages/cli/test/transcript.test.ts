@@ -144,6 +144,19 @@ describe('TranscriptParser: Claude Code JSONL → chat messages', () => {
     expect(p.model).toBe('claude-sonnet-5-5[1m]');
   });
 
+  it('shows a pasted message as its text, without the wrapper Claude Code records it in', () => {
+    // As Claude Code 2.1.285 records a multi-line message the dashboard sent (it arrives as a paste).
+    const p = new TranscriptParser();
+    p.push(user('<pasted_content id="b889">\n1: yes\n2: no\n</pasted_content id="b889">'));
+    p.push(
+      user([{ type: 'text', text: 'See:\n<pasted_content id="a1">\nnotes\n</pasted_content id="a1">' }]),
+    );
+    expect(p.messages.map((m) => m.blocks)).toEqual([
+      [{ kind: 'text', text: '1: yes\n2: no' }],
+      [{ kind: 'text', text: 'See:\nnotes' }],
+    ]);
+  });
+
   it('shows shell-mode commands with their output, and the Claude Code version that wrote them', () => {
     // Records as Claude Code 2.1.285 wrote them for `!echo …` and a failing `!ls`.
     const p = new TranscriptParser();

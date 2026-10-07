@@ -408,7 +408,13 @@ export class FakeTranscripts {
       }, delayMs).unref?.();
       return;
     }
-    t.user(message);
+    // Claude Code records a multi-line paste wrapped, as 2.1.285 does.
+    const id = Math.random().toString(16).slice(2, 6);
+    t.user(
+      message.includes('\n')
+        ? `<pasted_content id="${id}">\n${message}\n</pasted_content id="${id}">`
+        : message,
+    );
     setTimeout(() => {
       t.tool(
         'Bash',

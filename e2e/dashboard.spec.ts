@@ -397,6 +397,15 @@ test.describe('project', () => {
     await expect(box).toHaveValue('');
     // The fake agent answers through the transcript, rendered as markdown (a blockquote of the prompt).
     await expect(log.locator('blockquote', { hasText: message })).toBeVisible({ timeout: 15_000 });
+    // A message of several lines arrives as a paste, which Claude Code records wrapped: shown once, as typed.
+    const second = `second line ${browserName}`;
+    await box.fill(`Two lines (${browserName})\n${second}`);
+    await box.press('Enter');
+    await expect(log.locator('blockquote', { hasText: `Two lines (${browserName})` })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(log.getByText(second)).toHaveCount(1);
+    await expect(log.getByText('pasted_content')).toHaveCount(0);
     await axe(page, 'control chat');
   });
 

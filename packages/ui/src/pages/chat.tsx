@@ -116,6 +116,9 @@ function roleOf(snap: Snapshot, id: string): Role {
 const userText = (m: ChatMessage) =>
   m.blocks.map((b) => (b.kind === 'text' ? b.text : b.kind === 'shell' ? `!${b.command}` : '')).join('\n\n');
 
+/** Compared loosely: a paste can come back with its spacing or line ends changed. */
+const loose = (s: string) => s.replace(/\s+/g, ' ').trim();
+
 /** Claude Code writes one record per API message; a reply to one prompt reads better as one turn. */
 function toTurns(messages: ChatMessage[]): Turn[] {
   const turns: Turn[] = [];
@@ -1321,7 +1324,7 @@ export function SessionChat({
             (m) =>
               m.role === 'user' &&
               Date.parse(m.at) >= x.sentAt - 15_000 &&
-              userText(m).trim() === x.text.trim(),
+              loose(userText(m)) === loose(x.text),
           ),
       ),
     );
