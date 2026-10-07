@@ -92,6 +92,11 @@ export async function startDemo(opts: {
   port: number;
   aoePort?: number;
   log?: boolean;
+  /**
+   * `npm run demo` only: a third project with a full room, so the office's rooms, meters and lounge
+   * can be seen without real agents. The E2E suite runs without it, so its counts stay put.
+   */
+  rich?: boolean;
 }): Promise<Demo> {
   rmSync(opts.dir, { recursive: true, force: true });
   mkdirSync(opts.dir, { recursive: true });
@@ -307,6 +312,28 @@ export async function startDemo(opts: {
   writeFileSync(join(glabDir, 'mr-12.json'), mrJson(12, 'apollo/api', 'opened', 'failed'));
   writeFileSync(join(glabDir, 'discussions-12.json'), unresolved(1));
 
+  // Project 3 (demo only): orion-mobile, a busy room of six.
+  const orion: string[] = [];
+  if (opts.rich) {
+    const om = repo(home, 'orion-mobile', 'git@gitlab.example.com:orion/mobile.git');
+    await sc(env, ['init', '--json'], om);
+    const work: [string, string, string][] = [
+      ['om-login', 'Passkey sign-in', 'Passkeys on iOS and Android, password as a fallback.'],
+      ['om-offline', 'Offline mode for the cart', 'Queue cart changes offline and sync on reconnect.'],
+      ['om-push', 'Push notification settings', 'A settings screen per notification type.'],
+      ['om-darkmode', 'Dark mode polish', 'Fix the contrast issues reported on the dark theme.'],
+      ['om-crash', 'Fix the startup crash on Android 12', 'Reproduce and fix the cold start crash.'],
+      ['om-i18n', 'Swedish and Tagalog translations', 'Wire up the two new locales with placeholder copy.'],
+    ];
+    for (const [key, title, brief] of work) {
+      await add(key, om, title, brief);
+      await plan(key, `# Plan: ${title}\n\n1. Investigate\n2. Build\n3. Test\n`);
+      await as(key, ['stage', 'implementing']);
+      orion.push(key);
+    }
+    await as('om-darkmode', ['stage', 'verifying']);
+  }
+
   // Live AoE statuses.
   const setStatus = (id: string, patch: Record<string, unknown>) => {
     const s = fake.state.sessions.find((x) => x.id === id);
@@ -317,6 +344,7 @@ export async function startDemo(opts: {
   setStatus(tasks.a11y!.aoeSessionId, { status: 'Running' });
   setStatus(tasks.ratelimit!.aoeSessionId, { status: 'Running' });
   setStatus(tasks.qa!.aoeSessionId, { status: 'Running' });
+  for (const k of orion) setStatus(tasks[k]!.aoeSessionId, { status: k === 'om-i18n' ? 'Idle' : 'Running' });
   const controls = fake.state.sessions.filter(
     (s) => s.title.endsWith(' control') && s.group_path.startsWith('supercharge/'),
   );

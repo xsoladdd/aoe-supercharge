@@ -30,7 +30,7 @@ for (const p of [port, port + 1]) {
 }
 // One folder per port, so a second demo never wipes the first one's.
 const dir = join(tmpdir(), port === 4391 ? 'supercharge-demo' : `supercharge-demo-${port}`);
-const demo = await startDemo({ dir, port, aoePort: port + 1 });
+const demo = await startDemo({ dir, port, aoePort: port + 1, rich: true });
 process.stdout.write(`\nSupercharge demo running on ${demo.baseUrl}\n`);
 process.stdout.write(`Sign in (one-time link, valid 60s):\n  ${await demo.signInUrl()}\n`);
 process.stdout.write(

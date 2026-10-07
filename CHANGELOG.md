@@ -5,6 +5,10 @@
 Office v2: rooms, errands, a review lounge, a cost meter, going home, day and night, and the office's
 history.
 
+- **A room for every project.** Each team works in its own room, behind low glass with a doorway in
+  front and the project's name over it. People walk in and out through the doorway, never through the
+  glass. The chips are made from your projects; one flies you to that room. Three projects with ten
+  desks each fit without overlap. `npm run demo` adds a third, busy project to look at.
 - **The office keeps a history.** The daemon writes down every time someone in the office moves, or
   their reason changes, in a file per day under `~/.local/state/supercharge/history/`. It keeps 30 days
   (`office.history.retentionDays`). `GET /api/office/history` reads it back. History starts with this

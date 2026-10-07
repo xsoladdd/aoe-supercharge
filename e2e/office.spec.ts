@@ -311,6 +311,28 @@ test.describe('office', () => {
       await axe(page, 'office floor');
     });
 
+    test('every project has a room of its own, with a chip that flies to it', async ({ signedIn: page }) => {
+      await page.goto('/office');
+      await drawn(page);
+      const snap = (await (await page.request.get('/api/snapshot')).json()) as {
+        projects: { name: string }[];
+      };
+      const names = snap.projects.map((p) => p.name);
+      expect(names.length).toBeGreaterThan(1);
+      await expect(floor(page)).toHaveAttribute('data-rooms', names.join(','));
+      const chips = page.getByRole('navigation', { name: 'Go to' });
+      for (const name of names) {
+        await chips.getByRole('button', { name, exact: true }).click();
+        await expect(floor(page)).toHaveAttribute('data-camera-focus', name);
+        await expect(chips.getByRole('button', { name, exact: true })).toHaveAttribute(
+          'aria-pressed',
+          'true',
+        );
+      }
+      await chips.getByRole('button', { name: 'Whole office' }).click();
+      await expect(floor(page)).toHaveAttribute('data-camera-focus', 'office');
+    });
+
     test('the office opens in a window of its own; what you open there opens in the dashboard', async ({
       signedIn: page,
     }) => {

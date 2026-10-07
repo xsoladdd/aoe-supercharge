@@ -1,5 +1,11 @@
 import { Container, Graphics, Text } from 'pixi.js';
-import { fnv1a, type Furniture, type OfficeLayout } from '@aoe-supercharge/core/shared';
+import {
+  fnv1a,
+  type Edge,
+  type Furniture,
+  type OfficeLayout,
+  type TeamPlan,
+} from '@aoe-supercharge/core/shared';
 import { box, depth, diamond, iso, mix, quad, shade, tint, wallA, wallB, WALL_H, type Pt } from './iso';
 import type { Palette } from './palette';
 
@@ -567,6 +573,56 @@ function signPiece(p: Palette, x: number, y: number, project: string, color: num
   return out;
 }
 
+/** Glass height, px: low enough to see who is inside, high enough to read as a room. */
+const GLASS_H = 30;
+
+/** One pane of a room's glass: a tinted sheet with a rail along its top and a post at its start. */
+function glassPiece(p: Palette, e: Edge): Graphics {
+  const g = new Graphics();
+  const a = iso(e.x0, e.y0);
+  const b = iso(e.x1, e.y1);
+  quad(g, [a, b, { x: b.x, y: b.y - GLASS_H }, { x: a.x, y: a.y - GLASS_H }]).fill({
+    color: p.glass.pane,
+    alpha: p.theme === 'dark' ? 0.16 : 0.22,
+  });
+  g.moveTo(a.x, a.y - GLASS_H)
+    .lineTo(b.x, b.y - GLASS_H)
+    .stroke({ width: 2, color: p.glass.rail, alpha: 0.9 });
+  g.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ width: 1.5, color: p.glass.rail, alpha: 0.6 });
+  g.rect(a.x - 1, a.y - GLASS_H, 2, GLASS_H).fill({ color: p.glass.rail, alpha: 0.9 });
+  // A glint across the pane.
+  const m = { x: a.x + (b.x - a.x) * 0.3, y: a.y + (b.y - a.y) * 0.3 };
+  const n = { x: a.x + (b.x - a.x) * 0.45, y: a.y + (b.y - a.y) * 0.45 };
+  g.moveTo(m.x, m.y - 6)
+    .lineTo(n.x, n.y - GLASS_H + 6)
+    .stroke({ width: 1, color: 0xffffff, alpha: p.theme === 'dark' ? 0.18 : 0.45 });
+  return g;
+}
+
+/** The room's nameplate, over its doorway, in its team colour. */
+function doorPlate(p: Palette, t: TeamPlan, color: number): Container {
+  const g = new Graphics();
+  const y = t.doorway.y;
+  const a = iso(t.doorway.x0, y);
+  const b = iso(t.doorway.x1, y);
+  // The posts either side of the doorway, and the lintel.
+  for (const q of [a, b]) g.rect(q.x - 1.5, q.y - GLASS_H - 12, 3, GLASS_H + 12).fill(p.glass.rail);
+  g.moveTo(a.x, a.y - GLASS_H - 12)
+    .lineTo(b.x, b.y - GLASS_H - 12)
+    .stroke({ width: 3, color: p.glass.rail });
+  const c = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 - GLASS_H - 12 };
+  const t2 = label(t.project, 9, p.theme === 'dark' ? 0xf4f4f5 : 0x16171a, '700');
+  const w = Math.min(Math.max(t2.width + 12, 40), 120);
+  if (t2.width > w - 8) t2.scale.set((w - 8) / t2.width);
+  g.roundRect(c.x - w / 2, c.y - 9, w, 16, 4)
+    .fill(p.theme === 'dark' ? shade(color, 0.1) : tint(color, 0.35))
+    .stroke({ width: 1.2, color: p.theme === 'dark' ? tint(color, 0.35) : shade(color, 0.3) });
+  t2.position.set(c.x, c.y - 1);
+  const out = new Container();
+  out.addChild(g, t2);
+  return out;
+}
+
 export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string): StaticOffice {
   const floor = drawFloor(layout, p);
   const { walls, door } = drawWalls(layout, p, doorLabel);
@@ -588,6 +644,17 @@ export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string)
     }
     const ls = t.leadSeat;
     pieces.push(piece(zOf(ls.x, ls.y, -20), chairPiece(p, ls.x, ls.y)));
+    // The glass, a piece per pane drawn at the pane's middle: the back panes behind whoever is inside,
+    // the front ones in front of them.
+    for (const e of t.walls)
+      pieces.push(piece(depth((e.x0 + e.x1) / 2, (e.y0 + e.y1) / 2), glassPiece(p, e)));
+    const color = p.carpets[(teamIndex.get(t.project) ?? 0) % p.carpets.length]![0];
+    pieces.push(
+      piece(
+        depth((t.doorway.x0 + t.doorway.x1) / 2, t.doorway.y) + 1,
+        doorPlate(p, t, p.theme === 'dark' ? tint(color, 0.15) : color),
+      ),
+    );
   }
 
   for (const f of layout.furniture) {

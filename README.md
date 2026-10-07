@@ -231,10 +231,10 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - an explicit, confirmed **Reply**.
 - **Office** (`/office`): every worker stands where its status puts it.
   - Everyone who needs you stands in line at your door, in single file between brass posts and ropes, blockers first, then oldest first, with the reason over their heads.
-  - Working workers sit at their own desk in their project's team. A project's control chat is the team lead.
+  - Every project has a room of its own, behind low glass with its name over the doorway. Working workers sit at their own desk in their project's room; the control chat is the team lead at the head desk.
   - Idle workers, and those waiting on an MR pipeline or review, take a break in the pantry after 15 seconds idle.
   - Each worker has a desk number and an outfit picked from seven dress codes, from business formal to medieval garb.
-  - The floor is drawn like a game (PixiJS). Drag to look around, scroll or pinch to zoom, double-click an area to zoom in, or use the chips: Whole office, your door, Pantry, and one per team.
+  - The floor is drawn like a game (PixiJS). Drag to look around, scroll or pinch to zoom, double-click an area to zoom in, or use the chips: Whole office, your door, Pantry, and one per room.
   - When a worker's status changes it walks to its new place, then stands still. With reduced motion it jumps there instead. Nothing is drawn while nobody moves.
   - Click a worker, or its row in the list beside the floor, for its card: why it is there, its stage, and its question or approval to answer in place. **Follow** keeps the camera on it.
   - **Call next** (or N) calls the front of the line in through your door and opens their card. Answer, and they walk back to work; close the card, and they go back in line.

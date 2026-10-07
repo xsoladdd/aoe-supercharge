@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findPath, officeLayout, type Grid, type Tile } from '../src/shared/index.ts';
+import { edgeKey, findPath, officeLayout, type Grid, type Tile } from '../src/shared/index.ts';
 
 const open = (w: number, h: number, walls: string[] = []): Grid => ({
   width: w,
@@ -125,5 +125,83 @@ describe('office layout', () => {
       { project: 'b', desks: 2 },
     ];
     expect(JSON.stringify(officeLayout(t).furniture)).toBe(JSON.stringify(officeLayout(t).furniture));
+  });
+});
+
+describe('rooms', () => {
+  const tileIn = (r: { x: number; y: number; w: number; h: number }, x: number, y: number) =>
+    x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h;
+
+  it('a wall between two tiles stops a straight step and a diagonal round it', () => {
+    const g: Grid = { ...open(3, 3), wall: (ax, ay, bx, by) => edgeKey(ax, ay, bx, by) === 'v1,0' };
+    // Down, across and back up: no diagonal past either end of the wall.
+    expect(findPath(g, { x: 0, y: 0 }, { x: 1, y: 0 })).toHaveLength(4);
+    const diag: Grid = { ...open(2, 2), wall: (ax, ay, bx, by) => edgeKey(ax, ay, bx, by) === 'v1,0' };
+    // (0,0) to (1,1) the short way would pass along the wall's end: it goes round by (0,1).
+    expect(findPath(diag, { x: 0, y: 0 }, { x: 1, y: 1 })).toEqual([
+      { x: 0, y: 0 },
+      { x: 0, y: 1 },
+      { x: 1, y: 1 },
+    ]);
+  });
+
+  it('every room has glass all round but a doorway, and nobody walks through the glass', () => {
+    const l = officeLayout([
+      { project: 'a', desks: 10 },
+      { project: 'b', desks: 7 },
+      { project: 'c', desks: 5 },
+    ]);
+    for (const t of l.teams) {
+      const { x, y, w, h } = t.area;
+      // Perimeter, less the doorway's two panes.
+      expect(t.walls).toHaveLength(2 * w + 2 * h - 2);
+      expect(t.doorway.x1 - t.doorway.x0).toBe(2);
+      expect(t.doorway.y).toBe(y + h);
+      // Every path from the entrance to a seat in the room comes in through the doorway.
+      for (const d of t.desks) {
+        const path = findPath(l.grid, l.entrance, d.seat)!;
+        expect(path).not.toBeNull();
+        const into = path.findIndex((p) => tileIn(t.area, p.x, p.y));
+        const before = path[into - 1]!;
+        const at = path[into]!;
+        expect(before.y, `${t.project} desk ${d.n}`).toBe(y + h);
+        expect(at.y).toBe(y + h - 1);
+        expect(at.x >= t.doorway.x0 && at.x < t.doorway.x1).toBe(true);
+        // Straight in, or diagonally within the doorway's width.
+        expect(before.x >= t.doorway.x0 && before.x < t.doorway.x1).toBe(true);
+        // Once inside, it stays inside.
+        expect(path.slice(into).every((p) => tileIn(t.area, p.x, p.y))).toBe(true);
+      }
+      expect(x).toBeGreaterThan(0);
+    }
+  });
+
+  it('2 to 3 projects with 5 to 10 desks each fit without overlap', () => {
+    for (const n of [2, 3])
+      for (const desks of [5, 10]) {
+        const l = officeLayout(Array.from({ length: n }, (_, i) => ({ project: `p${i}`, desks })));
+        const rects = [...l.teams.map((t) => t.area), l.pantry.area, l.suite];
+        for (let i = 0; i < rects.length; i++)
+          for (let j = i + 1; j < rects.length; j++) {
+            const a = rects[i]!;
+            const b = rects[j]!;
+            const apart = a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+            expect(apart, `${n}x${desks}: ${JSON.stringify(a)} ${JSON.stringify(b)}`).toBe(true);
+          }
+        // Every desk number in use has a seat, and no two blocking pieces share a tile.
+        for (const t of l.teams) expect(t.desks.length).toBeGreaterThanOrEqual(desks);
+        const tiles = l.furniture
+          .filter((f) => f.kind !== 'coffee' && f.kind !== 'sofa')
+          .flatMap((f) =>
+            Array.from({ length: f.w * f.h }, (_, k) => `${f.x + (k % f.w)},${f.y + Math.floor(k / f.w)}`),
+          );
+        expect(new Set(tiles).size).toBe(tiles.length);
+        // The doorway's tiles inside and out are free.
+        for (const t of l.teams)
+          for (let x = t.doorway.x0; x < t.doorway.x1; x++) {
+            expect(l.grid.blocked(x, t.doorway.y - 1)).toBe(false);
+            expect(l.grid.blocked(x, t.doorway.y)).toBe(false);
+          }
+      }
   });
 });

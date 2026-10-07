@@ -1,9 +1,9 @@
-import type { Grid, Tile } from './pathfind.ts';
+import { edgeKey, type Grid, type Tile } from './pathfind.ts';
 
 /**
  * The office floor plan (SPEC §14.5), in tiles: x runs along the back wall (wall A), y along the left
- * wall (wall B), towards the viewer. West to east: the pantry in the back-left corner, the team blocks
- * in rows, and your door at the far east end of the back wall, set in panelling with bookshelves, a lamp
+ * wall (wall B), towards the viewer. West to east: the pantry in the back-left corner, the team rooms
+ * in rows (low glass all round, a doorway in the front, a nameplate over it), and your door at the far east end of the back wall, set in panelling with bookshelves, a lamp
  * on either side. The line to see you stands in single file on a runner straight out from your door,
  * between brass posts and ropes. The entrance is at the front of the left wall. It grows with the teams.
  *
@@ -50,9 +50,22 @@ export interface Furniture {
   desk?: number;
 }
 
+/** A unit stretch of grid line, from (x0, y0) to (x1, y1): one pane of a glass partition. */
+export interface Edge {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
 export interface TeamPlan {
   project: string;
+  /** The room: its floor, inside the glass. */
   area: Rect;
+  /** Glass panes along the room's edges, leaving the doorway open. */
+  walls: Edge[];
+  /** The doorway in the front glass (towards the viewer): tiles x0 to x1 - 1, on grid line y. */
+  doorway: { x0: number; x1: number; y: number };
   leadSeat: Tile;
   desks: { n: number; seat: Tile; desk: Tile }[];
   /** Where a worker stands when it has no desk yet. */
@@ -122,6 +135,7 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   const height = Math.max(PANTRY_H + 5, 1 + teamsH + 2, ROPED + 6);
 
   const blocked = new Uint8Array(width * height);
+  const walls = new Set<string>();
   const block = (x: number, y: number) => {
     if (x >= 0 && y >= 0 && x < width && y < height) blocked[y * width + x] = 1;
   };
@@ -147,6 +161,23 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
     areas[t.project] = area;
     put({ kind: 'lead_desk', x: bx + 1, y: by + 1, w: 2, h: 1, team: t.project });
     put({ kind: 'team_sign', x: bx + blockW - 2, y: by, w: 1, h: 1, team: t.project });
+    // The room's glass: all round, but for a doorway two tiles wide in the middle of the front.
+    const roomWalls: Edge[] = [];
+    const doorX0 = bx + Math.floor((blockW - 2) / 2);
+    const doorway = { x0: doorX0, x1: doorX0 + 2, y: by + area.h };
+    const pane = (e: Edge) => {
+      roomWalls.push(e);
+      if (e.y0 === e.y1) walls.add(edgeKey(e.x0, e.y0 - 1, e.x0, e.y0));
+      else walls.add(edgeKey(e.x0 - 1, e.y0, e.x0, e.y0));
+    };
+    for (let x = bx; x < bx + blockW; x++) {
+      pane({ x0: x, y0: by, x1: x + 1, y1: by });
+      if (x < doorway.x0 || x >= doorway.x1) pane({ x0: x, y0: by + area.h, x1: x + 1, y1: by + area.h });
+    }
+    for (let y = by; y < by + area.h; y++) {
+      pane({ x0: bx, y0: y, x1: bx, y1: y + 1 });
+      pane({ x0: bx + blockW, y0: y, x1: bx + blockW, y1: y + 1 });
+    }
     const desks: TeamPlan['desks'] = [];
     const count = rowsOf(t) * cols;
     for (let n = 1; n <= count; n++) {
@@ -160,6 +191,8 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
     plans.push({
       project: t.project,
       area,
+      walls: roomWalls,
+      doorway,
       leadSeat: { x: bx + 1, y: by },
       desks,
       spare: Array.from({ length: cols }, (_, k) => ({ x: bx + 1 + k, y: by + 2 })),
@@ -228,6 +261,7 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
       width,
       height,
       blocked: (x, y) => x < 0 || y < 0 || x >= width || y >= height || blocked[y * width + x] === 1,
+      wall: (ax, ay, bx, by) => walls.has(edgeKey(ax, ay, bx, by)),
     },
     entrance,
     door: { x: doorX, y: 0 },

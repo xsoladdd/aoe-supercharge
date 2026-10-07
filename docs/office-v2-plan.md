@@ -113,7 +113,7 @@ away}.{label, timeZone, latitude, longitude}` · `office.weather.enabled` · `of
 | # | Phase | Feature | Release | Status |
 |---|---|---|---|---|
 | 1 | `buildOffice` in core, office state file, history log + API, `officeAt` | 7 backend, 1 model | 0.5.0 | Done |
-| 2 | Rooms: glass partitions with doorways, nameplates, edge walls in A\*, review/room layout capacity tests | 1 | 0.5.0 | |
+| 2 | Rooms: glass partitions with doorways, nameplates, edge walls in A\*, review/room layout capacity tests | 1 | 0.5.0 | Done |
 | 3 | Finish errand (walk to the lead, hand over a folder, then on), spawn queue at the entrance, animations toggle | 2 | 0.5.0 | |
 | 4 | Review lounge (pool table), folders, MR badges (click opens the MR), header count | 3 | 0.5.0 | |
 | 5 | Token/cost meter on desks, characters and header; runaway detection, warning, notification | 4 | 0.5.0 | |
@@ -138,7 +138,10 @@ updated, demo data extended so it can be seen without real agents.
 - The daemon logs nothing until both the ledger and AoE have loaded, so a start never records everyone
   leaving and coming back.
 - Rooms keep the current grid of team blocks (2 to 3 per row) and grow with desks; 10 desks per project
-  and 3 projects are tested not to overlap.
+  and 3 projects are tested not to overlap. A room's doorway is in the middle of its front edge (towards
+  the viewer); the team sign stays inside, and the nameplate goes over the doorway.
+- The demo's third project (`orion-mobile`, made up) is only in `npm run demo` (`startDemo({ rich })`),
+  so the E2E suite's counts do not move.
 
 ## Open questions
 

@@ -21,6 +21,8 @@ export interface Palette {
   baseboard: number;
   window: number;
   windowFrame: number;
+  /** The rooms' low glass partitions: the pane, and the aluminium rail and posts. */
+  glass: { pane: number; rail: number };
   curtain: number;
   wood: { top: number; left: number; right: number };
   metal: { top: number; left: number; right: number };
@@ -98,6 +100,7 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
       baseboard: 0x0e1212,
       window: 0x14263a,
       windowFrame: 0x2a3231,
+      glass: { pane: 0x7fb4d9, rail: 0x8a939c },
       curtain: 0x3b2c25,
       wood: { top: 0x6e4a32, left: 0x573823, right: 0x472c1c },
       metal: { top: 0x5a5e67, left: 0x43464d, right: 0x383b41 },
@@ -152,6 +155,7 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
     baseboard: 0xece8e0,
     window: 0xcfe7f7,
     windowFrame: 0xffffff,
+    glass: { pane: 0x9cc9e6, rail: 0x9aa3ad },
     curtain: 0xeee4d3,
     wood: { top: 0x8b5a3a, left: 0x70462c, right: 0x5c3923 },
     metal: { top: 0xb7bcc5, left: 0x9ea4ae, right: 0x8a909a },

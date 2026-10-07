@@ -13,6 +13,16 @@ export interface Grid {
   height: number;
   /** True where furniture stands. Outside the grid counts as blocked. */
   blocked(x: number, y: number): boolean;
+  /**
+   * True when a wall runs between two neighbouring tiles (a glass partition along a room's edge), so
+   * nobody walks through it. Optional: a grid without one has no walls between tiles.
+   */
+  wall?(ax: number, ay: number, bx: number, by: number): boolean;
+}
+
+/** The key of the grid line between two orthogonal neighbours: `v<x>,<y>` or `h<x>,<y>`. */
+export function edgeKey(ax: number, ay: number, bx: number, by: number): string {
+  return ay === by ? `v${Math.max(ax, bx)},${ay}` : `h${ax},${Math.max(ay, by)}`;
 }
 
 const DIRS: [number, number, number][] = [
@@ -81,6 +91,7 @@ export function findPath(grid: Grid, from: Tile, to: Tile): Tile[] | null {
   if (!inside(from.x, from.y) || !inside(to.x, to.y) || grid.blocked(to.x, to.y)) return null;
   if (from.x === to.x && from.y === to.y) return [{ ...from }];
   const free = (x: number, y: number) => inside(x, y) && !grid.blocked(x, y);
+  const wall = grid.wall ? grid.wall.bind(grid) : () => false;
   const n = w * h;
   const g = new Float64Array(n).fill(Infinity);
   const came = new Int32Array(n).fill(-1);
@@ -101,8 +112,18 @@ export function findPath(grid: Grid, from: Tile, to: Tile): Tile[] | null {
       const nx = cx + dx;
       const ny = cy + dy;
       if (!free(nx, ny)) continue;
-      // No corner cutting: both sides of a diagonal step must be open.
+      if (!(dx && dy) && wall(cx, cy, nx, ny)) continue;
+      // No corner cutting: both sides of a diagonal step must be open, and no wall on either way round.
       if (dx && dy && (!free(cx + dx, cy) || !free(cx, cy + dy))) continue;
+      if (
+        dx &&
+        dy &&
+        (wall(cx, cy, cx + dx, cy) ||
+          wall(cx + dx, cy, nx, ny) ||
+          wall(cx, cy, cx, cy + dy) ||
+          wall(cx, cy + dy, nx, ny))
+      )
+        continue;
       const ni = ny * w + nx;
       if (closed[ni]) continue;
       const tentative = g[cur]! + cost;

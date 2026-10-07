@@ -346,6 +346,7 @@ export default function OfficeFloor({
       data-motion={reduced ? 'jump' : 'walk'}
       data-called={called ?? ''}
       data-selected={sel?.key ?? ''}
+      data-rooms={office.teams.map((t) => t.project).join(',')}
       className="flex min-h-0 flex-1 flex-col"
       onKeyDown={onKey}
     >
