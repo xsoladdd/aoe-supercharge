@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0 (2026-10-07)
+
+Notes and todos, for you and Claude, and a proper line at your door.
+
+- **`/note`, `/todo` and `/gnote`** in any Claude Code session. `/note` and `/todo` file under the
+  project you're in (or the project of the control chat that started the session); `/gnote` is global.
+  `/todo done <id>` ticks one off. They're installed with the other skills on `supercharge start`.
+  Control chats read their project's open todos when they start and when you ask for status, and tick
+  them off when the work is done. Only you archive. On the command line: `supercharge note add`,
+  `todo add`, `todo done`, `todo reopen`, `note archive` and `supercharge notes`.
+- **A whiteboard in the office**, on the back wall by your door, with the open todos, the ticked ones
+  struck through, and the notes. Click it (or the Whiteboard chip) to fly up close and open it: tick a
+  box, archive, or add a line.
+- **Notes**, a new page under Office in the sidebar: each project's todos and notes, then the global
+  ones, with who wrote each (you or Claude) and when. Tick a todo, archive it or all the ticked ones;
+  **Archived** lists them, to restore. The sidebar shows how many todos are open.
+- **The line at your door stands.** The waiting chairs are gone: everyone in line stands in single file
+  on a runner straight out from your door, facing it, between brass posts and ropes. Whoever is first is
+  right at the door, and a long line carries on past the ropes.
+- Notes are kept in `~/.local/share/supercharge/notes/` and never leave your machine. Syncing them to
+  your phone is for later (Google Keep's API can't tick or archive, so it would be Google Tasks).
+
 ## 0.3.7 (2026-10-07)
 
 - **A message you send from the chat shows once.** A message of several lines showed twice: once as

@@ -9,7 +9,7 @@ An opinionated parent/child dashboard for Claude Code, built on [Agent of Empire
 
 It runs as a small local daemon (Node 24, about 70 MB idle) bound to `127.0.0.1`. Merge requests are watched by a script, never by an LLM loop.
 
-> Status: v0.3.7 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 (1.18.0 passes the live contract too; see [AoE versions](#aoe-versions)).
+> Status: v0.4.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 (1.18.0 passes the live contract too; see [AoE versions](#aoe-versions)).
 > The design rationale lives in [SPEC.md](SPEC.md).
 
 ---
@@ -103,6 +103,8 @@ Then talk to the control chat (in AoE, or from your phone; see [Phone access](#p
 - Because the skills are visible to every Claude session on the machine, each one first runs `supercharge whoami` and steps aside unless the session is managed by Supercharge.
 - `supercharge init --commit` instead commits the skills and a marked `CLAUDE.md` block into the repository, for teams.
 
+**Notes and todos, for you and Claude.** Three more user-level skills, `/note`, `/todo` and `/gnote`, work in any Claude Code session. `/note` and `/todo` file under the project of the folder you're in (or of the control chat that started the session); `/gnote` is global. `/todo done <id>` ticks one off. Control chats read their project's open todos and tick them off when the work is done. Only you archive.
+
 **Stage reporting (workers call these; the branch is the key).**
 
 ```bash
@@ -142,6 +144,9 @@ supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_req
 | `supercharge ask "<question>"` | Block on a question |
 | `supercharge plan <file \| ->` `[--draft]` | Save the approved plan |
 | `supercharge reply <task-id> "<message>" [--yes]` | Send a prompt to a worker (asks for confirmation; audited) |
+| `supercharge note add <text \| ->` / `todo add <text \| ->` `[--project <p> \| --global]` | Add a note or a todo to this project (or global) |
+| `supercharge todo done <id>` / `todo reopen <id>` / `note archive <id>` | Tick, untick or archive one |
+| `supercharge notes [--project <p> \| --global \| --all] [--archived] [--json]` | The board as text: todos `[ ]`/`[x]` with ids, then notes |
 
 Exit codes:
 
@@ -222,7 +227,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - `aoe session attach` command and Open in AoE,
   - an explicit, confirmed **Reply**.
 - **Office** (`/office`): every worker stands where its status puts it.
-  - Everyone who needs you queues at your door, oldest first, with the reason beside them.
+  - Everyone who needs you stands in line at your door, in single file between brass posts and ropes, blockers first, then oldest first, with the reason over their heads.
   - Working workers sit at their own desk in their project's team. A project's control chat is the team lead.
   - Idle workers, and those waiting on an MR pipeline or review, take a break in the pantry after 15 seconds idle.
   - Each worker has a desk number and an outfit picked from seven dress codes, from business formal to medieval garb.
@@ -233,6 +238,9 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - Keys on the floor: arrows or WASD to move, + and - to zoom, 0 for the whole office, F to follow, Escape to close the card.
   - **List** in the top bar shows the same people as a plain list. Without WebGL or a canvas, the page shows the list with a note.
   - Put your name on the door under Settings, Appearance. **Show in office** in any worker's right-click menu jumps to them.
+  - The **whiteboard** by your door has your todos and notes. Click it to zoom in and open it: tick, archive or add one.
+  - **New window** opens the office on its own, to keep on another screen.
+- **Notes** (`/notes`, under Office): every project's todos and notes, then the global ones. Add one, tick a todo, **Archive** it (or all the ticked ones at once); **Archived** lists them, to restore.
 - **Settings:** every config key, validated, with restart handling.
 
 Status is never shown by colour alone: every state has an icon shape and a label. `*.localhost` resolves to loopback in Chrome, Firefox and Safari without editing `/etc/hosts`; the E2E suite checks all three engines.
@@ -290,9 +298,9 @@ To go back to a tested AoE, reinstall that release: `curl -fsSL …/scripts/inst
 
 ```
 ~/.config/supercharge/            config.toml, auth.token (0600)
-~/.local/share/supercharge/       projects/<p>/project.json, tasks/<id>/{task.json, plan.md, session-prompt.md}
+~/.local/share/supercharge/       projects/<p>/project.json, tasks/<id>/{task.json, plan.md, session-prompt.md}, notes/{<p>,_global}.json
 ~/.local/state/supercharge/       logs/daemon.log (rotated), audit.jsonl, daemon.json, compat.local.json
-~/.claude/skills/supercharge-*    user-level skills (marker-owned; your own edits are never overwritten)
+~/.claude/skills/supercharge-*    user-level skills, and note, todo, gnote (marker-owned; your own edits are never overwritten)
 ~/Library/LaunchAgents/com.github.xsoladdd.aoe-supercharge.plist     (macOS)
 ~/.config/systemd/user/aoe-supercharge.service                       (Linux)
 ```
