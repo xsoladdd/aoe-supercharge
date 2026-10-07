@@ -1,3 +1,5 @@
+import type { WatchNotice } from './watch.ts';
+
 /** A conversation as the dashboard renders it, parsed from Claude Code's transcript. */
 export type ChatBlock =
   | { kind: 'text'; text: string }
@@ -19,13 +21,21 @@ export type ChatBlock =
       /** What it printed; null until it finishes. */
       stdout: string | null;
       stderr: string;
+    }
+  | {
+      /** A `[WATCH]` line a watcher typed in about a worker: shown as a notice, not as yours. */
+      kind: 'notice';
+      notice: WatchNotice;
     };
 
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  /** `notice`: typed in by a watcher (Supercharge's or control-watch.sh), not by you. */
+  role: 'user' | 'assistant' | 'notice';
   at: string;
   blocks: ChatBlock[];
+  /** Typed while Claude was busy and taken in mid-turn: part of the reply already under way. */
+  queued?: boolean;
 }
 
 /** Choices the dashboard offers for a running session (short enough for AoE to type as a command). */

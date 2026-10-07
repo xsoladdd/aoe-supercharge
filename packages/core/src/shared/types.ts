@@ -5,6 +5,7 @@ import type { RunawayLimits, SessionCost } from './office-cost.ts';
 import type { IdleLimits } from './office-idle.ts';
 import type { Weather, WindowsMode } from './office-ambience.ts';
 import type { UsageReport } from './usage.ts';
+import type { WatchSummary } from './watch.ts';
 
 export type Actor = 'worker' | 'daemon' | 'user' | 'control';
 
@@ -179,8 +180,8 @@ export interface SessionView {
   /** Locked in Supercharge: it cannot be archived, deleted, stopped or cleared until unlocked. */
   locked: boolean;
   /**
-   * A control chat only: what its latest reply lists under NEEDS YOU, and since when it has had
-   * something there. Kept while it works on the next reply.
+   * A control chat only: what its replies list under NEEDS YOU, and since when it has had something
+   * there. Kept while it works on the next reply; a reply to a watch notice adds to it, never clears it.
    */
   asks?: { at: string; items: ControlAsk[] } | null;
 }
@@ -293,6 +294,8 @@ export interface Snapshot {
    * Observed by the daemon, not kept in the ledger.
    */
   sessionMrs: Record<string, MrState>;
+  /** Each project's worker watch at a glance, by project name. */
+  watch: Record<string, WatchSummary>;
   ui: {
     theme: 'dark' | 'light' | 'system';
     density: 'comfortable' | 'compact';
@@ -316,6 +319,7 @@ export type SnapshotEvent =
   | { type: 'office'; data: OfficeState }
   | { type: 'costs'; data: Record<string, SessionCost> }
   | { type: 'session_mrs'; data: Record<string, MrState> }
+  | { type: 'watch'; data: Record<string, WatchSummary> }
   | { type: 'health'; data: Health };
 
 export interface ProjectStatus {

@@ -4,6 +4,7 @@ import {
   ChatCenteredTextIcon,
   CheckCircleIcon,
   ClipboardTextIcon,
+  EyeIcon,
   NotePencilIcon,
   TerminalIcon,
   type Icon,
@@ -15,21 +16,25 @@ import {
   type SessionView,
   type Snapshot,
   type TaskRecord,
+  type WatchLogEntry,
+  type WatchResponse,
 } from '@aoe-supercharge/core/shared';
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'wouter';
+import { watchKind } from '@/components/chat/notice';
 import { KIND } from '@/components/needs-you';
 import { CommentablePlan, CommentList, useComments } from '@/components/plan-comments';
 import { StageBadge } from '@/components/status';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getJson, sendJson } from '@/lib/api';
+import { chatHref } from '@/lib/nav';
 import { useNudgeFlash } from '@/lib/nudge';
 import { hasShellRuns, useShellRunVersion } from '@/lib/shell-runs';
 import { useNow } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
-type Tab = 'plans' | 'comments' | 'notes' | 'shell';
+type Tab = 'plans' | 'comments' | 'notes' | 'watch' | 'shell';
 
 // xterm.js loads only when the Shell tab opens.
 const ShellTerminal = lazy(() => import('@/components/chat/shell-terminal'));
@@ -303,10 +308,131 @@ function NotesTab({ project }: { project: string }) {
   );
 }
 
+const ENTRY_STATE: Record<WatchLogEntry['state'], { label: string; className: string }> = {
+  sent: { label: 'Sent', className: 'text-muted-foreground' },
+  pending: { label: 'Waiting for the control chat', className: 'text-st-yellow' },
+  dropped: { label: 'Not sent: watch turned off', className: 'text-muted-foreground' },
+};
+
+/**
+ * What the worker watch told this control chat, newest first, and how it is set: workers watched,
+ * the stall time, notices still waiting for the control chat to be free.
+ */
+function WatchTab({ snap, project }: { snap: Snapshot; project: string }) {
+  const summary = snap.watch?.[project];
+  const [data, setData] = useState<WatchResponse | null | undefined>(undefined);
+  const now = useNow();
+  useEffect(() => {
+    let live = true;
+    getJson<WatchResponse>(`/api/projects/${encodeURIComponent(project)}/watch`)
+      .then((r) => live && setData(r))
+      .catch(() => live && setData(null));
+    return () => {
+      live = false;
+    };
+  }, [project, summary?.lastAt, summary?.pending, summary?.enabled, summary?.stallMinutes]);
+  if (data === undefined) return <Skeleton className="h-24 w-full" />;
+  if (data === null) return <p className="text-sm text-muted-foreground">Could not load the watch log.</p>;
+  const view = { ...data, ...summary };
+  return (
+    <div className="space-y-3">
+      <div
+        className="rounded-xl border border-border bg-card px-3 py-2.5 text-sm"
+        data-watch-enabled={view.enabled}
+      >
+        {view.enabled ? (
+          <p>
+            <span className="font-medium">
+              Watching {view.watching} {view.watching === 1 ? 'worker' : 'workers'}
+            </span>
+            <span className="text-muted-foreground"> · stalled after {view.stallMinutes} min idle</span>
+          </p>
+        ) : (
+          <p className="font-medium">Off for this project</p>
+        )}
+        <p className="mt-0.5 text-[0.8125rem] text-muted-foreground">
+          {view.enabled
+            ? 'The control chat hears when a worker asks a question, is done, waits on a permission prompt, errors or stalls.'
+            : 'The control chat is not told about its workers.'}{' '}
+          <Link href="/settings#s-watch" className="text-foreground underline">
+            Settings
+          </Link>
+        </p>
+        {view.held && (
+          <p className="mt-1 text-[0.8125rem] text-st-yellow">{view.held}. Notices wait until it is back.</p>
+        )}
+        {!view.held && view.pending > 0 && (
+          <p className="mt-1 text-[0.8125rem] text-st-yellow">
+            {view.pending} waiting for the control chat to be free
+          </p>
+        )}
+      </div>
+      {data.entries.length ? (
+        <ul aria-label="Watch log" className="space-y-1.5">
+          {data.entries.map((e) => {
+            const kind = watchKind(e.kind);
+            const KindIcon = kind.icon;
+            const capture = e.capture ? `/api/watch/logs/${encodeURIComponent(e.capture)}` : null;
+            const state = ENTRY_STATE[e.state];
+            return (
+              <li key={e.id} className="rounded-lg border border-border bg-card px-3 py-2 text-sm">
+                <div className="flex items-center gap-2">
+                  <KindIcon weight="fill" aria-hidden className={cn('size-4 shrink-0', kind.color)} />
+                  <span translate="no" className="min-w-0 truncate font-medium" title={e.worker}>
+                    {e.name}
+                    {e.taskId && <span className="font-mono text-xs text-muted-foreground"> {e.taskId}</span>}
+                  </span>
+                  <span className={cn('shrink-0 text-[0.8125rem] font-medium', kind.color)}>
+                    {kind.label}
+                  </span>
+                  <time
+                    dateTime={e.at}
+                    title={new Date(e.at).toLocaleString()}
+                    className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums"
+                  >
+                    {relativeTime(e.at, now)}
+                  </time>
+                </div>
+                {e.detail && (
+                  <p className="mt-0.5 line-clamp-2 text-[0.8125rem] text-muted-foreground">{e.detail}</p>
+                )}
+                <div className="mt-1 flex items-center gap-3 text-xs">
+                  <span className={state.className}>{state.label}</span>
+                  <Link
+                    href={e.taskId ? `/p/${e.project}/t/${e.taskId}` : chatHref(e.sessionId)}
+                    className="ml-auto font-medium underline-offset-2 hover:underline"
+                  >
+                    Open
+                  </Link>
+                  {capture && (
+                    <a
+                      href={capture}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-medium underline-offset-2 hover:underline"
+                    >
+                      Log
+                    </a>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Nothing yet. Notices show here as they go to the control chat.
+        </p>
+      )}
+    </div>
+  );
+}
+
 const TABS: { key: Tab; label: string; icon: Icon }[] = [
   { key: 'notes', label: 'Notes', icon: NotePencilIcon },
   { key: 'plans', label: 'Plans', icon: ClipboardTextIcon },
   { key: 'comments', label: 'Comments', icon: ChatCenteredTextIcon },
+  { key: 'watch', label: 'Watch', icon: EyeIcon },
   { key: 'shell', label: 'Shell', icon: TerminalIcon },
 ];
 
@@ -335,8 +461,8 @@ export function ControlPanel({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <StatusBrief project={project} items={items} tasks={tasks} />
-      <div className="flex items-stretch border-b border-border px-2">
-        <div role="tablist" aria-label="Panel" className="flex min-w-0 gap-1">
+      <div className="@container flex items-stretch border-b border-border px-2">
+        <div role="tablist" aria-label="Panel" className="flex min-w-0 gap-0.5">
           {TABS.filter((t) => t.key !== 'shell' || controlId).map(({ key, label, icon: I }) => (
             <button
               key={key}
@@ -347,14 +473,15 @@ export function ControlPanel({
               aria-controls={`panel-${key}`}
               onClick={() => setTab(key)}
               className={cn(
-                '-mb-px inline-flex h-9 cursor-pointer items-center gap-1.5 border-b-2 px-2 text-sm font-medium transition-colors',
+                '-mb-px inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 border-b-2 px-1.5 text-sm font-medium transition-colors',
                 tab === key
                   ? 'border-foreground text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground',
               )}
             >
-              <I className="size-4" />
-              {label}
+              {/* A narrow panel drops the icons; a very narrow one keeps only them. */}
+              <I aria-hidden className="hidden size-4 @max-[22rem]:block @min-[28rem]:block" />
+              <span className="@max-[22rem]:sr-only">{label}</span>
             </button>
           ))}
         </div>
@@ -404,6 +531,7 @@ export function ControlPanel({
           ))}
         {tab === 'comments' && <CommentsTab tasks={active} />}
         {tab === 'notes' && <NotesTab project={project} />}
+        {tab === 'watch' && <WatchTab snap={snap} project={project} />}
       </div>
     </div>
   );

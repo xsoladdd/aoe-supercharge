@@ -382,6 +382,7 @@ export function App() {
                         sound={snap.ui.sound}
                         displayName={snap.ui.displayName}
                         officeAnimations={snap.ui.officeAnimations ?? true}
+                        projects={snap.projects}
                       />
                     </Route>
                     <Route path="/p/:project/t/:taskId/:tab?">

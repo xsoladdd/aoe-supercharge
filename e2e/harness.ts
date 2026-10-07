@@ -145,6 +145,8 @@ export async function startDemo(opts: {
     ['poll.aoeSessionsIdle', '2'],
     ['notifications.enabled', 'false'],
     ['notifications.waitingDebounceSeconds', '0'],
+    // Specs change statuses all the time; the watch spec turns the worker watch on for apollo-api alone.
+    ['watch.enabled', 'false'],
     ['remoteControl.enabled', 'true'],
     // Test and demo browsers would otherwise chime through your speakers on every new Needs-you item.
     ['ui.sound', 'false'],

@@ -337,6 +337,17 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     Object.assign(s, { status: 'Waiting', menu: ASK_MENU });
     return c.json({ ok: true });
   });
+  // A permission prompt: a Bash call waiting in the transcript, its menu on screen, the session waiting.
+  app.post('/__fake/sessions/:id/permission', async (c) => {
+    const s = state.sessions.find((x) => x.id === c.req.param('id'));
+    if (!s || !transcripts) return c.json({ error: 'not_found' }, 404);
+    const { command = 'npm publish' } = (await c.req.json().catch(() => ({}))) as { command?: string };
+    transcripts
+      .for(s.id, s.project_path)
+      .assistant({ type: 'tool_use', name: 'Bash', input: { command, description: 'Run it' } });
+    Object.assign(s, { status: 'Waiting', menu: PERMISSION_MENU });
+    return c.json({ ok: true });
+  });
   // Claude replies with this text (a control chat's report, say); the session goes idle.
   app.post('/__fake/sessions/:id/reply', async (c) => {
     const s = state.sessions.find((x) => x.id === c.req.param('id'));

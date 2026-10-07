@@ -236,6 +236,23 @@ export const ConfigSchema = z.strictObject({
         .describe('How long a session must wait before it counts.'),
     })
     .prefault({}),
+  watch: z
+    .strictObject({
+      enabled: z
+        .boolean()
+        .default(true)
+        .describe(
+          "Tell each project's control chat when one of its workers asks a question, is done, waits on a permission prompt, errors or stalls. Each project can turn it off.",
+        ),
+      stallMinutes: z
+        .number()
+        .int()
+        .min(1)
+        .max(1440)
+        .default(15)
+        .describe('A worker idle this long with nothing to report has stalled.'),
+    })
+    .prefault({}),
   ui: z
     .strictObject({
       theme: z.enum(['dark', 'light', 'system']).default('dark').describe('Dashboard theme.'),
@@ -396,6 +413,7 @@ export const ConfigSchema = z.strictObject({
           .string()
           .regex(/^[A-Za-z0-9._/-]*$/)
           .optional(),
+        watch: z.boolean().optional().describe('Worker watch for this project. Unset follows watch.enabled.'),
       }),
     )
     .default({})
@@ -429,6 +447,11 @@ hosts = ["github.com"]
 [ui]
 theme = "dark"
 `;
+
+/** Whether a project's control chat hears about its workers (`projects.<name>.watch`, else `watch.enabled`). */
+export function watchEnabled(config: Config, project: string): boolean {
+  return config.projects[project]?.watch ?? config.watch.enabled;
+}
 
 export function defaultConfig(): Config {
   return ConfigSchema.parse({});

@@ -10,7 +10,7 @@ import {
   type Config,
 } from '@aoe-supercharge/core/node';
 import {
-  controlAsks,
+  asksFromChat,
   countActiveWorkers,
   deskChanges,
   normalizeAoeStatus,
@@ -196,7 +196,8 @@ export class AoeWatcher {
   /**
    * What each control chat's latest reply lists under NEEDS YOU. Read once a reply is finished (idle,
    * or waiting on a menu); while it works on the next one the last list stands, so its lead keeps its
-   * place at your door. The list keeps the time it first had something on it.
+   * place at your door. The list keeps the time it first had something on it, and a reply to a watch
+   * notice only adds to it (`asksFromChat`): you answered nothing.
    */
   private async readAsks(views: SessionView[]): Promise<void> {
     if (!this.transcripts) return;
@@ -211,16 +212,7 @@ export class AoeWatcher {
         .map(async (v) => {
           if (v.status === 'idle' || v.status === 'waiting') {
             const chat = await transcripts.read(v.id, v.projectPath).catch(() => null);
-            const last = chat?.messages.at(-1);
-            if (last?.role === 'assistant') {
-              const text = last.blocks.map((b) => (b.kind === 'text' ? b.text : '')).join('\n');
-              const items = controlAsks(text);
-              const prev = this.asks.get(v.id);
-              this.asks.set(
-                v.id,
-                items.length ? { at: prev?.items.length ? prev.at : last.at, items } : null,
-              );
-            }
+            if (chat?.messages.at(-1)?.role === 'assistant') this.asks.set(v.id, asksFromChat(chat.messages));
           }
           v.asks = this.asks.get(v.id) ?? null;
         }),

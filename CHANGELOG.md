@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- **Worker watch.** Each project's control chat hears about its workers by itself: when a task's
+  worker, or a session the control chat started with `aoe add -P`, asks a question, is done, waits on
+  a permission prompt, errors or sits idle 15 minutes with nothing to report. One notice per event and
+  one per stall, also across restarts. Notices wait while the control chat is busy and go in together
+  once it is free, as `[WATCH] worker=… status=… kind=… log=…` lines (the shape `control-watch.sh`
+  used), with a capture of the worker's pane to read. Turn it off per project, or change the stall
+  time, under Settings, Worker watch. The control chat's side panel has a **Watch** tab with what it
+  was told and when.
+- **Notices, not bubbles.** `[WATCH]` lines in a chat, from Supercharge or from your own watcher, show
+  as compact notice rows (worker, what happened, when, Open and Log) instead of a message from you.
+  Messages typed while Claude was busy now show in the chat too.
+- **A notice is not your answer.** A control chat's reply to a notice can add to its NEEDS YOU list
+  but no longer clears it, so its lead stays in line at your door until you reply.
+
 ## 1.0.0 (2026-10-08)
 
 GitHub pull requests, MRs found by branch, merging without PRs, and new workers that start on

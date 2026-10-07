@@ -15,6 +15,9 @@ import {
   safeEqual,
   updateOfficeMark,
   dismissControlReply,
+  readWatchLog,
+  watchCapturePath,
+  watchEnabled,
   type NoteChange,
 } from '@aoe-supercharge/core/node';
 import {
@@ -23,6 +26,7 @@ import {
   type OfficeAction,
   type PlanComment,
   type SlashCommand,
+  type WatchResponse,
 } from '@aoe-supercharge/core/shared';
 import { VERSION, type Ctx } from '../context.ts';
 import { buildProjectStatus } from '../status.ts';
@@ -55,6 +59,7 @@ import {
 } from '../workflow.ts';
 import type { OfficeWatcher } from './office.ts';
 import type { Store } from './store.ts';
+import type { WorkerWatch } from './worker-watch.ts';
 
 export interface AppDeps {
   ctx: Ctx;
@@ -69,6 +74,7 @@ export interface AppDeps {
   testNotification: () => Promise<boolean>;
   transcripts: TranscriptStore;
   office?: OfficeWatcher;
+  watch?: WorkerWatch;
 }
 
 export const SESSION_COOKIE = 'sc_session';
@@ -541,6 +547,38 @@ export function createApp(deps: AppDeps) {
     if (!store.projects.some((p) => p.name === name))
       return c.json({ error: 'not_found', message: 'Unknown project' }, 404);
     return c.json({ text: await ctx.ledger.readNotes(name) });
+  });
+
+  // A project's worker watch: its settings at a glance and the notices it sent, newest first.
+  app.get('/api/projects/:name/watch', async (c) => {
+    const name = c.req.param('name');
+    if (!store.projects.some((p) => p.name === name))
+      return c.json({ error: 'not_found', message: 'Unknown project' }, 404);
+    const log = deps.watch ? await deps.watch.log(name) : await readWatchLog(ctx.paths, name);
+    const body: WatchResponse = {
+      enabled: watchEnabled(ctx.config, name),
+      stallMinutes: ctx.config.watch.stallMinutes,
+      watching: 0,
+      pending: log.filter((e) => e.state === 'pending').length,
+      lastAt: log.at(-1)?.at ?? null,
+      held: null,
+      ...store.watch[name],
+      project: name,
+      entries: log.slice(-100).reverse(),
+    };
+    return c.json(body);
+  });
+
+  // A pane capture the watch saved for a notice (the `log=` of its line).
+  app.get('/api/watch/logs/:file', async (c) => {
+    const file = watchCapturePath(ctx.paths, c.req.param('file'));
+    const text = file ? await readFile(file, 'utf8').catch(() => null) : null;
+    if (text === null) return c.json({ error: 'not_found', message: 'No such capture' }, 404);
+    return c.body(text, 200, {
+      'content-type': 'text/plain; charset=utf-8',
+      'cache-control': 'private, max-age=86400',
+      'x-content-type-options': 'nosniff',
+    });
   });
 
   app.put('/api/projects/:name/notes', async (c) => {

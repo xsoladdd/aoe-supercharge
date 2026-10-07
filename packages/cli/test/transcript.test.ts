@@ -131,6 +131,66 @@ describe('TranscriptParser: Claude Code JSONL → chat messages', () => {
     ]);
   });
 
+  it('shows [WATCH] lines as notices, not as something you typed', () => {
+    const p = new TranscriptParser();
+    const watch = '[WATCH] worker="fix-1989-ci" status=error kind=error log=/x/logs/fix-1989-ci.txt';
+    for (const l of [
+      user(watch, { uuid: 'u1', promptSource: 'typed', origin: { kind: 'human' } }),
+      // Several in one paste, with your own words after them.
+      user(
+        `<pasted_content id="p1">\n${watch}\n[WATCH] worker="other" status=idle kind=stalled\nWhat now?\n</pasted_content id="p1">`,
+        { uuid: 'u2' },
+      ),
+      user([{ type: 'text', text: '[WATCH] worker="third" kind=done' }], { uuid: 'u3' }),
+    ])
+      p.push(l);
+    expect(p.messages.map((m) => [m.id, m.role, m.blocks[0]!.kind])).toEqual([
+      ['u1:n0', 'notice', 'notice'],
+      ['u2:n0', 'notice', 'notice'],
+      ['u2:n1', 'notice', 'notice'],
+      ['u2', 'user', 'text'],
+      ['u3:n0', 'notice', 'notice'],
+    ]);
+    expect(p.messages[0]!.blocks[0]).toEqual({
+      kind: 'notice',
+      notice: expect.objectContaining({ worker: 'fix-1989-ci', kind: 'error', status: 'error' }),
+    });
+    expect(p.messages[3]!.blocks[0]).toEqual({ kind: 'text', text: 'What now?' });
+  });
+
+  it('shows a message typed while Claude was busy (a queued_command), once', () => {
+    const p = new TranscriptParser();
+    const queued = (prompt: string, uuid: string) =>
+      line({
+        type: 'attachment',
+        uuid,
+        timestamp: '2026-10-01T10:00:02.000Z',
+        attachment: { type: 'queued_command', prompt, commandMode: 'prompt', origin: { kind: 'human' } },
+      });
+    for (const l of [
+      user('Plan the launch', { uuid: 'u1' }),
+      assistant('m1', { type: 'text', text: 'On it' }),
+      queued('[WATCH] worker="w" status=idle kind=question', 'q1'),
+      queued('skip that, just proceed', 'q2'),
+      line({
+        type: 'attachment',
+        uuid: 'q3',
+        attachment: { type: 'queued_command', prompt: '/compact', commandMode: 'bash' },
+      }),
+      // Should the same words come back as a user record, they are the same message.
+      user('skip that, just proceed', { uuid: 'u2' }),
+      user('skip that, just proceed', { uuid: 'u3' }),
+    ])
+      p.push(l);
+    expect(p.messages.map((m) => [m.id, m.role, m.queued ?? false])).toEqual([
+      ['u1', 'user', false],
+      ['m1', 'assistant', false],
+      ['q1:n0', 'notice', true],
+      ['q2', 'user', true],
+      ['u3', 'user', false],
+    ]);
+  });
+
   it('merges split assistant records, skips thinking, and attaches tool results by id', () => {
     const p = new TranscriptParser();
     p.push(assistant('msg_1', { type: 'thinking', thinking: 'secret' }));

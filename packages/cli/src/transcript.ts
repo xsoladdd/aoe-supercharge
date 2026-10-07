@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import {
   clip,
   modelFromDisplay,
+  splitWatchNotices,
   toolSummary,
   type ChatBlock,
   type ChatMessage,
@@ -57,6 +58,8 @@ export class TranscriptParser {
   private toolById = new Map<string, ToolBlock>();
   /** A shell-mode command still waiting for its output. */
   private pendingShell: ShellBlock | null = null;
+  /** Messages shown from a `queued_command`, so a user record repeating one isn't shown again. */
+  private queuedTexts = new Set<string>();
 
   push(line: string): void {
     let rec: Record<string, unknown>;
@@ -79,6 +82,28 @@ export class TranscriptParser {
     const uuid = typeof rec.uuid === 'string' ? rec.uuid : `${this.messages.length}`;
     if (rec.type === 'user' && message) this.user(message.content, uuid, at, rec.origin);
     if (rec.type === 'assistant' && message) this.assistant(message.content, message.id ?? uuid, at);
+    if (rec.type === 'attachment') this.queued(rec.attachment, uuid, at);
+  }
+
+  /**
+   * A message typed while Claude was busy, which it took in mid-turn: recorded as a `queued_command`
+   * attachment rather than a user record (Claude Code 2.1.285). Shown like a typed one; should a user
+   * record with the same words follow, that one is the same message and is not shown twice.
+   */
+  private queued(attachment: unknown, id: string, at: string) {
+    const a = attachment as {
+      type?: unknown;
+      prompt?: unknown;
+      commandMode?: unknown;
+      origin?: unknown;
+    } | null;
+    if (a?.type !== 'queued_command' || (a.commandMode !== undefined && a.commandMode !== 'prompt')) return;
+    if (typeof a.prompt !== 'string') return;
+    const before = this.messages.length;
+    this.user(a.prompt, id, at, a.origin);
+    if (this.messages.length === before) return;
+    for (const m of this.messages.slice(before)) m.queued = true;
+    this.queuedTexts.add(unwrapPasted(a.prompt).trim());
   }
 
   /** Each reply records its model and effort; /model and /effort leave their output as a command echo. */
@@ -156,7 +181,8 @@ export class TranscriptParser {
     if (typeof content === 'string') {
       if (this.shell(content, id, at)) return;
       if (!content.trim() || NOT_TYPED.test(content)) return;
-      this.messages.push({ id, role: 'user', at, blocks: [{ kind: 'text', text: unwrapPasted(content) }] });
+      if (this.queuedTexts.delete(unwrapPasted(content).trim())) return;
+      this.typed(unwrapPasted(content), id, at);
       return;
     }
     if (!Array.isArray(content)) return;
@@ -174,8 +200,17 @@ export class TranscriptParser {
         texts.push('*(image)*');
       }
     }
-    if (texts.length)
-      this.messages.push({ id, role: 'user', at, blocks: [{ kind: 'text', text: texts.join('\n\n') }] });
+    if (texts.length) this.typed(texts.join('\n\n'), id, at);
+  }
+
+  /** A typed turn: each `[WATCH]` line in it is a notice of its own, the rest is what you wrote. */
+  private typed(text: string, id: string, at: string) {
+    const { notices, rest } = splitWatchNotices(text);
+    notices.forEach((notice, i) =>
+      this.messages.push({ id: `${id}:n${i}`, role: 'notice', at, blocks: [{ kind: 'notice', notice }] }),
+    );
+    if (!notices.length) this.messages.push({ id, role: 'user', at, blocks: [{ kind: 'text', text }] });
+    else if (rest) this.messages.push({ id, role: 'user', at, blocks: [{ kind: 'text', text: rest }] });
   }
 
   /**

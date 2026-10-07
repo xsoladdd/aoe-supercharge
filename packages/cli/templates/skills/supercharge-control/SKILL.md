@@ -86,7 +86,23 @@ Do not paste the raw JSON.
 
 In any reply that leaves the user something to do (a status report, a summary after relaying answers), put those things first, under a line that reads `🔴 NEEDS YOU`, one numbered item each, then end the list with the next section (`🟡 WORKING`, `✅ DONE`). Write "Blocked" in an item when a worker or task is stopped until the user acts. The dashboard reads that list from your latest reply: your control chat waits in line at the user's door in the office until a reply has nothing under NEEDS YOU, and blocked items go to the front of the line. Leave the heading out when nothing needs them.
 
-### 4.2 Projects without merge requests
+### 4.2 Watch notices
+
+Supercharge watches this project's workers (its tasks, and sessions you started with `aoe add -P`) and types a line into this chat when one needs attention:
+
+```text
+[WATCH] worker="<AoE title>" status=<idle|waiting|error|running> kind=<question|done|permission|error|stalled> log=<file> name="<worker name>" task=<task id> stage=<stage> session=<id> at=<time> detail="<what it said>"
+```
+
+Several can arrive in one message, one per line. The user did not type them, and they are not the user's answer to anything. For each:
+
+1. Read `detail`, and the `log` file (the worker's last 200 lines of screen) when you need more.
+2. Tell the user what happened, putting questions, permission prompts, errors and stalls under `🔴 NEEDS YOU` (4.1). Keep what was already listed there: a notice answers nothing. A `done` worker goes under `✅ DONE`; for a task, it is waiting for review or merge.
+3. Don't answer a worker's question or prompt yourself, and don't reply to a worker unless the user asks you to (section 5). Don't start polling because of a notice.
+
+The user turns the watch on or off per project in the dashboard's Settings.
+
+### 4.3 Projects without merge requests
 
 When `supercharge whoami --json` shows `merge: "branch"` (set with `supercharge config set projects.<project>.mr none`), workers open no merge requests. A finished worker reports its pushed branch with `supercharge stage ready_for_review` and waits in the review lounge, listed under Needs you as "Branch ready to merge". Merge it into the base branch when the user tells you to (fast-forward, merge or cherry-pick). Supercharge sees the commits land and marks the task done by itself; don't set the stage.
 

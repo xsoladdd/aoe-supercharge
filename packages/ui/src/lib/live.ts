@@ -11,6 +11,7 @@ import type {
   Snapshot,
   TaskRecord,
   UsageReport,
+  WatchSummary,
 } from '@aoe-supercharge/core/shared';
 import { ApiError, getJson } from './api';
 
@@ -80,6 +81,7 @@ function connectEvents() {
   on<OfficeState>('office', (office) => patchSnapshot({ office }));
   on<Record<string, SessionCost>>('costs', (costs) => patchSnapshot({ costs }));
   on<Record<string, MrState>>('session_mrs', (sessionMrs) => patchSnapshot({ sessionMrs }));
+  on<Record<string, WatchSummary>>('watch', (watch) => patchSnapshot({ watch }));
   source.onopen = () => set({ connection: 'live' });
   source.onerror = async () => {
     set({ connection: 'reconnecting' });

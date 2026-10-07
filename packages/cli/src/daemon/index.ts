@@ -16,6 +16,7 @@ import { MrWatcher } from './mr-watcher.ts';
 import { CostWatcher, OfficeWatcher, WeatherWatcher } from './office.ts';
 import { Store } from './store.ts';
 import { AoeWatcher, ConfigWatcher, LedgerWatcher, NotesWatcher } from './watchers.ts';
+import { WorkerWatch } from './worker-watch.ts';
 
 export const RESTART_EXIT_CODE = 75;
 
@@ -128,8 +129,10 @@ async function runWorker(): Promise<void> {
   const officeWatcher = new OfficeWatcher(ctx, store);
   const costWatcher = new CostWatcher(ctx, store, officeWatcher, transcripts);
   const weatherWatcher = new WeatherWatcher(ctx, store);
+  const workerWatch = new WorkerWatch(ctx, store, transcripts);
   const configWatcher = new ConfigWatcher(ctx, store, () => {
     aoeWatcher.nudge();
+    workerWatch.nudge();
     void officeWatcher.reloadMarks();
     weatherWatcher.reload();
   });
@@ -151,6 +154,7 @@ async function runWorker(): Promise<void> {
     officeWatcher.stop();
     costWatcher.stop();
     weatherWatcher.stop();
+    workerWatch.stop();
     await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
     setTimeout(() => process.exit(code), 50).unref();
     process.exit(code);
@@ -170,6 +174,7 @@ async function runWorker(): Promise<void> {
     testNotification: () => notify('Supercharge', 'Notifications are working.'),
     transcripts,
     office: officeWatcher,
+    watch: workerWatch,
   });
 
   await ledgerWatcher.start();
@@ -188,6 +193,7 @@ async function runWorker(): Promise<void> {
   await officeWatcher.start();
   costWatcher.start();
   weatherWatcher.reload();
+  workerWatch.start();
 
   await new Promise<void>((resolveListen, rejectListen) => {
     server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port }, () => resolveListen());

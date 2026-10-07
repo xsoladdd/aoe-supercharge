@@ -3,6 +3,7 @@
  * report format control chats use (🔴 NEEDS YOU, ✅ DONE, 🟡 WORKING). The office lines its lead up at
  * your door while there are any, and the ones that block work go to the front.
  */
+import type { ChatMessage } from './chat.ts';
 
 export interface ControlAsk {
   text: string;
@@ -83,4 +84,52 @@ export function controlAsks(reply: string): ControlAsk[] {
       text: text.length > MAX_TEXT ? `${text.slice(0, MAX_TEXT - 1)}…` : text,
       blocker: BLOCKS.test(text) && !NOT_BLOCKING.test(text),
     }));
+}
+
+/** A control chat's NEEDS YOU list, and since when it has had something on it. */
+export interface ControlAskList {
+  at: string;
+  items: ControlAsk[];
+}
+
+const replyText = (m: ChatMessage) => m.blocks.map((b) => (b.kind === 'text' ? b.text : '')).join('\n');
+
+/**
+ * What a control chat's NEEDS YOU list is after a conversation. Its last reply to each of your
+ * messages sets the list. A reply to a watch notice only adds to it: you answered nothing, so what
+ * was waiting on you still is. The list keeps the time it first had something on it.
+ */
+export function asksFromChat(messages: ChatMessage[]): ControlAskList | null {
+  let list: ControlAskList | null = null;
+  let fromNotice = false;
+  let reply: ChatMessage | null = null;
+  const settle = () => {
+    if (!reply) return;
+    const items = controlAsks(replyText(reply));
+    const at = list?.items.length ? list.at : reply.at;
+    if (!fromNotice) list = items.length ? { at, items } : null;
+    else if (items.length) {
+      const known = new Set(list?.items.map((i) => i.text));
+      list = {
+        at,
+        items: [...(list?.items ?? []), ...items.filter((i) => !known.has(i.text))].slice(0, MAX_ASKS),
+      };
+    }
+  };
+  for (const m of messages) {
+    if (m.role === 'assistant') {
+      reply = m;
+      continue;
+    }
+    // Taken in mid-turn: the reply under way answers it too. Something you typed makes it yours.
+    if (m.queued) {
+      if (m.role === 'user') fromNotice = false;
+      continue;
+    }
+    settle();
+    reply = null;
+    fromNotice = m.role === 'notice';
+  }
+  settle();
+  return list;
 }

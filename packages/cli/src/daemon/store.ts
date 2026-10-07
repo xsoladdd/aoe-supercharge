@@ -12,6 +12,7 @@ import {
   type SnapshotEvent,
   type TaskRecord,
   type UsageReport,
+  type WatchSummary,
 } from '@aoe-supercharge/core/shared';
 
 export type SeqEvent = SnapshotEvent & { seq: number };
@@ -38,6 +39,7 @@ export class Store {
   office: OfficeState = { marks: {} };
   costs: Record<string, SessionCost> = {};
   sessionMrs: Record<string, MrState> = {};
+  watch: Record<string, WatchSummary> = {};
   ui: Snapshot['ui'] = {
     theme: 'dark',
     density: 'comfortable',
@@ -72,6 +74,7 @@ export class Store {
       office: this.office,
       costs: this.costs,
       sessionMrs: this.sessionMrs,
+      watch: this.watch,
       ui: this.ui,
     };
   }
@@ -173,6 +176,12 @@ export class Store {
     if (same(sessionMrs, this.sessionMrs)) return;
     this.sessionMrs = sessionMrs;
     this.emit({ type: 'session_mrs', data: sessionMrs });
+  }
+
+  setWatch(watch: Record<string, WatchSummary>) {
+    if (same(watch, this.watch)) return;
+    this.watch = watch;
+    this.emit({ type: 'watch', data: watch });
   }
 
   setUi(ui: Snapshot['ui']) {

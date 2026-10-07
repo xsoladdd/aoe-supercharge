@@ -1,6 +1,6 @@
 import { ArrowsClockwiseIcon, BellRingingIcon, FloppyDiskIcon, SpeakerHighIcon } from '@phosphor-icons/react';
 import { useEffect, useMemo, useState } from 'react';
-import { doorLabel, type Health } from '@aoe-supercharge/core/shared';
+import { doorLabel, type Health, type ProjectRecord } from '@aoe-supercharge/core/shared';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -66,6 +66,7 @@ const SECTION_TITLE: Record<string, string> = {
   poll: 'Polling',
   mr: 'Merge requests',
   notifications: 'Notifications',
+  watch: 'Worker watch',
   ui: 'Appearance',
   office: 'Office',
   logging: 'Logging',
@@ -115,6 +116,8 @@ const LABEL: Record<string, string> = {
   'notifications.controlWaiting': 'A control chat waits',
   'notifications.error': 'A session errors',
   'notifications.waitingDebounceSeconds': 'Waiting debounce (s)',
+  'watch.enabled': 'Tell control chats about their workers',
+  'watch.stallMinutes': 'Stalled after idle (minutes)',
   'ui.theme': 'Theme',
   'ui.density': 'Density',
   'office.history.retentionDays': 'History kept (days)',
@@ -509,16 +512,70 @@ function Appearance({
   );
 }
 
+/**
+ * The worker watch per project (`projects.<name>.watch`): one switch for each project with a control
+ * chat, saved at once. Unset follows "Tell control chats about their workers".
+ */
+function WatchProjects({
+  projects,
+  config,
+  onSaved,
+}: {
+  projects: ProjectRecord[];
+  config: Record<string, unknown>;
+  onSaved: (project: string, on: boolean) => void;
+}) {
+  const watched = projects.filter((p) => p.controlSessionId);
+  const all = get(config, 'watch.enabled') !== false;
+  const save = (project: string, on: boolean) =>
+    sendJson('PUT', '/api/config', { patch: { projects: { [project]: { watch: on } } } })
+      .then(() => {
+        onSaved(project, on);
+        toast.success(on ? `Watching ${project}'s workers` : `Stopped watching ${project}'s workers`);
+      })
+      .catch((e: Error) => toast.error('Could not save the watch setting', { description: e.message }));
+  return (
+    <div className="border-t border-border py-3">
+      <div className="text-[0.9375rem] font-medium">Projects</div>
+      <div className="text-sm text-muted-foreground">Saved as soon as you switch.</div>
+      {watched.length ? (
+        <ul className="mt-2 divide-y divide-border">
+          {watched.map((p) => {
+            const own = get(config, `projects.${p.name}.watch`);
+            const on = typeof own === 'boolean' ? own : all;
+            return (
+              <li key={p.name} className="flex items-center justify-between gap-3 py-2">
+                <label
+                  htmlFor={`watch-${p.name}`}
+                  translate="no"
+                  className="min-w-0 truncate text-[0.9375rem]"
+                >
+                  {p.name}
+                </label>
+                <Switch id={`watch-${p.name}`} checked={on} onCheckedChange={(v) => void save(p.name, v)} />
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="mt-2 text-sm text-muted-foreground">No project has a control chat yet.</p>
+      )}
+    </div>
+  );
+}
+
 export function SettingsPage({
   health,
   sound,
   displayName,
   officeAnimations = true,
+  projects = [],
 }: {
   health: Health;
   sound: boolean;
   displayName: string;
   officeAnimations?: boolean;
+  projects?: ProjectRecord[];
 }) {
   const [data, setData] = useState<ConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -537,6 +594,12 @@ export function SettingsPage({
   useEffect(() => {
     void load();
   }, []);
+  // A link to a section (/settings#s-watch) scrolls to it once the sections are there.
+  const loaded = !!data;
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (loaded && id) document.getElementById(id)?.scrollIntoView({ block: 'start' });
+  }, [loaded]);
 
   const sections = useMemo(
     () =>
@@ -724,6 +787,23 @@ export function SettingsPage({
                     />
                   ))}
                 </div>
+                {key === 'watch' && (
+                  <WatchProjects
+                    projects={projects}
+                    config={data.config}
+                    onSaved={(project, on) =>
+                      setData((d) => {
+                        if (!d) return d;
+                        const all = (d.config.projects ?? {}) as Record<string, Record<string, unknown>>;
+                        const config = {
+                          ...d.config,
+                          projects: { ...all, [project]: { ...all[project], watch: on } },
+                        };
+                        return { ...d, config };
+                      })
+                    }
+                  />
+                )}
               </section>
             );
           })}

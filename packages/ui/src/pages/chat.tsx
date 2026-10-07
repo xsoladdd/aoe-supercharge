@@ -46,6 +46,7 @@ import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
 import { AnnotateDialog } from '@/components/chat/annotate';
 import { ChatMarkdown } from '@/components/chat/markdown';
 import { ModelMenu } from '@/components/chat/model-menu';
+import { NoticeRow } from '@/components/chat/notice';
 import { useSlashMenu } from '@/components/chat/slash-menu';
 import { ControlPanel } from '@/components/control-panel';
 import { shortPath, ToolCall } from '@/components/chat/tool-call';
@@ -80,9 +81,11 @@ import { cn } from '@/lib/utils';
 
 type Tool = Extract<ChatBlock, { kind: 'tool' }>;
 type Shell = Extract<ChatBlock, { kind: 'shell' }>;
+type Notice = Extract<ChatBlock, { kind: 'notice' }>;
 type Turn =
   | { kind: 'user'; id: string; text: string }
   | { kind: 'shell'; id: string; run: Shell }
+  | { kind: 'notices'; id: string; items: { id: string; at: string; notice: Notice['notice'] }[] }
   | { kind: 'assistant'; id: string; blocks: ChatBlock[] };
 type Segment = { kind: 'text'; key: string; text: string } | { kind: 'tools'; key: string; tools: Tool[] };
 
@@ -125,7 +128,13 @@ function toTurns(messages: ChatMessage[]): Turn[] {
   for (const m of messages) {
     const last = turns.at(-1);
     const run = m.blocks.find((b): b is Shell => b.kind === 'shell');
-    if (m.role === 'user')
+    if (m.role === 'notice') {
+      // Notices in a row stack together.
+      const group = last?.kind === 'notices' ? last : { kind: 'notices' as const, id: m.id, items: [] };
+      if (group !== last) turns.push(group);
+      for (const b of m.blocks)
+        if (b.kind === 'notice') group.items.push({ id: m.id, at: m.at, notice: b.notice });
+    } else if (m.role === 'user')
       turns.push(run ? { kind: 'shell', id: m.id, run } : { kind: 'user', id: m.id, text: userText(m) });
     else if (last?.kind === 'assistant') last.blocks.push(...m.blocks);
     else turns.push({ kind: 'assistant', id: m.id, blocks: [...m.blocks] });
@@ -137,7 +146,7 @@ function toSegments(blocks: ChatBlock[]): Segment[] {
   const out: Segment[] = [];
   for (const b of blocks) {
     const last = out.at(-1);
-    if (b.kind === 'shell') continue;
+    if (b.kind === 'shell' || b.kind === 'notice') continue;
     if (b.kind === 'text') out.push({ kind: 'text', key: `t${out.length}`, text: b.text });
     else if (last?.kind === 'tools') last.tools.push(b);
     else out.push({ kind: 'tools', key: b.id, tools: [b] });
@@ -1453,6 +1462,12 @@ export function SessionChat({
                 {turns.map((t) =>
                   t.kind === 'user' ? (
                     <UserBubble key={t.id} text={t.text} />
+                  ) : t.kind === 'notices' ? (
+                    <div key={t.id} className="space-y-1.5">
+                      {t.items.map((n) => (
+                        <NoticeRow key={n.id} notice={n.notice} at={n.at} sessions={snap.sessions} />
+                      ))}
+                    </div>
                   ) : t.kind === 'shell' ? (
                     <ShellRun
                       key={t.id}

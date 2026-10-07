@@ -465,6 +465,57 @@ test.describe('office', () => {
     }
   });
 
+  test('a watch notice and the reply to it leave the NEEDS YOU list alone; your reply clears it', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    const mk = (body: Record<string, unknown>) =>
+      fake('/__fake/sessions', { method: 'POST', body: JSON.stringify(body) }) as Promise<{ id: string }>;
+    const control = await mk({
+      title: `notice boss ${browserName}`,
+      project_path: `/tmp/notice-boss-${browserName}`,
+      status: 'Idle',
+    });
+    const worker = await mk({
+      title: `notice-worker-${browserName}`,
+      project_path: `/tmp/notice-boss-${browserName}-w`,
+      parent_session_id: control.id,
+      status: 'Running',
+    });
+    const send = (message: string) =>
+      fake('/__fake/send', { method: 'POST', body: JSON.stringify({ id: control.id, message }) });
+    const item = `Deploy (${browserName}): staging or prod? Blocked until you say.`;
+    try {
+      await fake(`/__fake/sessions/${control.id}/reply`, {
+        method: 'POST',
+        body: JSON.stringify({
+          text: ['🔴 NEEDS YOU', `1. ${item}`, '', '🟡 WORKING', '- worker: on it'].join('\n'),
+        }),
+      });
+      await page.goto('/');
+      const needs = page.locator('section[aria-labelledby="needs-you-heading"]');
+      await expect(needs.getByText(item)).toBeVisible({ timeout: 15_000 });
+      // A notice arrives; Claude answers it without restating the list.
+      await send(`[WATCH] worker="notice-worker-${browserName}" status=idle kind=done log=/tmp/w.txt`);
+      await page.goto(`/chat/${control.id}`);
+      const chat = page.getByRole('log', { name: /^Conversation with/ });
+      await expect(
+        chat.getByRole('note', { name: `Watch notice: notice-worker-${browserName}, done` }),
+      ).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(chat.getByText('I’ll take it from here')).toBeVisible({ timeout: 15_000 });
+      await page.goto('/');
+      await page.waitForTimeout(3_000);
+      await expect(needs.getByText(item)).toBeVisible();
+      // You answer; Claude's reply has nothing under NEEDS YOU.
+      await send('Staging first.');
+      await expect(needs.getByText(item)).toHaveCount(0, { timeout: 15_000 });
+    } finally {
+      for (const id of [worker.id, control.id]) await fake(`/__fake/sessions/${id}`, { method: 'DELETE' });
+    }
+  });
+
   test('an idle worker finishes up at its desk, then takes a break in the pantry', async ({
     signedIn: page,
   }) => {
