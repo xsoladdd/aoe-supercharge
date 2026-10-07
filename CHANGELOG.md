@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.4 (2026-10-07)
+
+Run a command in your control chat's own terminal.
+
+- **Run in terminal.** A command your control chat asks you to run (a `bash` block, or `` `! command` ``
+  in its text, which now gets a Run button too) can run in the control chat's own shell instead of
+  through Claude: the dialog offers Run in chat or Run in terminal. The terminal opens in the side panel's
+  new Shell tab, in the project's folder, and you can type in it like any terminal. It is the same shell
+  as AoE's Terminal tab: if you have it open in AoE, Take over moves the keyboard here. Each command run
+  this way is recorded in the audit log.
+- **"Control chat replied" no longer sends the control chat to your door** in the office. It still shows
+  in Needs you and notifies you; only what it actually asks of you (its NEEDS YOU list) puts it in line.
+
 ## 0.3.3 (2026-10-07)
 
 - **Workers your control chat starts through AoE are in the office.** A session started with
