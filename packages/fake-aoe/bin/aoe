@@ -107,6 +107,10 @@ if (cmd === '--version' || cmd === '-V') {
       status: has('-l') ? 'Starting' : 'Idle',
       // FAKE_AOE_START_MENU=trust: the session opens on the folder-trust dialog.
       ...(process.env.FAKE_AOE_START_MENU === 'trust' && has('-l') ? { menu: 'trust' } : {}),
+      // FAKE_AOE_SWALLOW_SENDS=N: the first N messages sent to it are lost.
+      ...(process.env.FAKE_AOE_SWALLOW_SENDS ? { swallow: Number(process.env.FAKE_AOE_SWALLOW_SENDS) } : {}),
+      // FAKE_AOE_NO_HOOKS=1: no Claude id is known until the first message goes in.
+      ...(process.env.FAKE_AOE_NO_HOOKS === '1' ? { hooks: false } : {}),
     }),
   });
   out(`Created session ${s.id}`);

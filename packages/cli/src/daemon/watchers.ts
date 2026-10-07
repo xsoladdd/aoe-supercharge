@@ -28,7 +28,7 @@ import { SHIPPED_COMPAT, type Ctx } from '../context.ts';
 import type { PromptReader } from '../prompt.ts';
 import type { TranscriptStore } from '../transcript.ts';
 import type { Store } from './store.ts';
-import { kickoffWorker } from '../workflow.ts';
+import { advanceKickoff, kickoffUnconfirmed } from '../workflow.ts';
 
 const nowIso = () => new Date().toISOString();
 
@@ -230,14 +230,15 @@ export class AoeWatcher {
 
   /**
    * A new worker whose first message `task new` could not send (still starting, a trust dialog open,
-   * the CLI gone): send it once the session is at its prompt (SPEC §8.2).
+   * the CLI gone) gets it once the session is at its prompt; one whose message was lost gets it again
+   * (SPEC §8.2).
    */
   private async kickoff(views: SessionView[]) {
     const byId = new Map(views.map((v) => [v.id, v]));
     for (const t of this.store.tasks) {
       const v = byId.get(t.aoeSessionId);
-      if (t.kickoffAt !== null || !v || v.archived) continue;
-      await kickoffWorker(this.ctx, t, { status: v.status, transcripts: this.transcripts, actor: 'daemon' })
+      if (!v || v.archived || (t.kickoffAt !== null && !kickoffUnconfirmed(t))) continue;
+      await advanceKickoff(this.ctx, t, { status: v.status, transcripts: this.transcripts, actor: 'daemon' })
         .then(
           (r) => r === 'sent' && this.ctx.logger.info('sent a new worker its first message', { task: t.id }),
         )

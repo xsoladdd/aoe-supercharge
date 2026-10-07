@@ -97,6 +97,10 @@ export interface TaskRecord {
    * tasks lack it and are never sent one.
    */
   kickoffAt?: string | null;
+  /** When the first message showed up in the worker's transcript; null while unconfirmed. */
+  kickoffSeenAt?: string | null;
+  /** How many times the first message was sent; above KICKOFF_MAX_TRIES once Supercharge gave up. */
+  kickoffTries?: number;
   createdAt: string;
   updatedAt: string;
   history: HistoryEntry[];
