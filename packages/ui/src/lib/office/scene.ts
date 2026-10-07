@@ -10,8 +10,6 @@ import {
   EntranceQueue,
   findPath,
   fnv1a,
-  formatTokens,
-  formatUsd,
   meterFill,
   HANDOVER_MS,
   officeLayout,
@@ -286,10 +284,7 @@ export class OfficeScene {
   private meterFor(w: OfficeWorker): Meter | null {
     const c = w.cost;
     if (!c || !c.total.tokens) return null;
-    return {
-      fill: meterFill(c, this.limits),
-      label: c.total.usd === null ? `${formatTokens(c.total.tokens)} tokens` : formatUsd(c.total.usd),
-    };
+    return { fill: meterFill(c, this.limits) };
   }
 
   private apply() {
