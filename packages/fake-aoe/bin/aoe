@@ -104,7 +104,9 @@ if (cmd === '--version' || cmd === '-V') {
       parent_session_id: parent,
       extra_args: val('--extra-args') ?? null,
       group_path: parentSession?.group_path ?? val('-g', '--group') ?? '',
-      status: has('-l') ? 'Running' : 'Idle',
+      status: has('-l') ? 'Starting' : 'Idle',
+      // FAKE_AOE_START_MENU=trust: the session opens on the folder-trust dialog.
+      ...(process.env.FAKE_AOE_START_MENU === 'trust' && has('-l') ? { menu: 'trust' } : {}),
     }),
   });
   out(`Created session ${s.id}`);

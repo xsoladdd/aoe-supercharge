@@ -379,6 +379,7 @@ branchPrefix = "feature/"
           "iid": 42, "url": "https://…/merge_requests/42", "state": "opened", "draft": false,
           "pipeline": "running", "unresolvedThreads": 2,
           "detailedMergeStatus": "not_approved", "checkedAt": "…" },
+  "kickoffAt": "…",
   "createdAt": "…", "updatedAt": "…",
   "history": [ { "at": "…", "from": "implementing", "to": "blocked",
                  "by": "worker", "note": "Final copy from client?" } ]
@@ -443,7 +444,8 @@ any stage ─► done (user/control, or the daemon on merge)
 2. Write `tasks/<id>/session-prompt.md` (worker role + title + brief + task id).
 3. `aoe add <repo> -t "<id> <title>" -P <control id> -w <branch> -b --base-branch <base> --tool claude -l --extra-args "--append-system-prompt-file <session-prompt.md> --permission-mode <agent.workerPermissionMode>"`. The title goes through argv, not the shell, so free text is safe there.
 4. Read back the session id and worktree path from `aoe list --json`, matched on `worktree.branch` and `parent_session_id`. The REST create response can't be used because REST can't set a parent. Write `task.json` with `stage: planning` and `parentSessionId` set to the control id. If any step fails after `aoe add` succeeded, roll back with `DELETE /api/sessions/{id}` and `delete_worktree: true` so nothing is left orphaned.
-5. Print the task id, branch, worktree and session id. JSON is available with `--json`. The control chat uses this.
+5. **Kickoff.** Claude Code does nothing with its system prompt until it gets a user message, so a new worker is sent one: "Start on your task: your brief is in your system prompt…" (the brief itself stays in the system prompt). `task.json` starts with `kickoffAt: null`. The message goes in once the session is `Idle` with no menu on screen. That covers the trust-folder dialog, because AoE's Enter would pick a menu option. It goes through the normal send path and is audited as `prompt_sent`. `task new` waits up to 30 s for the session (normally about 6 s). After that, the daemon's AoE poll sends it once the session is ready. Claiming `kickoffAt` inside the task lock means only one of them sends. A worker whose transcript already has a message someone typed is marked as kicked off without being sent one. Tasks from before this have no `kickoffAt` and are never sent one.
+6. Print the task id, branch, worktree and session id. JSON is available with `--json`. The control chat uses this.
 
 ### 8.3 Skills (user-level, rendered from `packages/templates`)
 Both skills start with the same guard: *"Run `supercharge whoami --json`. If `role` isn't `control`/`worker`, this skill doesn't apply; stop."* Their `description` frontmatter also names Supercharge explicitly, so the model doesn't pull them into unrelated sessions. The per-session prompt file tells the agent its role, so the skill is invoked deliberately.

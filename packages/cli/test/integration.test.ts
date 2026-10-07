@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
 import type { ChatResponse, NoteRecord, Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
 import type { HistoryRange } from '@aoe-supercharge/core/node';
+import { KICKOFF_MESSAGE } from '../src/workflow.ts';
 import {
   ASK_MENU,
   PERMISSION_MENU,
@@ -193,6 +194,13 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(fake.state.sessions.find((s) => s.id === worker.aoeSessionId)?.parent_session_id).toBe(controlId);
     const t = await readTask('NO-0001');
     expect(t.stage).toBe('planning');
+    // Claude Code waits for a first message, so the worker is sent one once it is at its prompt.
+    expect(fake.state.sent.filter((m) => m.id === worker.aoeSessionId).map((m) => m.message)).toEqual([
+      KICKOFF_MESSAGE,
+    ]);
+    expect(t.kickoffAt).toBeTruthy();
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"actor":"cli","action":"prompt_sent","project":"northwind","taskId":"NO-0001"/);
     expect(
       await readFile(
         join(home, '.local/share/supercharge/projects/northwind/tasks/NO-0001/session-prompt.md'),
@@ -1334,6 +1342,58 @@ describe('daemon: security, live state and the MR watcher', () => {
       body: JSON.stringify({ kind: 'todo', text: 'From the board', project: 'nope' }),
     });
     expect(added.status).toBe(404);
+  });
+
+  it('a new worker on the trust dialog gets its first message from the daemon once the menu is answered', async () => {
+    const r = await sc(['task', 'new', 'Trust first', '--force', '--json'], {
+      extraEnv: { FAKE_AOE_START_MENU: 'trust', SUPERCHARGE_KICKOFF_WAIT_MS: '1500' },
+    });
+    expect(r.code, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as TaskRecord & { warnings: string[]; worktree: string };
+    expect(out.warnings.join('\n')).toMatch(/not at its prompt yet.*the daemon sends its first message/);
+    const sentTo = () => fake.state.sent.filter((m) => m.id === out.aoeSessionId).map((m) => m.message);
+    // Typing over the menu would pick its option, so nothing goes in while it is open.
+    await sleep(2_500);
+    expect(sentTo()).toEqual([]);
+    expect((await readTask(out.id)).kickoffAt).toBeNull();
+    await fetch(`${fake.url}/__fake/sessions/${out.aoeSessionId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Idle', menu: null }),
+    });
+    await until(async () => sentTo().length > 0);
+    expect(sentTo()).toEqual([KICKOFF_MESSAGE]);
+    expect((await readTask(out.id)).kickoffAt).toBeTruthy();
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(new RegExp(`"actor":"daemon","action":"prompt_sent".*"taskId":"${out.id}"`));
+    // Sent once, however often the daemon looks again.
+    await sleep(2_500);
+    expect(sentTo()).toEqual([KICKOFF_MESSAGE]);
+    expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+  });
+
+  it('a new worker someone already wrote to is not sent a first message', async () => {
+    const r = await sc(['task', 'new', 'Already talking', '--force', '--json'], {
+      extraEnv: { FAKE_AOE_START_MENU: 'trust', SUPERCHARGE_KICKOFF_WAIT_MS: '0' },
+    });
+    expect(r.code, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as TaskRecord & { worktree: string };
+    // Someone typed in the terminal (straight past the dashboard), then the dialog was answered.
+    await fetch(`${fake.url}/__fake/send`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: out.aoeSessionId, message: 'Look at the footer first.' }),
+    });
+    await fetch(`${fake.url}/__fake/sessions/${out.aoeSessionId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Idle', menu: null }),
+    });
+    await until(async () => (await readTask(out.id)).kickoffAt);
+    expect(fake.state.sent.filter((m) => m.id === out.aoeSessionId).map((m) => m.message)).toEqual([
+      'Look at the footer first.',
+    ]);
+    expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
   });
 
   it('serves the project status in the control-chat format', async () => {
