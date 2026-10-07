@@ -209,6 +209,35 @@ describe('office: where a worker stands (SPEC §14.5)', () => {
     });
   });
 
+  it('a worker with no task but an MR for its branch waits in the review lounge (SPEC §11.3)', () => {
+    const open = mr('running')!;
+    expect(sessionSpot(session('idle'), [], NOW, open)).toMatchObject({
+      zone: 'review',
+      prop: 'folder_amber',
+      reason: 'Waiting on the pipeline',
+    });
+    expect(sessionSpot(session('idle', ago(1_000)), [], NOW, open)).toMatchObject({
+      zone: 'review',
+      hold: true,
+    });
+    expect(sessionSpot(session('stopped'), [], NOW, mr('success'))).toMatchObject({
+      zone: 'review',
+      prop: 'folder',
+      reason: 'MR ready for review',
+    });
+    expect(sessionSpot(session('idle'), [], NOW, mr('failed'))).toMatchObject({ prop: 'folder_red' });
+    expect(sessionSpot(session('idle'), [], NOW, { ...open, state: 'merged' })).toMatchObject({
+      prop: 'folder',
+      reason: 'MR merged',
+    });
+    expect(
+      sessionSpot(session('idle'), [], NOW, { ...open, pipeline: 'success', unresolvedThreads: 2 }),
+    ).toMatchObject({ prop: 'folder_amber', reason: '2 review threads open' });
+    // Working on it stays at the desk; the door still comes first.
+    expect(sessionSpot(session('working'), [], NOW, open).zone).toBe('desk');
+    expect(sessionSpot(session('waiting'), [item('permission')], NOW, open).zone).toBe('door');
+  });
+
   it('a NEEDS YOU list puts the lead in line; one that blocks work goes to the front', () => {
     const asks = [item('control_needs', ago(60_000)), item('control_needs', ago(60_000))];
     expect(leadSpot(session('idle'), asks)).toMatchObject({

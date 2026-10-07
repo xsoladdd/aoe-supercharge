@@ -246,6 +246,18 @@ export async function startDemo(opts: {
   await as('templates', ['stage', 'verifying', '--note', 'Storybook and visual tests green']);
   await as('templates', ['stage', 'mr_raised', '--mr', mrUrl(41, 'northwind/web')]);
   writeFileSync(join(glabDir, 'mr-41.json'), mrJson(41, 'northwind/web', 'opened', 'running'));
+  // MRs for branches of sessions a control chat starts with no task (office.spec: found by branch).
+  const crewMrs = (['chromium', 'firefox', 'webkit'] as const).map((engine, i) => ({
+    iid: 51 + i,
+    state: 'opened',
+    source_branch: `fix/hero-copy-${engine}`,
+    web_url: mrUrl(51 + i, 'northwind/web'),
+  }));
+  writeFileSync(join(glabDir, 'mr-list.json'), JSON.stringify(crewMrs));
+  for (const m of crewMrs) {
+    writeFileSync(join(glabDir, `mr-${m.iid}.json`), mrJson(m.iid, 'northwind/web', 'opened', 'success'));
+    writeFileSync(join(glabDir, `discussions-${m.iid}.json`), unresolved(0));
+  }
   writeFileSync(join(glabDir, 'discussions-41.json'), unresolved(2));
 
   await plan(

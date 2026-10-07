@@ -88,24 +88,28 @@ function poseOf(c: CharState): Pose {
   }
 }
 
+/** The recorded MR as the live floor carries it; the history keeps no provider, so its URL tells. */
+function mrOf(c: CharState): MrState | null {
+  if (!c.mr) return null;
+  return {
+    provider: /\/pull\/\d+/.test(c.mr.url) ? 'github' : 'gitlab',
+    host: '',
+    repo: '',
+    iid: c.mr.iid,
+    url: c.mr.url,
+    state: c.mr.state as MrState['state'],
+    draft: false,
+    pipeline: c.mr.pipeline,
+    unresolvedThreads: c.mr.threads,
+    detailedMergeStatus: null,
+    checkedAt: null,
+    error: null,
+  };
+}
+
 function taskOf(c: CharState): TaskRecord | null {
   if (!c.taskId || !c.stage) return null;
-  const mr: MrState | null = c.mr
-    ? {
-        provider: 'gitlab',
-        host: '',
-        repo: '',
-        iid: c.mr.iid,
-        url: c.mr.url,
-        state: c.mr.state as MrState['state'],
-        draft: false,
-        pipeline: c.mr.pipeline,
-        unresolvedThreads: c.mr.threads,
-        detailedMergeStatus: null,
-        checkedAt: null,
-        error: null,
-      }
-    : null;
+  const mr = mrOf(c);
   return {
     schema: 1,
     rev: 0,
@@ -151,6 +155,7 @@ export function historyModel(chars: CharState[]): OfficeModel {
         queuedSince: null,
       };
       const task = taskOf(c);
+      const mr = mrOf(c);
       return {
         key: c.key,
         role: c.role,
@@ -160,6 +165,7 @@ export function historyModel(chars: CharState[]): OfficeModel {
         title: c.role === 'lead' ? 'Team lead' : c.reason,
         task,
         session: null,
+        mr,
         desk: c.desk,
         outfit: outfitFor(c.role === 'lead' ? 'lead' : (c.taskId ?? c.sessionId ?? c.key), c.project),
         spot,

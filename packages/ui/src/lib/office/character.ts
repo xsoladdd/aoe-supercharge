@@ -20,7 +20,8 @@ export interface Meter {
 
 /** The MR badge under a worker in the review lounge: its number, pipeline and open threads. */
 export interface Badge {
-  iid: number;
+  /** `!12` (GitLab) or `#12` (GitHub). */
+  label: string;
   pipeline: 'ok' | 'failed' | 'running' | 'none';
   threads: number;
 }
@@ -800,7 +801,7 @@ export class Character {
 
   /** The MR badge (review lounge only); null hides it. */
   setBadge(b: Badge | null) {
-    const key = b ? `${b.iid}|${b.pipeline}|${b.threads}` : '';
+    const key = b ? `${b.label}|${b.pipeline}|${b.threads}` : '';
     if (key === this.badgeKey) return;
     this.badgeKey = key;
     this.badge = b;
@@ -814,7 +815,7 @@ export class Character {
         style: { fontFamily: FONT, fontSize: 9.5, fontWeight: '700', fill: p.nameplateText },
         resolution: 4,
       });
-    const num = text(`!${b.iid}`);
+    const num = text(b.label);
     const count = b.threads ? text(String(b.threads)) : null;
     const icons = new Graphics();
     let x = 6;

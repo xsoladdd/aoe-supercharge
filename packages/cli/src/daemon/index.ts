@@ -6,7 +6,7 @@ import { ensureToken, readDismissed, readJson, writeJsonAtomic } from '@aoe-supe
 import type { Health } from '@aoe-supercharge/core/shared';
 import { checkAoeCompat, createCtx, SHIPPED_COMPAT, VERSION } from '../context.ts';
 import { notify, Notifier } from '../notify.ts';
-import { mrProvider } from '../workflow.ts';
+import { mrProviders } from '../mr/index.ts';
 import { createApp } from './app.ts';
 import { attachShellSockets } from './shell.ts';
 import { PromptReader } from '../prompt.ts';
@@ -123,7 +123,7 @@ async function runWorker(): Promise<void> {
   const aoeWatcher = new AoeWatcher(ctx, store, new PromptReader(ctx, transcripts), transcripts);
   const ledgerWatcher = new LedgerWatcher(ctx, store);
   const notesWatcher = new NotesWatcher(ctx, store);
-  const mrWatcher = new MrWatcher(ctx, store, () => mrProvider(ctx.config, ctx.env));
+  const mrWatcher = new MrWatcher(ctx, store, () => mrProviders(ctx.config, ctx.env));
   const branchWatcher = new BranchWatcher(ctx, store);
   const officeWatcher = new OfficeWatcher(ctx, store);
   const costWatcher = new CostWatcher(ctx, store, officeWatcher, transcripts);

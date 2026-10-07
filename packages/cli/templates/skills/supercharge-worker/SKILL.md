@@ -48,6 +48,10 @@ Supercharge rejects invalid moves and tells you what is allowed instead.
      supercharge stage mr_raised --mr <merge-request-url>
      ```
 
+     The URL is a GitLab merge request (`https://<host>/<group>/<repo>/-/merge_requests/<iid>`) or a
+     GitHub pull request (`https://<host>/<owner>/<repo>/pull/<number>`). Without `--mr`, Supercharge
+     looks for an open one on your branch.
+
      After that, Supercharge watches the MR for you. It moves the task to `watching_mr` and then to
      `ready_for_review` once the pipeline passes and no review threads are open. Never set those two
      stages yourself.

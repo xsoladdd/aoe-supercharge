@@ -25,7 +25,7 @@
 | Claude Code | 2.1.236 | Has `--remote-control [name]`, `--plugin-dir`, `--append-system-prompt[-file]`, `--permission-mode` |
 | AoE | **1.17.2** (tarball install, `~/.local/bin/aoe`) | `aoe update --check`: 1.18.0 is available. Not upgraded. |
 | glab | 1.94.0 | Logged in to `gitlab.com` only. Two config files exist; glab warns on **stderr**, JSON stays on stdout. |
-| gh | 2.102.0 | |
+| gh | 2.102.0 | Logged in to `github.com`. The GitHub MR provider (§11.1) uses it read-only: `gh pr list`, `gh api graphql`. |
 | Caddy | not installed | Only needed for the opt-in clean-URL proxy |
 | Playwright | MCP available; cached Chromium + WebKit browsers | No Firefox cached |
 
@@ -95,6 +95,13 @@ Recorded fixtures (redacted, allowlist-based, produced by `scripts/phase0-redact
 - `glab mr view <iid|branch> -R <repo> -F json` returns `state`, `draft`, `detailed_merge_status`, `has_conflicts`, `head_pipeline.status`, `blocking_discussions_resolved`, `web_url`.
 - `blocking_discussions_resolved` is **true whenever the project doesn't require resolved threads**, so it can't be trusted. Unresolved threads are counted directly from `glab api projects/:id/merge_requests/:iid/discussions` (notes where `resolvable && !resolved`). This is where CodeRabbit's threads show up.
 - Self-hosted hosts: `glab auth login --hostname <host>`, and `glab api --hostname <host> …`.
+- `glab mr list -R <repo> --source-branch <b> --all -F json` lists a branch's MRs in every state (branch discovery, §11.4).
+
+### 1.4a GitHub via gh (2.102.0)
+
+- `gh pr list -R <host>/<owner>/<repo> --head <b> --state all --json number,url,state` lists a branch's pull requests (`OPEN`, `MERGED`, `CLOSED`).
+- One `gh api graphql --hostname <host>` query reads a pull request's `state`, `isDraft`, `mergeStateStatus`, the head commit's `statusCheckRollup.state` (check runs and commit statuses together: GitHub's stand-in for a pipeline) and `reviewThreads { isResolved }`.
+- GitHub Enterprise hosts: `gh auth login --hostname <host>`. Prompts and the update notifier are off (`GH_PROMPT_DISABLED`, `GH_NO_UPDATE_NOTIFIER`).
 
 ### 1.5 URL `http://supercharge.localhost:<port>`
 
@@ -244,9 +251,9 @@ supercharge daemon                        (hidden) foreground daemon, used by la
 
 **`doctor` checks:**
 1. OS supported; Node ≥ 24 and the service's pinned node path still exists.
-2. git, tmux, claude, glab found, with versions.
+2. git, tmux, claude, glab found, with versions; gh too (a warning only when missing: it is needed for GitHub repositories alone).
 3. AoE found and inside the compat range; `aoe serve` running and reachable; token readable.
-4. glab authenticated for every configured GitLab host.
+4. glab authenticated for every configured GitLab host; gh for every configured GitHub host (a warning).
 5. Config valid; directory permissions correct (config dir 0700, token 0600).
 6. Service installed and loaded; daemon reachable on the configured port; port not owned by something else.
 7. `supercharge.localhost` resolves.
@@ -292,10 +299,14 @@ mr = 60
 reconcile = 60
 
 [mr]
-provider = "gitlab"
+provider = "auto"                # deprecated: the provider is picked per project from its remote, per MR from its URL
 [mr.gitlab]
 hosts = ["gitlab.com"]           # add self-hosted hosts, e.g. "gitlab.example.com"
 glabBinary = "glab"
+readyRequiresNonDraft = false
+[mr.github]
+hosts = ["github.com"]           # add GitHub Enterprise hosts, e.g. "github.example.com"
+ghBinary = "gh"
 readyRequiresNonDraft = false
 
 [notifications]
@@ -560,30 +571,47 @@ Only `ClaudeCodeAdapter` is built. The rest of the code depends on the interface
 ### 11.1 Provider seam
 ```ts
 interface MrProvider {
-  id: 'gitlab';
-  matches(remoteUrl: string): boolean;                          // host ∈ mr.gitlab.hosts
-  findOpenMrForBranch(repo: RepoRef, branch: string): Promise<MrRef | null>;
+  id: 'gitlab' | 'github';
+  matches(remote: RemoteRef | null): boolean;                   // host ∈ mr.<provider>.hosts
+  parseUrl(url: string): MrRef | null;
+  findOpenMrForBranch(remote: RemoteRef, branch: string): Promise<MrRef | null>;
+  findMrForBranch(remote: RemoteRef, branch: string): Promise<FoundMr | null>; // newest open, else newest merged
   status(ref: MrRef): Promise<MrStatus>; // state, draft, pipeline, unresolvedThreads, mergeStatus, url
-  doctor(): Promise<Check[]>;                                    // glab present + auth per host
+  doctor(): Promise<Check[]>;                                    // binary present + auth per host
 }
 ```
-`GitLabGlabProvider`:
+A project's provider is the one whose hosts include its remote's host; an MR's is picked from its URL (`stage mr_raised --mr`) or from the provider it was recorded with (`MrState.provider`). `--mr` takes `https://<host>/<group>/<repo>/-/merge_requests/<iid>` (GitLab) or `https://<host>/<owner>/<repo>/pull/<number>` (GitHub). The dashboard names them `!iid` and `#number`.
+
+`GitLabProvider` (glab):
 - `glab mr view <iid> -R <host>/<repo> -F json`
 - `glab api --hostname <host> projects/<id>/merge_requests/<iid>/discussions --paginate`
-- Reads stdout only; stderr goes to debug logs. Timeout 20 s, concurrency 2, jittered schedule. On rate limit it backs off ×2, up to 10 min.
+
+`GitHubProvider` (gh), §1.4a:
+- `gh api graphql --hostname <host>`: one query per check. State `OPEN`/`MERGED`/`CLOSED` → `opened`/`merged`/`closed`; the check rollup `SUCCESS` → `success`, `FAILURE`/`ERROR` → `failed`, `PENDING` → `running`, `EXPECTED` → `pending`, none → no pipeline; unresolved threads = review threads with `!isResolved`; `mergeStateStatus` → `detailedMergeStatus`.
+
+Both read stdout only; stderr goes to debug logs. Timeout 20 s, concurrency 2, jittered schedule. On rate limit it backs off ×2, up to 10 min.
 
 ### 11.2 Rules (pure function, unit-tested against glab fixtures)
-- **Ready:** `state = opened` ∧ `head_pipeline.status = success` ∧ unresolved resolvable threads = 0 (∧ `!draft` if `mr.gitlab.readyRequiresNonDraft`). The watcher then moves the task to `ready_for_review` and sends a desktop notification.
+- **Ready:** `state = opened` ∧ `head_pipeline.status = success` ∧ unresolved resolvable threads = 0 (∧ `!draft` if `mr.<provider>.readyRequiresNonDraft`). The watcher then moves the task to `ready_for_review` and sends a desktop notification.
 - **Merged:** the task moves to `done`.
 - **Closed without merge:** the stage stays as is, and a Needs-you item reads "MR closed".
 - **Pipeline failed:** the task stays in `watching_mr` and the dashboard shows the failure. No automatic prompts to the worker in v1.
-- Only tasks in `mr_raised`, `watching_mr` or `ready_for_review` **with an MR** are polled. This script does the watching, not an LLM.
+- Only tasks in `mr_raised`, `watching_mr` or `ready_for_review` **with an MR** are polled for status (plus the branch lookups of §11.4). This script does the watching, not an LLM.
 
 ### 11.3 Branches without an MR
 For projects that merge branches directly (`[projects.<name>] mr = "none"`; `whoami --json` then reports `merge: "branch"`, otherwise `"mr"`):
 - The worker pushes its branch and runs `supercharge stage ready_for_review` (no `--mr`). It is refused when the branch has no commits that aren't on `baseBranch` ("nothing to merge"). The branch head is kept as `TaskRecord.readyHead`; going back to `implementing` clears it. The setting only steers the worker skill; the move works on any project for a task without an MR.
 - The task then shows like any ready task: a green folder in the review lounge with the reason **"Branch ready to merge"** and a branch chip in place of the MR badge (`data-branch-badge`), an `mr_ready` Needs-you item ("Branch ready to merge: <branch>") with its notification, and `readyForReview` in `status --json` with `mrUrl: null` and the `branch`.
 - **Landing** (`BranchWatcher`, `daemon/branch-watcher.ts`, apart from the MR watcher): every `poll.mr` seconds, for each `ready_for_review` task with no MR, in the main checkout, local refs only (no fetch): the branch head (or `readyHead` once the branch is gone) has landed on `<baseBranch>` or `origin/<baseBranch>` when it is an ancestor of it (fast-forward or merge), or when `git cherry` finds every one of its commits there by patch (cherry-picked or rebased, the patch equivalence `git range-diff` uses). The daemon then moves the task to `done` with the note "Branch landed on <base>".
+
+### 11.4 Branch discovery
+
+Some MRs are opened without `stage mr_raised`: by the crew a control chat starts straight through AoE (no task; §14.5), and by a worker that forgot to report it. Each MR-watcher round, after the tasks, looks them up by branch, at the same cadence, concurrency and backoff (a rate limit in the task pass skips discovery for that round).
+
+- **Crew sessions with no task** (`spawnedSessions`): the branch is the AoE session's `branch`, else `git -C <projectPath> rev-parse --abbrev-ref HEAD` (a session added on a plain path has no AoE worktree). Never AoE's worktree metadata or the ledger. The project's remote picks the provider; the project's default branch is skipped.
+- **Tasks** in `implementing` or `verifying` with no MR whose session is idle or stopped (a worker at work may be about to report it): when its branch has an MR, the daemon raises it (`mr_raised`, "Found MR !N for the branch"), as after an adoption, and the watcher takes it from there.
+- `findMrForBranch` returns the branch's newest open MR, else its newest merged one; closed ones are ignored (a reused branch). A found open MR is checked every round, like a task's; merged and closed are final until the branch changes; a branch with no MR is looked up again at most every 5 minutes.
+- **Observed, not owned.** A crew session's MR lives in the daemon's memory, never in the ledger: `Snapshot.sessionMrs` (by session id, SSE `session_mrs`). A synthetic task would make Supercharge own the session (stages, desk, Needs you, status counts, purge); adopting one is an explicit action of its own. After a restart it is found again on the first round. It raises no Needs-you items or notifications.
 
 ---
 
@@ -876,7 +904,7 @@ Seven features from the owner's brief (`docs/office-v2-brief.md`), planned in `d
 - **History.** The daemon (`OfficeWatcher`) builds the floor 250 ms after every change (and when a hold runs out) and appends one `move` record per character whose zone, reason, prop, stage, desk or MR (state, pipeline) changed, its arrival (`from: null`) and its departure (`zone: "gone"`). A move carries `{ ts, key, sessionId, parentId, project, taskId, worktree, name, role, desk, from, zone, reason, prop, stage, cost, mr }`. A `frame` (everyone's state just before) is written at daemon start, at the first write of each UTC day, and at least every 6 hours. The state at any time is the latest frame before it plus the moves after it (`officeAt`, pure). Records go in `$XDG_STATE_HOME/supercharge/history/YYYY-MM-DD.jsonl` (UTC days). Days older than `office.history.retentionDays` (default 30) are deleted at start and daily. History starts when 0.5.0 runs; there is no backfill. `GET /api/office/history` serves it (§12).
 - **Rooms.** Each project's team block is a room: low glass panes along every edge of its rug (`TeamPlan.walls`), a doorway two tiles wide in the middle of its front edge (`TeamPlan.doorway`) with posts, a lintel and the project's nameplate in its team colour, and its team sign inside. The grid knows the panes as edge walls (`Grid.wall`, keyed by `edgeKey`): A\* never steps across one, nor diagonally past either end of one, so everyone comes and goes through the doorway. Rooms keep the grid of team blocks (2 to 3 per row, a corridor between them) and grow with desks; 2 to 3 projects with 5 to 10 desks each are tested not to overlap. The chips are generated from the projects; a room's chip flies the camera to it, and the floor root carries `data-rooms` (the room names, in order) for tests. Each pane is drawn as its own piece at its middle's depth, so the back glass is behind whoever is inside and the front glass in front of them.
 - **Arrivals and errands.** `planMoves(seen, model)` (`office-moves.ts`, pure) says how each character moves from what the scene last saw: `place` (nothing seen: first load or a reconnect, so nobody walks), `spawn` (new: in through the entrance), `finish`, `walk` or `stay`. **Finish** (`isFinish`): a worker leaves its desk for the review lounge, or for the pantry with an MR open (`mr_raised`, `watching_mr`, `ready_for_review`), and its team has a lead. It walks to the front of the lead's desk carrying a folder, stands there while the lead holds it up (`HANDOVER_MS`, 1.4 s), then walks on. A new place while on the errand cancels it. **Spawns** queue at the entrance (`EntranceQueue`): each newcomer waits out of sight until `SPAWN_GAP_MS` (0.9 s) after the one before. A whole new snapshot (a reconnect that could not replay, counted as `epoch` by the live store) places everyone again with no walking, errands or queue. The floor root carries `data-errands` (who is on the errand) and `data-arriving` (how many wait outside) for tests.
-- **Review lounge** (`review` zone; `layout.review`, in front of the pantry: a pool table, a cue rack, places round the table first). A worker in `mr_raised`, `watching_mr` or `ready_for_review` whose session is idle (after the same 15 s at the desk) or stopped waits here instead of the pantry; working on feedback puts it back at its desk. `mr_ready` and `mr_closed` no longer put anyone at your door: they still show in Needs you and notify, and the worker waits in the lounge with its folder (`folderFor`): **red** (`folder_red`) when the pipeline failed or was cancelled, or the MR was closed; **green** (`folder`) when the stage is `ready_for_review` or the MR merged ("Branch ready to merge" for a branch with no MR, §11.3); **amber** (`folder_amber`) while the pipeline runs or review threads are open ("2 review threads open"). Under each character in the lounge an **MR badge** shows `!iid`, the pipeline (tick, cross, dot while it runs, ring when there is none) and the open review threads; clicking it opens the MR in a new tab. The roster has a **Review lounge** section whose rows carry the same badge as a link (`data-mr-badge`, an `aria-label` that says it all). The header reads "N at your door · N at desks · N in review · N in the pantry", and a **Review lounge** chip flies there. The MR data is `TaskRecord.mr` from the existing `glab` watcher: no new polling. "Review threads" are the unresolved resolvable threads, whoever opened them (CodeRabbit's included).
+- **Review lounge** (`review` zone; `layout.review`, in front of the pantry: a pool table, a cue rack, places round the table first). A worker in `mr_raised`, `watching_mr` or `ready_for_review` whose session is idle (after the same 15 s at the desk) or stopped waits here instead of the pantry; working on feedback puts it back at its desk. `mr_ready` and `mr_closed` no longer put anyone at your door: they still show in Needs you and notify, and the worker waits in the lounge with its folder (`folderFor`): **red** (`folder_red`) when the pipeline failed or was cancelled, or the MR was closed; **green** (`folder`) when the stage is `ready_for_review` or the MR merged ("Branch ready to merge" for a branch with no MR, §11.3); **amber** (`folder_amber`) while the pipeline runs or review threads are open ("2 review threads open"). Under each character in the lounge an **MR badge** shows `!iid`, the pipeline (tick, cross, dot while it runs, ring when there is none) and the open review threads; clicking it opens the MR in a new tab. The roster has a **Review lounge** section whose rows carry the same badge as a link (`data-mr-badge`, an `aria-label` that says it all). The header reads "N at your door · N at desks · N in review · N in the pantry", and a **Review lounge** chip flies there. The MR data is `OfficeWorker.mr`: a task's `TaskRecord.mr` from the MR watcher, or for a crew session with no task the MR found for its branch (`Snapshot.sessionMrs`, §11.4). Such a session waits in the lounge on the same terms (idle after the dwell, or stopped), with the folder its MR would give a task: green when ready (pipeline passed, no open threads) or merged, red when the pipeline failed or the MR was closed, amber otherwise. No polling beyond the MR watcher's. The badge reads `!iid` for GitLab and `#number` for GitHub. "Review threads" are the unresolved resolvable threads, whoever opened them (CodeRabbit's included).
 - **Cost and tokens.** Source: each AoE session's live Claude Code conversation (the transcript `TranscriptStore` already reads for the chat view). Every assistant record carries `message.usage`; the records of one reply repeat it, so it is counted once per `message.id` (`TranscriptParser.usage`); sidechains are skipped; cache writes are split by TTL from `usage.cache_creation` (5-minute when it is missing) and `usage.speed` is kept. The cost is an **estimate**: tokens times the per-model price table in `core/shared/model-prices.ts` (Claude API first-party rates, checked against Anthropic's pricing page on 2026-10-07; cache writes 1.25x and 2x input, reads per model; fast mode on its own rates for the models that have it). A model not in the table shows tokens only. On a Claude plan it is the API-equivalent value, not a bill, and every figure says "≈" and "estimate". The daemon (`CostWatcher`) reads what is new every 15 s for the sessions on the floor and puts a `SessionCost` per session in the snapshot (`costs`, by session id; a `costs` event on change): the whole conversation, today (since local midnight), the last hour, by kind, the model, and when it last showed progress (an Edit, Write, MultiEdit or NotebookEdit call, or its task changing stage). A /clear starts a new conversation and the meter starts again.
 - **Meters:** under each character a small bar fills towards `office.runaway.sessionTokens` (green, amber from 60%, red from 90%), with no figure on the floor; the roster rows and the worker card show the estimate ("≈ $1.20 · 2.3M tokens"; the card adds today, the last hour and the model). The header adds "Today ≈ $X · now ≈ $Y (estimate)": now is the live conversations of everyone on the floor, today the part of them since local midnight; unpriced tokens are counted apart.
 - **Runaways** (`runawayReasons`, pure): over `office.runaway.sessionTokens` tokens in one conversation (default 50,000,000, every kind, cache reads included); over `office.runaway.usdPerHour` estimated in the last hour (default 20); or working, replying in the last two minutes, and no progress for `office.runaway.stallMinutes` (default 30). 0 turns a check off. A flagged character wears a red warning triangle, its row and card say why, the header shows "N need attention" (click: pick the first), the dashboard toasts once when someone is newly flagged, and the daemon sends one desktop notification per runaway (`notifications.runaway`, default on).
@@ -984,7 +1012,7 @@ Each phase ends with green CI, an updated README, a summary of what changed and 
 ---
 
 ## 19. Out of scope for v1
-Windows; agents other than Claude Code; GitHub provider (`gh`); exposing the dashboard beyond localhost; automatic prompts to workers (for example on CI failure); managing AoE beyond ensuring `aoe serve` is running.
+Windows; agents other than Claude Code; exposing the dashboard beyond localhost; automatic prompts to workers (for example on CI failure); managing AoE beyond ensuring `aoe serve` is running.
 
 ---
 

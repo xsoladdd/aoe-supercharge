@@ -93,9 +93,17 @@ export function buildProgram(): Command {
       await ensureConfigFile(x.paths);
       await ensureToken(x.paths);
       const tools = await Promise.all(
-        ['aoe', 'tmux', 'git', 'glab', 'claude', x.config.aoe.binary, x.config.mr.gitlab.glabBinary].map(
-          (b) => which(b),
-        ),
+        [
+          'aoe',
+          'tmux',
+          'git',
+          'glab',
+          'gh',
+          'claude',
+          x.config.aoe.binary,
+          x.config.mr.gitlab.glabBinary,
+          x.config.mr.github.ghBinary,
+        ].map((b) => which(b)),
       );
       const svc = serviceManager(x.paths);
       await svc.install({

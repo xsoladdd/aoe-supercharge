@@ -25,6 +25,7 @@ import {
   type LiveStatus,
   type MrState,
   type Stage,
+  mrLabel,
 } from '@aoe-supercharge/core/shared';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -192,7 +193,7 @@ export function MrBadge({ mr, className }: { mr: MrState | null; className?: str
       onClick={(e) => e.stopPropagation()}
     >
       <span translate="no" className="font-mono text-foreground">
-        !{mr.iid}
+        {mrLabel(mr)}
       </span>
       <span className={cn('inline-flex items-center gap-1 whitespace-nowrap', tone)}>
         <GitPullRequestIcon weight="bold" className="size-4" aria-hidden />

@@ -1,5 +1,6 @@
+import { evaluateMr } from './mr-rules.ts';
 import { STAGE_LABEL, type Stage } from './stages.ts';
-import type { NeedsYouItem, NeedsYouKind, SessionView, TaskRecord } from './types.ts';
+import type { MrState, NeedsYouItem, NeedsYouKind, SessionView, TaskRecord } from './types.ts';
 
 /**
  * The office view (SPEC §14.5): where a worker stands *is* its status. Everyone who needs you queues
@@ -230,26 +231,35 @@ export function officeSpot(
 
 /**
  * A worker its control chat started straight through AoE (`aoe add -P`), with no task: placed by its
- * session alone, since it has no stage or merge request.
+ * session alone, since it has no stage. When an MR was found for its branch (SPEC §11.4) it waits in
+ * the review lounge with its folder, as a task's worker does.
  */
 export function sessionSpot(
   session: Pick<SessionView, 'status' | 'statusSince' | 'archived'>,
   items: NeedsYouItem[],
   now: Date = new Date(),
+  mr: MrState | null = null,
 ): OfficeSpot {
   const door = atDoor(items);
   if (door) return door;
   if (session.archived) return spot('away', 'away', null, 'Archived');
   if (session.status === 'working') return spot('desk', 'typing', null, 'Working');
-  if (session.status === 'stopped') return spot('away', 'away', null, 'Stopped');
+  if (session.status === 'stopped')
+    return mr ? reviewSpot(sessionMrStage(mr)) : spot('away', 'away', null, 'Stopped');
   if (session.status === 'idle') {
     const idleFor = session.statusSince ? now.getTime() - Date.parse(session.statusSince) : Infinity;
-    const s = spot('pantry', 'coffee', 'mug', 'Idle');
+    const s = mr ? reviewSpot(sessionMrStage(mr)) : spot('pantry', 'coffee', 'mug', 'Idle');
     if (idleFor < PANTRY_DWELL_MS)
       return { ...s, hold: true, holdUntil: now.getTime() + PANTRY_DWELL_MS - idleFor };
     return s;
   }
   return spot('desk', 'waiting', null, session.status === 'waiting' ? 'Waiting' : 'Checking in', true);
+}
+
+/** The stage a task with this MR would be in, for a session that has no task: ready or still watching. */
+export function sessionMrStage(mr: MrState): Pick<TaskRecord, 'stage' | 'mr'> {
+  const ready = evaluateMr(mr, { requireNonDraft: false }) === 'ready';
+  return { stage: ready ? 'ready_for_review' : 'watching_mr', mr };
 }
 
 function pantry(task: Pick<TaskRecord, 'stage' | 'openQuestion' | 'mr'>): OfficeSpot {

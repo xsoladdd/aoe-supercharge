@@ -18,6 +18,7 @@ import {
   type Prop,
   type Tile,
   type Zone,
+  mrLabel,
 } from '@aoe-supercharge/core/shared';
 import type { OfficeModel, OfficeWorker } from '@/lib/office';
 import { BOARD_H, buildStatic, drawSky, FONT, type StaticOffice } from './art';
@@ -137,11 +138,11 @@ function handsFor(w: OfficeWorker): Hands {
 
 /** The MR badge for a worker in the review lounge (SPEC §14.5); nobody else wears one. */
 function badgeFor(w: OfficeWorker): Badge | null {
-  const mr = w.task?.mr;
+  const mr = w.mr;
   if (w.zone !== 'review' || !mr) return null;
   const p = mr.pipeline;
   return {
-    iid: mr.iid,
+    label: mrLabel(mr),
     pipeline:
       p === 'success'
         ? 'ok'
@@ -1157,8 +1158,8 @@ export class OfficeScene {
     }
     const world = this.camera.toWorld(p.x, p.y);
     for (const b of this.walkers.values())
-      if (!b.hidden && b.worker.task?.mr && b.ch.onBadge(world.x, world.y)) {
-        this.opts.events.openMr(b.worker.task.mr.url);
+      if (!b.hidden && b.worker.mr && b.ch.onBadge(world.x, world.y)) {
+        this.opts.events.openMr(b.worker.mr.url);
         return;
       }
     const w = this.hit(p.x, p.y);

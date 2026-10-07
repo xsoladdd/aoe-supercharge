@@ -378,6 +378,46 @@ test.describe('office', () => {
     }
   });
 
+  test('a session with no task whose branch has an MR waits in the review lounge with its badge', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    const control = await sessionId('northwind-web control');
+    const iid = 51 + ['chromium', 'firefox', 'webkit'].indexOf(browserName);
+    const { id } = (await fake('/__fake/sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: `hero copy ${browserName}`,
+        project_path: `/tmp/northwind-hero-${browserName}`,
+        branch: `fix/hero-copy-${browserName}`,
+        parent_session_id: control,
+        status: 'Idle',
+      }),
+    })) as { id: string };
+    try {
+      await page.goto('/office?view=list');
+      const lounge = page.locator('[data-zone-section="review"]');
+      const row = lounge.locator(`li[data-session="${id}"]`);
+      // Found on the MR watcher's next round (every 10 s here), then past the pantry dwell.
+      await expect(row).toHaveAttribute('data-zone', 'review', { timeout: 45_000 });
+      await expect(row.getByText('MR ready for review')).toBeVisible();
+      const badge = row.getByRole('link', {
+        name: new RegExp(`^MR !${iid}: pipeline passed, 0 open review threads`),
+      });
+      await expect(badge).toHaveAttribute(
+        'href',
+        `https://gitlab.example.com/northwind/web/-/merge_requests/${iid}`,
+      );
+      // Back to work: back at a desk.
+      await setStatus(id, 'Running');
+      await expect(page.locator(`li[data-session="${id}"]`)).toHaveAttribute('data-zone', 'desk', {
+        timeout: 15_000,
+      });
+    } finally {
+      await fake(`/__fake/sessions/${id}`, { method: 'DELETE' });
+    }
+  });
+
   test("a control chat's NEEDS YOU list waits on you until a reply has none", async ({
     signedIn: page,
     browserName,

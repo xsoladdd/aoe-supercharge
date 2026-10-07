@@ -314,6 +314,31 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(refused.stderr).toMatch(/automatically/);
   });
 
+  it('mr_raised takes a GitHub pull request URL; anything else is refused with both shapes', async () => {
+    const bad = await asWorker(['stage', 'mr_raised', '--mr', 'https://github.com/acme/northwind/issues/3']);
+    expect(bad.code).toBe(2);
+    expect(bad.stderr).toMatch(/merge_requests.*pull/s);
+    for (const stage of ['implementing', 'verifying']) {
+      const r = await asWorker(['stage', stage]);
+      expect(r.code, r.stderr).toBe(0);
+    }
+    const r = await asWorker(['stage', 'mr_raised', '--mr', 'https://github.com/acme/northwind/pull/12']);
+    expect(r.code, r.stderr).toBe(0);
+    expect((await readTask('NO-0001')).mr).toMatchObject({
+      provider: 'github',
+      host: 'github.com',
+      repo: 'acme/northwind',
+      iid: 12,
+      url: 'https://github.com/acme/northwind/pull/12',
+    });
+    // Back on the GitLab MR the watcher tests below expect.
+    for (const stage of ['implementing', 'verifying', 'mr_raised']) {
+      const back = await asWorker(['stage', stage]);
+      expect(back.code, back.stderr).toBe(0);
+    }
+    expect((await readTask('NO-0001')).mr).toMatchObject({ provider: 'gitlab', iid: 7 });
+  });
+
   const reset5 = Math.floor(Date.now() / 1000) + 3600;
   const reset7 = Math.floor(Date.now() / 1000) + 3 * 86_400;
   const statusInput = (fiveHour: number, extra: object = {}) =>

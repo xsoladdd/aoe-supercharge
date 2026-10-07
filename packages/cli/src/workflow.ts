@@ -12,6 +12,7 @@ import {
 import {
   derivePrefix,
   isSlug,
+  mrLabel,
   nextStageHint,
   slugify,
   STAGE_LABEL,
@@ -34,7 +35,7 @@ import {
 } from '@aoe-supercharge/core/shared';
 import type { AoeCliListEntry } from './aoe/schemas.ts';
 import { VERSION, type Ctx } from './context.ts';
-import { GitLabProvider, type MrProvider } from './mr/gitlab.ts';
+import { mrProviders, toMrState } from './mr/index.ts';
 import { installUserSkills, readTemplate, render, SKILL_NAMES, upsertManagedBlock } from './skills.ts';
 import { TerminalBusyError } from './aoe/client.ts';
 import { menuOnScreen } from './prompt.ts';
@@ -52,10 +53,6 @@ import {
   remoteUrl,
   revParse,
 } from './util/git.ts';
-
-export function mrProvider(config: Config, env: NodeJS.ProcessEnv): MrProvider {
-  return new GitLabProvider(config.mr.gitlab.glabBinary, config.mr.gitlab.hosts, env);
-}
 
 function assertSafeArg(value: string, what: string) {
   if (!SAFE_ARG.test(value)) {
@@ -582,50 +579,24 @@ export async function stageTask(
   let mr: MrState | null = task.mr;
 
   if (opts.stage === 'mr_raised') {
-    const provider = mrProvider(ctx.config, ctx.env);
+    const providers = mrProviders(ctx.config, ctx.env);
     if (opts.mrUrl) {
-      const ref = provider.parseUrl(opts.mrUrl);
-      if (!ref)
+      const found = providers.forUrl(opts.mrUrl);
+      if (!found)
         throw new CliError(
-          `Not a GitLab merge request URL: ${opts.mrUrl}`,
+          `Not a merge request or pull request URL: ${opts.mrUrl}`,
           EXIT.usage,
-          'Expected https://<host>/<group>/<repo>/-/merge_requests/<iid>',
+          'Expected https://<host>/<group>/<repo>/-/merge_requests/<iid> (GitLab) or https://<host>/<owner>/<repo>/pull/<number> (GitHub)',
         );
-      mr = {
-        provider: 'gitlab',
-        host: ref.host,
-        repo: ref.repo,
-        iid: ref.iid,
-        url: ref.url,
-        state: 'opened',
-        draft: false,
-        pipeline: null,
-        unresolvedThreads: 0,
-        detailedMergeStatus: null,
-        checkedAt: null,
-        error: null,
-      };
+      mr = toMrState(found.ref, found.provider.id);
     } else {
       const remote = parseRemote(
         who.projectRecord.remoteUrl ?? (await remoteUrl(who.projectRecord.repoPath)),
       );
-      if (remote && provider.matches(remote)) {
+      const provider = providers.forRemote(remote);
+      if (remote && provider) {
         const ref = await provider.findOpenMrForBranch(remote, task.branch).catch(() => null);
-        if (ref)
-          mr = {
-            provider: 'gitlab',
-            host: ref.host,
-            repo: ref.repo,
-            iid: ref.iid,
-            url: ref.url,
-            state: 'opened',
-            draft: false,
-            pipeline: null,
-            unresolvedThreads: 0,
-            detailedMergeStatus: null,
-            checkedAt: null,
-            error: null,
-          };
+        if (ref) mr = toMrState(ref, provider.id);
       }
     }
   }
@@ -1072,31 +1043,19 @@ export async function detectAdoptedMrs(
   project: ProjectRecord,
   tasks: TaskRecord[],
 ): Promise<number> {
-  const provider = mrProvider(ctx.config, ctx.env);
   const remote = parseRemote(project.remoteUrl ?? (await remoteUrl(project.repoPath)));
-  if (!remote || !provider.matches(remote)) return 0;
+  const provider = mrProviders(ctx.config, ctx.env).forRemote(remote);
+  if (!remote || !provider) return 0;
   let found = 0;
   for (const t of tasks) {
     if (!t.branch) continue;
     const ref = await provider.findOpenMrForBranch(remote, t.branch).catch(() => null);
     if (!ref) continue;
     found++;
+    const mr = toMrState(ref, provider.id);
     await ctx.ledger.updateTask(project.name, t.id, (cur) => ({
-      ...applyStage(cur, 'mr_raised', 'daemon', `Found MR !${ref.iid} for the branch`),
-      mr: {
-        provider: 'gitlab',
-        host: ref.host,
-        repo: ref.repo,
-        iid: ref.iid,
-        url: ref.url,
-        state: 'opened',
-        draft: false,
-        pipeline: null,
-        unresolvedThreads: 0,
-        detailedMergeStatus: null,
-        checkedAt: null,
-        error: null,
-      },
+      ...applyStage(cur, 'mr_raised', 'daemon', `Found MR ${mrLabel(mr)} for the branch`),
+      mr,
     }));
   }
   return found;

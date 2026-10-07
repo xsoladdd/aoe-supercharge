@@ -44,7 +44,7 @@ export type PipelineStatus =
   | 'scheduled';
 
 export interface MrState {
-  provider: 'gitlab';
+  provider: 'gitlab' | 'github';
   host: string;
   repo: string;
   iid: number;
@@ -288,6 +288,11 @@ export interface Snapshot {
    * (SPEC §14.5): only sessions on the office floor, by session id.
    */
   costs: Record<string, SessionCost>;
+  /**
+   * MRs found by branch for the crew a control chat started with no task (SPEC §11.4), by session id.
+   * Observed by the daemon, not kept in the ledger.
+   */
+  sessionMrs: Record<string, MrState>;
   ui: {
     theme: 'dark' | 'light' | 'system';
     density: 'comfortable' | 'compact';
@@ -310,6 +315,7 @@ export type SnapshotEvent =
   | { type: 'usage'; data: UsageReport }
   | { type: 'office'; data: OfficeState }
   | { type: 'costs'; data: Record<string, SessionCost> }
+  | { type: 'session_mrs'; data: Record<string, MrState> }
   | { type: 'health'; data: Health };
 
 export interface ProjectStatus {

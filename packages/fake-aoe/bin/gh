@@ -1,0 +1,39 @@
+#!/usr/bin/env node
+// Fake `gh` for tests and demos. Serves JSON from $FAKE_GH_DIR:
+//   pr-list.json      gh pr list --head <b> --json …   (entries carry headRefName; filtered by it)
+//   pr-<n>.json       gh api graphql … -F number=<n>  (the whole GraphQL response)
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const dir = process.env.FAKE_GH_DIR ?? '';
+const args = process.argv.slice(2);
+const val = (f) => {
+  const i = args.indexOf(f);
+  return i >= 0 ? args[i + 1] : undefined;
+};
+const read = (name, fallback) => {
+  const p = join(dir, name);
+  return existsSync(p) ? readFileSync(p, 'utf8') : fallback;
+};
+
+if (args[0] === '--version') {
+  process.stdout.write('gh version 2.102.0 (fake)\n');
+} else if (args[0] === 'auth' && args[1] === 'status') {
+  const host = val('--hostname') ?? 'github.com';
+  process.stdout.write(`${host}\n  ✓ Logged in to ${host} account fake (keyring)\n`);
+} else if (args[0] === 'pr' && args[1] === 'list') {
+  const all = JSON.parse(read('pr-list.json', '[]'));
+  const head = val('--head');
+  process.stdout.write(JSON.stringify(head ? all.filter((p) => p.headRefName === head) : all));
+} else if (args[0] === 'api' && args[1] === 'graphql') {
+  const n = args.find((a) => a.startsWith('number='))?.slice('number='.length);
+  const body = read(`pr-${n}.json`, null);
+  if (!body) {
+    process.stderr.write('GraphQL: Could not resolve to a PullRequest\n');
+    process.exit(1);
+  }
+  process.stdout.write(body);
+} else {
+  process.stderr.write(`fake gh: unsupported ${args.join(' ')}\n`);
+  process.exit(2);
+}
