@@ -9,7 +9,7 @@ An opinionated parent/child dashboard for Claude Code, built on [Agent of Empire
 
 It runs as a small local daemon (Node 24, about 70 MB idle) bound to `127.0.0.1`. Merge requests are watched by a script, never by an LLM loop.
 
-> Status: v0.3.5 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 (1.18.0 passes the live contract too; see [AoE versions](#aoe-versions)).
+> Status: v0.3.6 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 (1.18.0 passes the live contract too; see [AoE versions](#aoe-versions)).
 > The design rationale lives in [SPEC.md](SPEC.md).
 
 ---

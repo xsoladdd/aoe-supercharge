@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.6 (2026-10-07)
+
+- **Message a control chat from the office.** Pick a team's lead on the office floor and its card has a
+  box to write to its control chat, ready to type in. Enter sends, Shift+Enter adds a line. It goes into
+  the control chat like a message from its chat page, and is recorded in the audit log. At your door, the
+  lead's list of things for you sits right above it, so you can answer without leaving the office.
+
 ## 0.3.5 (2026-10-07)
 
 Names for every worker, and the office in a window of its own.
