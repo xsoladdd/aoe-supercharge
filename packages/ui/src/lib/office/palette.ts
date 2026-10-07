@@ -36,9 +36,9 @@ export interface Palette {
   brass: number;
   sign: number;
   signText: number;
-  /** Your corner: painted panelling, leather club chairs, the runner rug, lamp light, the map, books. */
+  /** Your corner: painted panelling, the line's runner and velvet ropes, lamp light, the map, books. */
   panel: { face: number; frame: number; shadow: number };
-  leather: { seat: number; back: number };
+  rope: number;
   runner: { base: number; border: number; pattern: number };
   glow: number;
   map: { paper: number; land: number; frame: number };
@@ -114,7 +114,7 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
       sign: 0x15181a,
       signText: 0xe9d9b0,
       panel: { face: 0x1b2122, frame: 0x262e2e, shadow: 0x101414 },
-      leather: { seat: 0x6a3f27, back: 0x56321f },
+      rope: 0x7a2b2b,
       runner: { base: 0x2a2d31, border: 0x3a3f45, pattern: 0x33373c },
       glow: 0xffc87a,
       map: { paper: 0xe2d4b8, land: 0x8a5a36, frame: 0x6e4a32 },
@@ -168,7 +168,7 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
     sign: 0x1f2a36,
     signText: 0xf1e6c8,
     panel: { face: 0x2c3e52, frame: 0x3b5169, shadow: 0x223244 },
-    leather: { seat: 0x7a4a2e, back: 0x643b24 },
+    rope: 0x8c2f2f,
     runner: { base: 0xe6dfd1, border: 0xcfc5b2, pattern: 0xd9d0bf },
     glow: 0xffd28a,
     map: { paper: 0xf3ecdd, land: 0x9a6a44, frame: 0x7a4e30 },

@@ -84,13 +84,12 @@ describe('office layout', () => {
       expect(l.board.x1).toBeLessThanOrEqual(l.suite.x);
       expect(l.board.x0).toBeGreaterThanOrEqual(l.pantry.area.x + l.pantry.area.w);
     }
-    // The front of the line sits on the chair beside your door; the first few spots are chairs.
-    expect(big.queue[0]).toEqual({ x: big.door.x - 1, y: big.door.y });
-    expect(big.queueSeats).toBeGreaterThan(0);
+    // The front of the line stands just in front of your door.
+    expect(big.queue[0]).toEqual({ x: big.door.x, y: big.door.y + 1 });
     expect(big.pantry.spots.length).toBeGreaterThanOrEqual(16);
   });
 
-  it('puts your door at the far east end of the back wall, with the line beside it', () => {
+  it('puts your door at the far east end of the back wall, with the line standing out from it', () => {
     const l = officeLayout([
       { project: 'a', desks: 4 },
       { project: 'b', desks: 4 },
@@ -100,14 +99,24 @@ describe('office layout', () => {
     expect(l.width - l.door.x).toBeLessThanOrEqual(4);
     for (const t of l.teams) expect(t.area.x + t.area.w).toBeLessThan(l.door.x);
     expect(l.pantry.area.x + l.pantry.area.w).toBeLessThan(l.door.x);
-    // The chairs line the wall beside it, nearest first; the rest of the line stands in front of them.
-    const chairs = l.queue.slice(0, l.queueSeats);
-    expect(chairs.map((t) => t.y)).toEqual(chairs.map(() => 0));
-    expect(chairs.map((t) => l.door.x - t.x)).toEqual(chairs.map((_, i) => i + 1));
-    for (const t of l.queue) {
-      expect(t.x).toBeGreaterThanOrEqual(l.suite.x);
-      expect(t.x).toBeLessThan(l.suite.x + l.suite.w);
-    }
+    // No chairs: the line stands in single file straight out from your door, one step apart, then
+    // turns west along the front of the office.
+    const straight = l.queue.filter((t) => t.x === l.door.x);
+    expect(straight.map((t) => t.y)).toEqual(straight.map((_, i) => l.door.y + 1 + i));
+    expect(straight.length).toBeGreaterThanOrEqual(8);
+    const turn = l.queue.slice(straight.length);
+    expect(turn.map((t) => t.y)).toEqual(turn.map(() => straight.at(-1)!.y));
+    expect(turn.map((t) => l.door.x - t.x)).toEqual(turn.map((_, i) => i + 1));
+    for (const t of l.queue) expect(l.grid.blocked(t.x, t.y)).toBe(false);
+    // Ropes run along both sides of the front of the line, so nobody walks in from the side: the way
+    // in to the first place is up the line from behind.
+    const ropes = l.furniture.filter((f) => f.kind === 'rope');
+    expect(ropes.map((f) => f.x).sort((a, b) => a - b)).toEqual([l.door.x - 1, l.door.x + 1]);
+    for (const f of ropes) for (let y = f.y; y < f.y + f.h; y++) expect(l.grid.blocked(f.x, y)).toBe(true);
+    const path = findPath(l.grid, l.entrance, l.queue[0]!)!;
+    const roped = ropes[0]!.y + ropes[0]!.h;
+    const into = path.findIndex((t) => t.x === l.door.x && t.y < roped);
+    expect(path.slice(into).every((t) => t.x === l.door.x)).toBe(true);
   });
 
   it('is the same for the same teams', () => {

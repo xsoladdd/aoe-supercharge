@@ -80,20 +80,20 @@ function drawFloor(layout: OfficeLayout, p: Palette): Graphics {
     diamond(g, x + 0.1, y + 0.1, x + w - 0.1, y + h - 0.1).stroke({ width: 5, color: edge, alpha: 0.9 });
     diamond(g, x + 0.32, y + 0.32, x + w - 0.32, y + h - 0.32).stroke({ width: 1, color: edge, alpha: 0.7 });
   }
-  // The runner in your corner: a border, and a lozenge pattern down the middle.
+  // The runner out from your door: a border, and a lozenge pattern down the middle.
   const r = layout.floors.find((f) => f.kind === 'runner')!.rect;
-  diamond(g, r.x + 0.12, r.y + 0.12, r.x + r.w - 0.12, r.y + r.h - 0.12).stroke({
-    width: 4,
+  diamond(g, r.x + 0.1, r.y + 0.04, r.x + r.w - 0.1, r.y + r.h - 0.1).stroke({
+    width: 3,
     color: p.runner.border,
   });
-  diamond(g, r.x + 0.34, r.y + 0.34, r.x + r.w - 0.34, r.y + r.h - 0.34).stroke({
+  diamond(g, r.x + 0.26, r.y + 0.2, r.x + r.w - 0.26, r.y + r.h - 0.26).stroke({
     width: 1,
     color: p.runner.border,
     alpha: 0.8,
   });
   for (let x = r.x + 0.5; x < r.x + r.w - 0.4; x += 1)
     for (let y = r.y + 0.5; y < r.y + r.h - 0.4; y += 1)
-      diamond(g, x - 0.18, y - 0.18, x + 0.18, y + 0.18).fill({ color: p.runner.pattern, alpha: 0.9 });
+      diamond(g, x - 0.1, y - 0.1, x + 0.1, y + 0.1).fill({ color: p.runner.pattern, alpha: 0.9 });
   return g;
 }
 
@@ -475,21 +475,43 @@ function chairPiece(p: Palette, x: number, y: number): Graphics {
   return g;
 }
 
-/** A leather club chair, facing into the room: low back, rolled arms, studs along the front. */
-function clubChairPiece(p: Palette, x: number, y: number): Graphics {
+const POST_H = 26;
+
+/** A brass post for the rope along the line: a weighted base, a pole and a ball on top. */
+function postAt(g: Graphics, p: Palette, x: number, y: number) {
+  const c = iso(x, y);
+  g.ellipse(c.x + 1, c.y + 1, 6, 3).fill({ color: p.shadow, alpha: 0.22 });
+  g.ellipse(c.x, c.y - 1, 5, 2.5).fill(shade(p.brass, 0.25));
+  g.rect(c.x - 1.2, c.y - POST_H, 2.4, POST_H - 1).fill(p.brass);
+  g.rect(c.x - 1.2, c.y - POST_H, 0.9, POST_H - 1).fill(tint(p.brass, 0.3));
+  g.circle(c.x, c.y - POST_H - 1, 2.6).fill(tint(p.brass, 0.15));
+}
+
+/**
+ * One tile's worth of the rope beside the line (the rope furniture's tile `ty`), with the posts that
+ * stand on it. Posts go every two tiles and at the end; the rope sags between them.
+ */
+function ropePiece(p: Palette, f: Furniture, door: number, ty: number): Graphics {
   const g = new Graphics();
-  const L = p.leather;
-  const seat = { top: tint(L.seat, 0.1), left: L.seat, right: shade(L.seat, 0.22) };
-  const back = { top: tint(L.back, 0.12), left: L.back, right: shade(L.back, 0.22) };
-  diamond(g, x + 0.08, y + 0.1, x + 0.98, y + 0.98).fill({ color: p.shadow, alpha: 0.16 });
-  box(g, x + 0.12, y + 0.18, x + 0.88, y + 0.9, 12, seat);
-  box(g, x + 0.1, y + 0.04, x + 0.9, y + 0.22, 26, back);
-  box(g, x + 0.08, y + 0.18, x + 0.22, y + 0.9, 18, back);
-  box(g, x + 0.78, y + 0.18, x + 0.92, y + 0.9, 18, back);
-  for (let k = 0; k < 5; k++) {
-    const s0 = iso(x + 0.16 + k * 0.17, y + 0.9);
-    g.circle(s0.x, s0.y - 3, 0.9).fill(p.brass);
-  }
+  // Along the edge that faces the line, set back a little from it.
+  const ex = f.x < door ? f.x + 0.92 : f.x + 0.08;
+  const end = f.y + f.h;
+  const a = f.y + Math.floor((ty - f.y) / 2) * 2;
+  const b = Math.min(a + 2, end);
+  const at = (y: number) => {
+    const t = (y - a) / (b - a);
+    const c = iso(ex, y);
+    return { x: c.x, y: c.y - POST_H + 4 + 6 * 4 * t * (1 - t) };
+  };
+  const pts = [0, 0.25, 0.5, 0.75, 1].map((k) => at(ty + k));
+  g.moveTo(pts[0]!.x, pts[0]!.y);
+  for (const q of pts.slice(1)) g.lineTo(q.x, q.y);
+  g.stroke({ width: 2.6, color: p.rope, cap: 'round', join: 'round' });
+  g.moveTo(pts[0]!.x, pts[0]!.y - 0.7);
+  for (const q of pts.slice(1)) g.lineTo(q.x, q.y - 0.7);
+  g.stroke({ width: 0.8, color: tint(p.rope, 0.3), alpha: 0.8 });
+  if (ty === a) postAt(g, p, ex, ty);
+  if (ty + 1 === end) postAt(g, p, ex, end);
   return g;
 }
 
@@ -705,6 +727,11 @@ export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string)
         pieces.push(piece(zOf(f.x, f.y), g));
         break;
       }
+      case 'rope':
+        // A piece per tile, so the east rope passes in front of the line and the west one behind it.
+        for (let ty = f.y; ty < f.y + f.h; ty++)
+          pieces.push(piece(zOf(f.x, ty), ropePiece(p, f, layout.door.x, ty)));
+        break;
       default:
         break;
     }
@@ -713,10 +740,6 @@ export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string)
   // Stools at the pantry tables.
   for (const s of layout.pantry.spots.filter((x) => x.seat === 'chair'))
     pieces.push(piece(zOf(s.tile.x, s.tile.y, -20), stoolPiece(p, s.tile.x, s.tile.y)));
-
-  // Leather club chairs for the line at your door.
-  for (const t of layout.queue.slice(0, layout.queueSeats))
-    pieces.push(piece(zOf(t.x, t.y, -20), clubChairPiece(p, t.x, t.y)));
 
   return { floor, walls, pieces, door, awaySigns };
 }

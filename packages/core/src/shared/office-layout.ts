@@ -3,12 +3,12 @@ import type { Grid, Tile } from './pathfind.ts';
 /**
  * The office floor plan (SPEC §14.5), in tiles: x runs along the back wall (wall A), y along the left
  * wall (wall B), towards the viewer. West to east: the pantry in the back-left corner, the team blocks
- * in rows, and your door at the far east end of the back wall, set in panelling with bookshelves, with
- * leather waiting chairs beside it and a waiting area on a runner in front. The entrance is at the front
- * of the left wall. It grows with the teams.
+ * in rows, and your door at the far east end of the back wall, set in panelling with bookshelves, a lamp
+ * on either side. The line to see you stands in single file on a runner straight out from your door,
+ * between brass posts and ropes. The entrance is at the front of the left wall. It grows with the teams.
  *
- *   wall A (y = -1): pantry | world map ... whiteboard | shelves, chairs, YOUR DOOR, shelves
- *   x = 0 entrance | pantry | team blocks   | waiting area
+ *   wall A (y = -1): pantry | world map ... whiteboard | shelves, lamp, YOUR DOOR, lamp, shelves
+ *   x = 0 entrance | pantry | team blocks   | the line, out from your door
  */
 
 export interface Rect {
@@ -36,7 +36,9 @@ export type FurnitureKind =
   | 'table'
   | 'sofa'
   | 'foosball'
-  | 'side_table';
+  | 'side_table'
+  /** Brass posts and a rope along the side of the line that faces it. Blocks its column, so people join at the back. */
+  | 'rope';
 
 export interface Furniture {
   kind: FurnitureKind;
@@ -67,10 +69,11 @@ export interface OfficeLayout {
   entrance: Tile;
   /** The tile in front of your door; a called worker steps through it. */
   door: Tile;
-  /** The line at your door, front first: on the waiting chairs, then standing on the runner. */
+  /**
+   * The line at your door, front first: single file straight out from your door, between the ropes and
+   * on past them, then turning west along the front of the office.
+   */
   queue: Tile[];
-  /** How many of the first `queue` spots are chairs. */
-  queueSeats: number;
   /** Your corner of the back wall: the panelled stretch round your door. */
   suite: Rect;
   /** The whiteboard with your notes and todos (SPEC §14.6): the stretch of wall A it hangs on, by your corner. */
@@ -85,11 +88,12 @@ export interface OfficeLayout {
 
 const PANTRY_W = 8;
 const PANTRY_H = 7;
-const WAITING_CHAIRS = 4;
-/** Your corner: the chairs, your door, a side table and a plant past it. */
-const SUITE_W = WAITING_CHAIRS + 3;
-/** Rows of runner in front of the chairs; people stand on every other one, clear of the chairs. */
-const WAIT_ROWS = 4;
+/** Your corner, to the east wall: a tile to walk by, a plant and a lamp on either side of your door. */
+const SUITE_W = 7;
+/** Places in the line between the ropes. */
+const ROPED = 6;
+/** Places in the line once it turns along the front of the office. */
+const TURN = 6;
 /** Tiles of wall the whiteboard takes, just west of your corner. */
 const BOARD_W = 4;
 
@@ -113,9 +117,9 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   const px = 1;
   const tx = px + PANTRY_W + 1;
   const sx = tx + teamsW + 1;
-  const doorX = sx + WAITING_CHAIRS;
-  const width = sx + SUITE_W + 1;
-  const height = Math.max(PANTRY_H + 5, 1 + teamsH + 2, WAIT_ROWS + 6);
+  const doorX = sx + 3;
+  const width = sx + SUITE_W;
+  const height = Math.max(PANTRY_H + 5, 1 + teamsH + 2, ROPED + 6);
 
   const blocked = new Uint8Array(width * height);
   const block = (x: number, y: number) => {
@@ -162,17 +166,19 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
     });
   });
 
-  // Your corner: leather chairs against the panelling, nearest the door first; your door; a side table
-  // and a plant past it; standing room on the runner in front of the chairs.
-  const suite = { x: sx, y: 0, w: SUITE_W, h: WAIT_ROWS + 1 };
-  floors.push({ kind: 'runner', rect: { x: sx, y: 0, w: WAITING_CHAIRS + 1, h: WAIT_ROWS + 1 } });
+  // Your corner: a lamp on a side table either side of your door, a plant past each, and the runner
+  // straight out from your door with the ropes along it. The line stands on it in single file, front
+  // first, one to a tile, and carries on past the ropes to the front of the office, then turns west.
+  const suite = { x: sx, y: 0, w: SUITE_W, h: ROPED + 2 };
+  floors.push({ kind: 'runner', rect: { x: doorX, y: 0, w: 1, h: ROPED + 1 } });
+  for (const side of [-1, 1]) {
+    put({ kind: 'side_table', x: doorX + side, y: 0, w: 1, h: 1 });
+    put({ kind: 'plant', x: doorX + 2 * side, y: 0, w: 1, h: 1 });
+    put({ kind: 'rope', x: doorX + side, y: 1, w: 1, h: ROPED });
+  }
   const queue: Tile[] = [];
-  for (let k = 1; k <= WAITING_CHAIRS; k++) queue.push({ x: doorX - k, y: 0 });
-  // Standing in every other row from the second, so nobody's head hides someone seated or behind.
-  for (let r = 2; r <= WAIT_ROWS; r += 2)
-    for (let k = 1; k <= WAITING_CHAIRS; k++) queue.push({ x: doorX - k, y: r });
-  put({ kind: 'side_table', x: doorX + 1, y: 0, w: 1, h: 1 });
-  put({ kind: 'plant', x: doorX + 2, y: 0, w: 1, h: 1 });
+  for (let y = 1; y <= height - 2; y++) queue.push({ x: doorX, y });
+  for (let k = 1; k <= TURN; k++) queue.push({ x: doorX - k, y: height - 2 });
 
   // The pantry, in the back-left corner.
   const pantryArea = { x: px, y: 0, w: PANTRY_W, h: PANTRY_H };
@@ -212,7 +218,7 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
 
   areas.office = { x: 0, y: 0, w: width, h: height };
   areas.board = { x: Math.floor(board.x0), y: 0, w: BOARD_W + 1, h: 2 };
-  areas.door = { x: sx - 1, y: 0, w: SUITE_W + 2, h: WAIT_ROWS + 3 };
+  areas.door = { x: sx - 1, y: 0, w: SUITE_W + 2, h: ROPED + 3 };
   areas.pantry = pantryArea;
 
   return {
@@ -226,7 +232,6 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
     entrance,
     door: { x: doorX, y: 0 },
     queue,
-    queueSeats: WAITING_CHAIRS,
     suite,
     board,
     pantry: { area: pantryArea, spots },

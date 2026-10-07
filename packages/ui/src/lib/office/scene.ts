@@ -266,8 +266,8 @@ export class OfficeScene {
     const L = this.layout;
     const out = new Map<string, Spot>();
 
-    // The line at your door, front first: on the club chairs, then standing on the runner. The one you
-    // called in steps through your door.
+    // The line at your door, front first, standing in single file and facing the one ahead, so the
+    // front faces your door. The one you called in steps through it.
     let i = 0;
     for (const w of model.door) {
       if (w.key === this.called) {
@@ -276,12 +276,13 @@ export class OfficeScene {
       }
       const at = Math.min(i, L.queue.length - 1);
       const tile = L.queue[at]!;
-      if (at < L.queueSeats) {
-        out.set(w.key, { tile, stance: 'sit', hands: 'down', face: [0, 1] });
-      } else {
-        // Standing on the runner: turned towards your door, face to the room.
-        out.set(w.key, { tile, stance: 'stand', hands: 'down', face: [1, 0] });
-      }
+      const ahead = L.queue[at - 1] ?? L.door;
+      out.set(w.key, {
+        tile,
+        stance: 'stand',
+        hands: 'down',
+        face: [Math.sign(ahead.x - tile.x), Math.sign(ahead.y - tile.y)],
+      });
       i++;
     }
 
