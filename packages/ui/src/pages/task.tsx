@@ -210,7 +210,7 @@ function Reply({ task, session }: { task: TaskRecord; session: SessionView | nul
               The worker receives it as a prompt in its AoE session.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <blockquote className="rounded-md border border-border bg-raised px-3 py-2 text-[0.9375rem] whitespace-pre-wrap">
+          <blockquote className="min-w-0 rounded-md border border-border bg-raised px-3 py-2 text-[0.9375rem] whitespace-pre-wrap [overflow-wrap:anywhere]">
             {message}
           </blockquote>
           <AlertDialogFooter>

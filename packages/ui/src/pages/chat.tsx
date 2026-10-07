@@ -366,7 +366,7 @@ function RunCommand({
   };
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="sm:max-w-xl">
+      <AlertDialogContent className="data-[size=default]:sm:max-w-xl">
         <AlertDialogHeader>
           <AlertDialogTitle>Run this command?</AlertDialogTitle>
           <AlertDialogDescription>
@@ -383,7 +383,7 @@ function RunCommand({
         </AlertDialogHeader>
         <pre
           translate="no"
-          className="max-h-72 overflow-auto rounded-lg border border-border bg-background p-3 font-mono text-[0.8125rem] leading-relaxed break-words whitespace-pre-wrap"
+          className="max-h-72 min-w-0 overflow-auto rounded-lg border border-border bg-background p-3 font-mono text-[0.8125rem] leading-relaxed break-words whitespace-pre-wrap"
         >
           {command}
         </pre>
@@ -401,7 +401,7 @@ function RunCommand({
             terminal. Claude reads the output and replies.
           </li>
         </ul>
-        <AlertDialogFooter>
+        <AlertDialogFooter className="sm:flex-wrap">
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           {terminal ? (
             <>
