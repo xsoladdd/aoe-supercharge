@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 (unreleased)
+## 0.5.0 (2026-10-07)
 
 Office v2: rooms, errands, a review lounge, a cost meter, going home, day and night, and the office's
 history.
