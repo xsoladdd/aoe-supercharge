@@ -33,6 +33,10 @@ export interface FakeSession {
   menu?: string | null;
   /** Fake only: the `aoe add --extra-args` string, so tests can see the claude flags. Never sent over REST. */
   extra_args?: string | null;
+  /** Fake only: how many more sends are accepted but lost (typed before Claude Code's input was ready). */
+  swallow?: number;
+  /** Fake only: false when AoE's hooks are missing, so no Claude id is known before the first message. */
+  hooks?: boolean;
   /** Lifecycle marks, as AoE keeps them; REST leaves each out while it is unset. */
   pinned_at?: string | null;
   archived_at?: string | null;
@@ -159,6 +163,8 @@ function toRest(s: FakeSession) {
     parent_session_id: _p,
     menu: _m,
     extra_args: _x,
+    swallow: _s,
+    hooks: _h,
     pinned_at: pinned,
     archived_at: archived,
     trashed_at: trashed,
@@ -283,6 +289,9 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     const s = makeSession(body);
     if (s.menu === 'trust') Object.assign(s, { status: 'Waiting', menu: TRUST_MENU });
     state.sessions.push(s);
+    // Claude Code's SessionStart hook: a launched session's Claude id is known before any message.
+    if (transcripts && s.hooks !== false && (s.status === 'Starting' || s.menu))
+      transcripts.for(s.id, s.project_path);
     // Like Claude Code under AoE: a launched session starts, then sits idle at its empty prompt.
     if (s.status === 'Starting')
       setTimeout(() => {
@@ -305,7 +314,9 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
   app.post('/__fake/send', async (c) => {
     const { id, message } = (await c.req.json()) as { id: string; message: string };
     state.sent.push({ id, message, at: new Date().toISOString() });
-    converse(id, message);
+    const s = state.sessions.find((x) => x.id === id)!;
+    if (s.swallow) s.swallow--;
+    else converse(id, message);
     return c.json({ sent: true });
   });
   // `aoe session show --json`: Claude's session id for an AoE session.
@@ -378,7 +389,9 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
       return c.json({ error: 'not_found', message: 'No such session' }, 404);
     const { message } = (await c.req.json()) as { message: string };
     state.sent.push({ id, message, at: new Date().toISOString() });
-    converse(id, message);
+    const s = state.sessions.find((x) => x.id === id)!;
+    if (s.swallow) s.swallow--;
+    else converse(id, message);
     return c.json({ sent: true });
   });
   app.get('/api/sessions/:id/output', (c) => {

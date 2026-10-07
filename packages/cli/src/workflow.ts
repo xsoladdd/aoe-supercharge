@@ -41,6 +41,7 @@ import { menuOnScreen } from './prompt.ts';
 import { uploadArgs } from './uploads.ts';
 import { transcriptStore, type TranscriptStore } from './transcript.ts';
 import { CliError, EXIT } from './util/errors.ts';
+import { daemonHealth } from './util/daemon-client.ts';
 import { run } from './util/exec.ts';
 import { currentBranch, defaultBranch, mainCheckout, parseRemote, remoteUrl } from './util/git.ts';
 
@@ -453,6 +454,8 @@ export async function newTask(
     model,
     effort,
     kickoffAt: null,
+    kickoffSeenAt: null,
+    kickoffTries: 0,
     createdAt: at,
     updatedAt: at,
     history: [{ at, from: null, to: 'planning', by: opts.actor ?? 'control', note: 'Task created' }],
@@ -483,6 +486,14 @@ export async function newTask(
     warnings.push(
       `${id} is not at its prompt yet${launchWarn ? '' : ' (a menu such as the trust-folder dialog may be open)'}; the daemon sends its first message once it is.`,
     );
+  else if (kicked === 'pending' || kicked === 'sent')
+    warnings.push(
+      `${id} was sent its first message, but it has not shown up yet; the daemon sends it again if it was lost.`,
+    );
+  if ((kicked === 'waiting' || kicked === 'pending' || kicked === 'sent') && !(await daemonHealth(ctx)))
+    warnings.push(
+      'The daemon is not running, so nothing will send it later: start it with "supercharge start".',
+    );
   // Counting the worker that just started, for the control chat's next decision.
   const after = usageReport(await readUsage(ctx.paths), usage.activeWorkers + 1, ctx.config.limits);
   const saved = (await ctx.ledger.getTask(project.name, id)) ?? task;
@@ -494,8 +505,11 @@ export interface KickoffWait {
   wait?: (ms: number) => Promise<void>;
 }
 
-/** Wait for a new worker's prompt (normally ~6 s), then send its first message (SPEC §8.2). */
-async function kickoffNewWorker(ctx: Ctx, task: TaskRecord, o: KickoffWait = {}): Promise<KickoffResult> {
+/**
+ * Wait for a new worker's prompt (normally ~6 s), send its first message, and stay until it shows up
+ * in the transcript, sending it again if it was lost (SPEC §8.2).
+ */
+async function kickoffNewWorker(ctx: Ctx, task: TaskRecord, o: KickoffWait = {}): Promise<KickoffStep> {
   const envMs = Number(ctx.env.SUPERCHARGE_KICKOFF_WAIT_MS || NaN);
   const {
     timeoutMs = Number.isFinite(envMs) && envMs >= 0 ? envMs : 30_000,
@@ -506,11 +520,12 @@ async function kickoffNewWorker(ctx: Ctx, task: TaskRecord, o: KickoffWait = {})
   for (;;) {
     const s = (await ctx.aoe.listSessions().catch(() => [])).find((x) => x.id === task.aoeSessionId);
     const status = normalizeAoeStatus(s?.status);
-    const r = await kickoffWorker(ctx, task, { status, transcripts, actor: 'cli' }).catch((err) => {
+    const r = await advanceKickoff(ctx, task, { status, transcripts, actor: 'cli' }).catch((err) => {
       ctx.logger.warn('could not send the first message', { task: task.id, err: (err as Error).message });
       return 'waiting' as const;
     });
-    if (r !== 'waiting' || Date.now() >= until) return r;
+    if (r !== 'waiting' && r !== 'sent' && r !== 'pending') return r;
+    if (Date.now() >= until) return r;
     await wait(1_000);
   }
 }
@@ -1172,6 +1187,25 @@ export const KICKOFF_MESSAGE =
   'Start on your task: your brief is in your system prompt (the Supercharge worker section). Investigate and propose a plan.';
 
 export type KickoffResult = 'sent' | 'waiting' | 'skipped';
+/**
+ * Where a new worker's first message stands after one look: `pending` (sent, not in the transcript
+ * yet), `confirmed` (it is), `unverifiable` (sent, but there is no transcript to check it against),
+ * `gave_up` (lost too often; left to the user).
+ */
+export type KickoffStep = KickoffResult | 'pending' | 'confirmed' | 'unverifiable' | 'gave_up';
+
+/** How many times the first message is sent before Supercharge stops trying. */
+export const KICKOFF_MAX_TRIES = 3;
+
+/** A worker whose first message is sent but not yet seen in its transcript (SPEC §8.2). */
+export const kickoffUnconfirmed = (t: TaskRecord) =>
+  !!t.kickoffAt && t.kickoffSeenAt === null && (t.kickoffTries ?? 0) <= KICKOFF_MAX_TRIES;
+
+interface KickoffOpts {
+  status: LiveStatus;
+  transcripts?: TranscriptStore | null;
+  actor: 'cli' | 'daemon';
+}
 
 /**
  * Claude Code waits for a first user message whatever its system prompt says, so a new worker gets
@@ -1179,16 +1213,14 @@ export type KickoffResult = 'sent' | 'waiting' | 'skipped';
  * trust-folder dialog, say: AoE's Enter would pick its option). A worker someone already wrote to is
  * left alone. `task new` and the daemon both call this; the claim in the task's lock means one sends.
  */
-export async function kickoffWorker(
-  ctx: Ctx,
-  task: TaskRecord,
-  opts: { status: LiveStatus; transcripts?: TranscriptStore | null; actor: 'cli' | 'daemon' },
-): Promise<KickoffResult> {
+export async function kickoffWorker(ctx: Ctx, task: TaskRecord, opts: KickoffOpts): Promise<KickoffResult> {
   if (task.kickoffAt !== null) return 'skipped';
   const settle = (fn: (t: TaskRecord) => boolean) =>
-    ctx.ledger.updateTask(task.project, task.id, (t) =>
-      fn(t) ? { ...t, kickoffAt: new Date().toISOString() } : t,
-    );
+    ctx.ledger.updateTask(task.project, task.id, (t) => {
+      if (!fn(t)) return t;
+      const at = new Date().toISOString();
+      return { ...t, kickoffAt: at, ...(t.kickoffSeenAt === null ? { kickoffSeenAt: at } : {}) };
+    });
   if (task.stage !== 'planning') {
     await settle((t) => t.kickoffAt === null);
     return 'skipped';
@@ -1203,9 +1235,11 @@ export async function kickoffWorker(
     return 'skipped';
   }
   let claimed = false;
-  await settle((t) => {
+  await ctx.ledger.updateTask(task.project, task.id, (t) => {
     claimed = t.kickoffAt === null && t.stage === 'planning';
-    return claimed;
+    return claimed
+      ? { ...t, kickoffAt: new Date().toISOString(), kickoffTries: (t.kickoffTries ?? 0) + 1 }
+      : t;
   });
   if (!claimed) return 'skipped';
   try {
@@ -1218,11 +1252,70 @@ export async function kickoffWorker(
     });
   } catch (err) {
     // Not delivered (a menu came up in between, AoE hiccuped): the next try sends it.
-    await ctx.ledger.updateTask(task.project, task.id, (t) => ({ ...t, kickoffAt: null }));
+    await ctx.ledger.updateTask(task.project, task.id, (t) => ({
+      ...t,
+      kickoffAt: null,
+      kickoffTries: Math.max(0, (t.kickoffTries ?? 1) - 1),
+    }));
     if (err instanceof MenuOpenError) return 'waiting';
     throw err;
   }
   return 'sent';
+}
+
+/**
+ * A sent first message can still be lost: typed before Claude Code's input was ready, picked up by a
+ * menu that opened in between, or dropped by a restart. It counts once it is in the transcript. It is
+ * sent again only on positive evidence that it is not: the session is idle with no menu, a while after
+ * sending, and its known conversation has no message from the user. Up to KICKOFF_MAX_TRIES sends.
+ */
+export async function confirmKickoff(
+  ctx: Ctx,
+  task: TaskRecord,
+  opts: Omit<KickoffOpts, 'actor'> & { now?: number },
+): Promise<'pending' | 'confirmed' | 'unverifiable' | 'resend' | 'gave_up' | 'skipped'> {
+  if (!kickoffUnconfirmed(task)) return 'skipped';
+  const seen = async () => {
+    await ctx.ledger.updateTask(task.project, task.id, (t) =>
+      t.kickoffSeenAt === null ? { ...t, kickoffSeenAt: new Date().toISOString() } : t,
+    );
+    return 'confirmed' as const;
+  };
+  if (task.stage !== 'planning') return seen();
+  const chat = opts.transcripts
+    ? await opts.transcripts.read(task.aoeSessionId, task.worktreePath || null).catch(() => null)
+    : null;
+  if (chat?.messages.some((m) => m.role === 'user')) return seen();
+  // No conversation id (no AoE hooks): working is the best sign there is that it went in.
+  if (!chat || chat.version === 'none') return opts.status === 'working' ? seen() : 'unverifiable';
+  const envMs = Number(ctx.env.SUPERCHARGE_KICKOFF_CONFIRM_MS || NaN);
+  const after = Number.isFinite(envMs) && envMs >= 0 ? envMs : 20_000;
+  if ((opts.now ?? Date.now()) - Date.parse(task.kickoffAt!) < after) return 'pending';
+  if (opts.status !== 'idle' || (await menuOnScreen(ctx, task.aoeSessionId))) return 'pending';
+  const sentAt = task.kickoffAt;
+  let out: 'resend' | 'gave_up' | 'skipped' = 'skipped';
+  await ctx.ledger.updateTask(task.project, task.id, (t) => {
+    if (t.kickoffAt !== sentAt || t.kickoffSeenAt !== null) return t;
+    if ((t.kickoffTries ?? 1) >= KICKOFF_MAX_TRIES) {
+      out = 'gave_up';
+      return { ...t, kickoffTries: KICKOFF_MAX_TRIES + 1 };
+    }
+    out = 'resend';
+    return { ...t, kickoffAt: null };
+  });
+  return out;
+}
+
+/** One look at a new worker's first message: send it, confirm it, or send it again (SPEC §8.2). */
+export async function advanceKickoff(ctx: Ctx, task: TaskRecord, opts: KickoffOpts): Promise<KickoffStep> {
+  const t = (await ctx.ledger.getTask(task.project, task.id)) ?? task;
+  if (t.kickoffAt === null) return kickoffWorker(ctx, t, opts);
+  const c = await confirmKickoff(ctx, t, opts);
+  if (c === 'gave_up')
+    ctx.logger.warn('a new worker never got its first message; send it one by hand', { task: t.id });
+  if (c !== 'resend') return c;
+  ctx.logger.info("a new worker's first message was lost; sending it again", { task: t.id });
+  return kickoffWorker(ctx, { ...t, kickoffAt: null }, opts);
 }
 
 /**

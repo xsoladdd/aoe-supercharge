@@ -380,6 +380,41 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(audit).toMatch(/"action":"task_created".*"forced":"5-hour limit at 90%/);
     expect((await sc(['stage', 'done'], { cwd: JSON.parse(forced.stdout).worktree })).code).toBe(0);
   });
+
+  it('task new sends the first message again when the first one was lost', async () => {
+    const r = await sc(['task', 'new', 'Lost kickoff', '--force', '--json'], {
+      extraEnv: { FAKE_AOE_SWALLOW_SENDS: '1', SUPERCHARGE_KICKOFF_CONFIRM_MS: '300' },
+    });
+    expect(r.code, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as TaskRecord & { warnings?: string[]; worktree: string };
+    // Typed before Claude Code was ready, so it never reached the conversation: sent once more.
+    expect(fake.state.sent.filter((m) => m.id === out.aoeSessionId).map((m) => m.message)).toEqual([
+      KICKOFF_MESSAGE,
+      KICKOFF_MESSAGE,
+    ]);
+    const t = await readTask(out.id);
+    expect(t.kickoffSeenAt).toBeTruthy();
+    expect(t.kickoffTries).toBe(2);
+    expect(fake.transcripts!.get(out.aoeSessionId)).toBeTruthy();
+    expect((out.warnings ?? []).join('\n')).not.toMatch(/first message/);
+    expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+  });
+
+  it('task new says so when the worker is not ready and no daemon will send its first message', async () => {
+    const r = await sc(['task', 'new', 'Nobody to send it', '--force', '--json'], {
+      extraEnv: { FAKE_AOE_START_MENU: 'trust', SUPERCHARGE_KICKOFF_WAIT_MS: '0' },
+    });
+    expect(r.code, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as TaskRecord & { warnings: string[]; worktree: string };
+    expect(out.warnings.join('\n')).toMatch(/daemon is not running.*supercharge start/);
+    // Leave it at its prompt, so the daemon tests do not find it waiting on the dialog.
+    await fetch(`${fake.url}/__fake/sessions/${out.aoeSessionId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Idle', menu: null }),
+    });
+    expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+  });
 });
 
 describe('daemon: security, live state and the MR watcher', () => {
@@ -388,7 +423,7 @@ describe('daemon: security, live state and the MR watcher', () => {
 
   beforeAll(async () => {
     daemon = spawn(process.execPath, [CLI, 'daemon'], {
-      env: { ...env, SUPERCHARGE_SERVICE: 'test' },
+      env: { ...env, SUPERCHARGE_SERVICE: 'test', SUPERCHARGE_KICKOFF_CONFIRM_MS: '1000' },
       stdio: 'ignore',
     });
     await until(async () => (await fetch(`${base()}/healthz`)).ok);
@@ -1392,6 +1427,64 @@ describe('daemon: security, live state and the MR watcher', () => {
     await until(async () => (await readTask(out.id)).kickoffAt);
     expect(fake.state.sent.filter((m) => m.id === out.aoeSessionId).map((m) => m.message)).toEqual([
       'Look at the footer first.',
+    ]);
+    expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+  });
+
+  it('the daemon sends a lost first message again, up to three times in all', async () => {
+    const answer = (id: string) =>
+      fetch(`${fake.url}/__fake/sessions/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status: 'Idle', menu: null }),
+      });
+    const start = async (title: string, swallow: string) => {
+      const r = await sc(['task', 'new', title, '--force', '--json'], {
+        extraEnv: {
+          FAKE_AOE_START_MENU: 'trust',
+          FAKE_AOE_SWALLOW_SENDS: swallow,
+          SUPERCHARGE_KICKOFF_WAIT_MS: '0',
+        },
+      });
+      expect(r.code, r.stderr).toBe(0);
+      return JSON.parse(r.stdout) as TaskRecord & { worktree: string };
+    };
+    const once = await start('Lost once', '1');
+    const never = await start('Always lost', '99');
+    const sentTo = (id: string) => fake.state.sent.filter((m) => m.id === id).map((m) => m.message);
+    await answer(once.aoeSessionId);
+    await answer(never.aoeSessionId);
+    await until(async () => (await readTask(once.id)).kickoffSeenAt);
+    expect(sentTo(once.aoeSessionId)).toEqual([KICKOFF_MESSAGE, KICKOFF_MESSAGE]);
+    await until(async () => ((await readTask(never.id)).kickoffTries ?? 0) > 3, 30_000);
+    // Then it is left to the user, however often the daemon looks again.
+    await sleep(3_000);
+    expect(sentTo(never.aoeSessionId)).toEqual([KICKOFF_MESSAGE, KICKOFF_MESSAGE, KICKOFF_MESSAGE]);
+    expect((await readTask(never.id)).kickoffSeenAt).toBeNull();
+    for (const t of [once, never]) expect((await sc(['stage', 'done'], { cwd: t.worktree })).code).toBe(0);
+  }, 60_000);
+
+  it('a first message that cannot be checked against a transcript is not sent again', async () => {
+    const r = await sc(['task', 'new', 'No transcript', '--force', '--json'], {
+      extraEnv: {
+        FAKE_AOE_START_MENU: 'trust',
+        FAKE_AOE_SWALLOW_SENDS: '99',
+        FAKE_AOE_NO_HOOKS: '1',
+        SUPERCHARGE_KICKOFF_WAIT_MS: '0',
+      },
+    });
+    expect(r.code, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as TaskRecord & { worktree: string };
+    // No AoE hook state, so its conversation id is unknown: a resend might go to a worker that is busy.
+    await fetch(`${fake.url}/__fake/sessions/${out.aoeSessionId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Idle', menu: null }),
+    });
+    await until(async () => (await readTask(out.id)).kickoffAt);
+    await sleep(4_000);
+    expect(fake.state.sent.filter((m) => m.id === out.aoeSessionId).map((m) => m.message)).toEqual([
+      KICKOFF_MESSAGE,
     ]);
     expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
   });
