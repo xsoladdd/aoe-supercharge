@@ -1,4 +1,5 @@
 import {
+  AppWindowIcon,
   ArrowsOutIcon,
   CoffeeIcon,
   DoorOpenIcon,
@@ -12,6 +13,7 @@ import { OfficeRoster } from '@/components/office/roster';
 import { WorkerCard } from '@/components/office/worker-card';
 import { Button } from '@/components/ui/button';
 import type { OfficeModel } from '@/lib/office';
+import { openOfficeWindow } from '@/lib/office-window';
 import { OfficeScene, type SceneEvents } from '@/lib/office/scene';
 import { cn } from '@/lib/utils';
 
@@ -43,11 +45,12 @@ function usePageTheme(): 'dark' | 'light' {
   );
 }
 
-const ROSTER_KEY = 'supercharge.office.roster';
+/** Whether the list is shown; the office window keeps its own, so hiding it there leaves the dashboard's. */
+const rosterKey = (standalone: boolean) => `supercharge.office.roster${standalone ? '.window' : ''}`;
 
-function readRosterPref(): boolean {
+function readRosterPref(standalone: boolean): boolean {
   try {
-    return localStorage.getItem(ROSTER_KEY) !== 'hidden';
+    return localStorage.getItem(rosterKey(standalone)) !== 'hidden';
   } catch {
     return true;
   }
@@ -96,6 +99,8 @@ export interface FloorProps {
   linkFocus: string | null;
   /** The polite live region text from `useOffice`. */
   announcement: string;
+  /** In the office window, which has no way to open another. */
+  standalone?: boolean;
 }
 
 /**
@@ -103,7 +108,15 @@ export interface FloorProps {
  * Call next at your door, and a card for the worker you pick. The roster beside it stays the
  * accessible list of the same people; without a canvas it is all you get.
  */
-export default function OfficeFloor({ office, door, now, linkWorker, linkFocus, announcement }: FloorProps) {
+export default function OfficeFloor({
+  office,
+  door,
+  now,
+  linkWorker,
+  linkFocus,
+  announcement,
+  standalone = false,
+}: FloorProps) {
   const host = useRef<HTMLDivElement>(null);
   const [scene, setScene] = useState<OfficeScene | null>(null);
   const [renderer, setRenderer] = useState<Renderer>('loading');
@@ -116,7 +129,7 @@ export default function OfficeFloor({ office, door, now, linkWorker, linkFocus, 
   const [focus, setFocus] = useState(linkWorker ?? linkFocus ?? 'office');
   const [walking, setWalking] = useState(0);
   const [zoom, setZoom] = useState(1);
-  const [rosterOpen, setRosterOpen] = useState(readRosterPref);
+  const [rosterOpen, setRosterOpen] = useState(() => readRosterPref(standalone));
   /** A camera move asked for before the scene was ready. */
   const pending = useRef<{ worker?: string; area?: string } | null>(
     linkWorker ? { worker: linkWorker } : linkFocus ? { area: linkFocus } : null,
@@ -257,7 +270,7 @@ export default function OfficeFloor({ office, door, now, linkWorker, linkFocus, 
   function toggleRoster() {
     setRosterOpen((open) => {
       try {
-        localStorage.setItem(ROSTER_KEY, open ? 'hidden' : 'shown');
+        localStorage.setItem(rosterKey(standalone), open ? 'hidden' : 'shown');
       } catch {
         // private mode: it just resets next time
       }
@@ -318,18 +331,31 @@ export default function OfficeFloor({ office, door, now, linkWorker, linkFocus, 
         <p className="sr-only" role="status" aria-live="polite">
           {announcement}
         </p>
-        {!fallback && (
-          <Button
-            variant="ghost"
-            className="ml-auto px-3"
-            aria-expanded={rosterOpen}
-            aria-controls="office-roster"
-            onClick={toggleRoster}
-          >
-            <ListBulletsIcon />
-            {rosterOpen ? 'Hide list' : 'Show list'}
-          </Button>
-        )}
+        <div className="ml-auto flex items-center gap-1">
+          {!standalone && (
+            <Button
+              variant="ghost"
+              className="px-3"
+              title="Open the office in a window of its own, to keep on another screen"
+              onClick={openOfficeWindow}
+            >
+              <AppWindowIcon />
+              New window
+            </Button>
+          )}
+          {!fallback && (
+            <Button
+              variant="ghost"
+              className="px-3"
+              aria-expanded={rosterOpen}
+              aria-controls="office-roster"
+              onClick={toggleRoster}
+            >
+              <ListBulletsIcon />
+              {rosterOpen ? 'Hide list' : 'Show list'}
+            </Button>
+          )}
+        </div>
       </div>
 
       {fallback && (

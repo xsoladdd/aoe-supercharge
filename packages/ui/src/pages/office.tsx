@@ -61,8 +61,9 @@ function ViewSwitch({ view }: { view: OfficeView }) {
  * The office (SPEC §14.5): every worker stands where its status puts it. The floor view draws it;
  * the list view (`?view=list`) is the same people as a plain list. `?worker=NW-0007` (with
  * `&project=` when ids could clash) picks one; `?focus=door|desk|pantry|<project>` goes to an area.
+ * `standalone` is the office window (`/office/window`): the floor only.
  */
-export function OfficePage({ snap }: { snap: Snapshot }) {
+export function OfficePage({ snap, standalone = false }: { snap: Snapshot; standalone?: boolean }) {
   const { office, announcement } = useOffice(snap);
   const now = useNow();
   const view = useOfficeView();
@@ -77,7 +78,7 @@ export function OfficePage({ snap }: { snap: Snapshot }) {
 
   if (snap.projects.length === 0)
     return (
-      <div className="space-y-6">
+      <div className={cn('space-y-6', standalone && 'p-6')}>
         <PageHeader title="Office" />
         <div className="rounded-xl border border-dashed border-border-strong px-6 py-10 text-center">
           <div className="text-base font-medium">The office is empty</div>
@@ -89,10 +90,10 @@ export function OfficePage({ snap }: { snap: Snapshot }) {
       </div>
     );
 
-  if (view === 'floor')
+  if (view === 'floor' || standalone)
     return (
       <>
-        <ViewSwitch view={view} />
+        {!standalone && <ViewSwitch view={view} />}
         <Suspense
           fallback={
             <div className="grid flex-1 place-items-center" aria-busy="true">
@@ -107,6 +108,7 @@ export function OfficePage({ snap }: { snap: Snapshot }) {
             linkWorker={worker}
             linkFocus={focusParam}
             announcement={announcement}
+            standalone={standalone}
           />
         </Suspense>
       </>

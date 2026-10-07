@@ -1,6 +1,6 @@
 import { Fragment, lazy, Suspense, useEffect, useState } from 'react';
 import { IconContext } from '@phosphor-icons/react';
-import { Link, Route, Switch, useLocation, useRoute } from 'wouter';
+import { Link, Route, Router, Switch, useLocation, useRoute } from 'wouter';
 import { toast } from 'sonner';
 import { AppSidebar } from '@/components/app-sidebar';
 import { HealthBanners } from '@/components/banners';
@@ -23,6 +23,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { sendJson } from '@/lib/api';
 import { HeaderSlotContext } from '@/lib/header-slot';
 import { useNeedsYouNudge } from '@/lib/nudge';
+import { OFFICE_WINDOW, useOfficeWindowLinks, useOfficeWindowLocation } from '@/lib/office-window';
 import { SelectionProvider, useAppContextMenu } from '@/lib/selection';
 import { useSearchParam } from '@/lib/nav';
 import { startLive, useLive, type Connection } from '@/lib/live';
@@ -163,6 +164,29 @@ function ConnectionPill({ connection }: { connection: Connection }) {
   );
 }
 
+/** The office on its own (`/office/window`), for another screen: no sidebar, no header. */
+function OfficeWindow({ snap, connection }: { snap: Snapshot; connection: Connection }) {
+  useEffect(() => {
+    document.title = 'Office · Supercharge';
+  }, []);
+  return (
+    <div className="flex h-dvh flex-col bg-surface">
+      <HealthBanners health={snap.health} connection={connection} />
+      <main id="main" tabIndex={-1} className="flex min-h-0 flex-1 flex-col outline-none">
+        <Suspense
+          fallback={
+            <div className="grid flex-1 place-items-center" aria-busy="true">
+              <span className="text-sm text-muted-foreground">Opening the office…</span>
+            </div>
+          }
+        >
+          <OfficePage snap={snap} standalone />
+        </Suspense>
+      </main>
+    </div>
+  );
+}
+
 export function App() {
   const live = useLive();
   const snap = live.snapshot;
@@ -176,6 +200,7 @@ export function App() {
   // Chats fill the window and scroll inside themselves, with the composer pinned under them.
   const isChat = isSessionChat || (!!taskParams && taskTab === 'chat');
   const [isOffice] = useRoute('/office');
+  const [isOfficeWindow] = useRoute(OFFICE_WINDOW);
   const officeView = useSearchParam('view');
   const legacySession = useSearchParam('session');
   const [headerSlot, setHeaderSlot] = useState<HTMLDivElement | null>(null);
@@ -186,7 +211,9 @@ export function App() {
   }, []);
   useSyncThemeFrom(snap?.ui.theme);
   useSyncScaleFrom(snap?.ui.scale);
-  useNeedsYouNudge(snap?.needsYou, snap?.ui.sound ?? true);
+  // The dashboard window nudges; an office window beside it would only say it twice.
+  useNeedsYouNudge(isOfficeWindow ? undefined : snap?.needsYou, snap?.ui.sound ?? true);
+  useOfficeWindowLinks(navigate);
   useAppContextMenu();
   // Links from before the chat page (`?session=<id>`) still land on the chat.
   useEffect(() => {
@@ -195,6 +222,21 @@ export function App() {
 
   if (live.connection === 'signed_out') return <SignedOut />;
   if (!snap) return live.connection === 'error' ? <Unreachable error={live.error} /> : <LoadingShell />;
+
+  if (isOfficeWindow)
+    return (
+      <IconContext.Provider
+        value={{ 'aria-hidden': true } as React.ComponentProps<typeof IconContext.Provider>['value']}
+      >
+        <TooltipProvider delayDuration={300}>
+          <SelectionProvider>
+            <Router hook={useOfficeWindowLocation}>
+              <OfficeWindow snap={snap} connection={live.connection} />
+            </Router>
+          </SelectionProvider>
+        </TooltipProvider>
+      </IconContext.Provider>
+    );
 
   const crumbs = crumbsFor(location, snap);
   // The office floor fills the window like a chat; its list view scrolls like any page.

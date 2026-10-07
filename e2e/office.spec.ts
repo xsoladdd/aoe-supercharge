@@ -295,6 +295,32 @@ test.describe('office', () => {
       await axe(page, 'office floor');
     });
 
+    test('the office opens in a window of its own; what you open there opens in the dashboard', async ({
+      signedIn: page,
+    }) => {
+      await page.goto('/office');
+      await drawn(page);
+      const [win] = await Promise.all([
+        page.context().waitForEvent('page'),
+        page.getByRole('button', { name: 'New window' }).click(),
+      ]);
+      await expect(win).toHaveURL(/\/office\/window$/);
+      await drawn(win);
+      await expect(win).toHaveTitle('Office · Supercharge');
+      // Just the office: no sidebar or header, and no way to open yet another window.
+      await expect(win.locator('[data-sidebar="sidebar"]')).toHaveCount(0);
+      await expect(win.getByRole('button', { name: 'New window' })).toHaveCount(0);
+      await axe(win, 'office window');
+      await win.locator('[data-worker="northwind-web/NW-0003"]').click();
+      await win
+        .locator('[data-worker-card="northwind-web/NW-0003"]')
+        .getByRole('link', { name: 'Open task' })
+        .click();
+      await expect(page).toHaveURL(/\/p\/northwind-web\/t\/NW-0003$/);
+      await expect(win).toHaveURL(/\/office\/window$/);
+      await win.close();
+    });
+
     test('picking a worker in the list opens its card and flies to it', async ({ signedIn: page }) => {
       await page.goto('/office');
       await drawn(page);
