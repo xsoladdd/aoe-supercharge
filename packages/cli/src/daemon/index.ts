@@ -10,7 +10,7 @@ import { mrProvider } from '../workflow.ts';
 import { createApp } from './app.ts';
 import { attachShellSockets } from './shell.ts';
 import { PromptReader } from '../prompt.ts';
-import { TranscriptStore } from '../transcript.ts';
+import { transcriptStore } from '../transcript.ts';
 import { MrWatcher } from './mr-watcher.ts';
 import { CostWatcher, OfficeWatcher, WeatherWatcher } from './office.ts';
 import { Store } from './store.ts';
@@ -118,12 +118,7 @@ async function runWorker(): Promise<void> {
   };
 
   const notifier = new Notifier(() => ctx.config);
-  // AoE's Claude hooks write each session's live Claude id under /tmp/aoe-hooks-<uid>/<id>/session_id.
-  const transcripts = new TranscriptStore(
-    paths.claudeDir,
-    process.env.SUPERCHARGE_AOE_HOOKS_DIR || `/tmp/aoe-hooks-${process.getuid?.() ?? 0}`,
-    ctx.aoeCli,
-  );
+  const transcripts = transcriptStore(ctx);
   const aoeWatcher = new AoeWatcher(ctx, store, new PromptReader(ctx, transcripts), transcripts);
   const ledgerWatcher = new LedgerWatcher(ctx, store);
   const notesWatcher = new NotesWatcher(ctx, store);

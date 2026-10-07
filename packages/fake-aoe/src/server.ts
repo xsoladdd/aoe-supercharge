@@ -88,6 +88,19 @@ export const PERMISSION_MENU = [
   '   3. No, and tell Claude what to do differently (esc)',
 ].join('\n');
 
+/** The folder-trust dialog a new Claude Code session can open on (wording approximate). */
+export const TRUST_MENU = [
+  '────────────────────────────────────────────────────────────────────────────────',
+  ' Accessing workspace:',
+  '',
+  ' Quick safety check: Is this a project you created or one you trust?',
+  '',
+  ' ❯ 1. Yes, I trust this folder',
+  '   2. No, exit',
+  '',
+  ' Enter to confirm · Esc to cancel',
+].join('\n');
+
 export interface FakeState {
   version: string;
   token: string;
@@ -268,7 +281,14 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
   app.post('/__fake/sessions', async (c) => {
     const body = (await c.req.json()) as Partial<FakeSession> & { title: string; project_path: string };
     const s = makeSession(body);
+    if (s.menu === 'trust') Object.assign(s, { status: 'Waiting', menu: TRUST_MENU });
     state.sessions.push(s);
+    // Like Claude Code under AoE: a launched session starts, then sits idle at its empty prompt.
+    if (s.status === 'Starting')
+      setTimeout(() => {
+        if (s.status !== 'Starting') return;
+        Object.assign(s, { status: 'Idle', idle_entered_at: new Date().toISOString() });
+      }, 200).unref();
     return c.json(s, 201);
   });
   app.patch('/__fake/sessions/:id', async (c) => {

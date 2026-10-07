@@ -28,6 +28,7 @@ import { SHIPPED_COMPAT, type Ctx } from '../context.ts';
 import type { PromptReader } from '../prompt.ts';
 import type { TranscriptStore } from '../transcript.ts';
 import type { Store } from './store.ts';
+import { kickoffWorker } from '../workflow.ts';
 
 const nowIso = () => new Date().toISOString();
 
@@ -177,6 +178,7 @@ export class AoeWatcher {
     await this.nameCrew(views).catch((err) =>
       this.ctx.logger.warn('could not name a worker', { err: (err as Error).message }),
     );
+    await this.kickoff(views);
     for (const id of [...this.since.keys()]) if (!live.some((s) => s.id === id)) this.since.delete(id);
     await this.followRemovedSessions(new Set(live.map((s) => s.id)), trashed).catch((err) =>
       this.ctx.logger.warn('could not sync removed workers', { err: (err as Error).message }),
@@ -224,6 +226,28 @@ export class AoeWatcher {
         }),
     );
     for (const id of [...this.asks.keys()]) if (!controls.has(id)) this.asks.delete(id);
+  }
+
+  /**
+   * A new worker whose first message `task new` could not send (still starting, a trust dialog open,
+   * the CLI gone): send it once the session is at its prompt (SPEC §8.2).
+   */
+  private async kickoff(views: SessionView[]) {
+    const byId = new Map(views.map((v) => [v.id, v]));
+    for (const t of this.store.tasks) {
+      const v = byId.get(t.aoeSessionId);
+      if (t.kickoffAt !== null || !v || v.archived) continue;
+      await kickoffWorker(this.ctx, t, { status: v.status, transcripts: this.transcripts, actor: 'daemon' })
+        .then(
+          (r) => r === 'sent' && this.ctx.logger.info('sent a new worker its first message', { task: t.id }),
+        )
+        .catch((err) =>
+          this.ctx.logger.warn('could not send a worker its first message', {
+            task: t.id,
+            err: (err as Error).message,
+          }),
+        );
+    }
   }
 
   private absent = new Map<string, { polls: number; since: number }>();

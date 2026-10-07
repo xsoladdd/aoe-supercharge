@@ -92,6 +92,11 @@ export interface TaskRecord {
   /** The model and effort the worker was started with (null: Claude Code's default). Older tasks lack them. */
   model?: string | null;
   effort?: string | null;
+  /**
+   * When the worker was sent its first message (SPEC §8.2); null while it still waits for one. Older
+   * tasks lack it and are never sent one.
+   */
+  kickoffAt?: string | null;
   createdAt: string;
   updatedAt: string;
   history: HistoryEntry[];

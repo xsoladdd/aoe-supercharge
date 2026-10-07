@@ -10,6 +10,7 @@ import {
   type UsageEntry,
 } from '@aoe-supercharge/core/shared';
 import type { AoeCli } from './aoe/cli.ts';
+import type { Ctx } from './context.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** Command echoes and harness notes Claude Code records as user turns; they aren't things you typed. */
@@ -262,6 +263,15 @@ interface Cached {
  * AoE's hook state (<hooksDir>/<aoe id>/session_id[.<launch id>], written by its SessionStart hook, so
  * it follows /clear at once), falling back to `aoe session show --json`.
  */
+/** AoE's Claude hooks write each session's live Claude id under /tmp/aoe-hooks-<uid>/<id>/session_id. */
+export function transcriptStore(ctx: Pick<Ctx, 'paths' | 'aoeCli' | 'env'>): TranscriptStore {
+  return new TranscriptStore(
+    ctx.paths.claudeDir,
+    ctx.env.SUPERCHARGE_AOE_HOOKS_DIR || `/tmp/aoe-hooks-${process.getuid?.() ?? 0}`,
+    ctx.aoeCli,
+  );
+}
+
 export class TranscriptStore {
   private cache = new Map<string, Cached>();
   private idCache = new Map<string, { id: string | null; at: number }>();

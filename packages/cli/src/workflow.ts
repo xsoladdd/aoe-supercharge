@@ -17,6 +17,7 @@ import {
   STAGE_LABEL,
   transition,
   type Actor,
+  type LiveStatus,
   type MrState,
   type ProjectRecord,
   type Stage,
@@ -38,7 +39,7 @@ import { installUserSkills, readTemplate, render, SKILL_NAMES, upsertManagedBloc
 import { TerminalBusyError } from './aoe/client.ts';
 import { menuOnScreen } from './prompt.ts';
 import { uploadArgs } from './uploads.ts';
-import type { TranscriptStore } from './transcript.ts';
+import { transcriptStore, type TranscriptStore } from './transcript.ts';
 import { CliError, EXIT } from './util/errors.ts';
 import { run } from './util/exec.ts';
 import { currentBranch, defaultBranch, mainCheckout, parseRemote, remoteUrl } from './util/git.ts';
@@ -336,6 +337,8 @@ export async function newTask(
     effort?: string;
     /** Start even when your usage or the worker cap says to wait (only when the user says so). */
     force?: boolean;
+    /** How long to wait for the session's prompt before leaving the first message to the daemon. */
+    kickoff?: KickoffWait;
   },
 ): Promise<TaskRecord & { warnings?: string[]; usage?: UsageReport }> {
   const title = opts.title.trim();
@@ -449,6 +452,7 @@ export async function newTask(
     mr: null,
     model,
     effort,
+    kickoffAt: null,
     createdAt: at,
     updatedAt: at,
     history: [{ at, from: null, to: 'planning', by: opts.actor ?? 'control', note: 'Task created' }],
@@ -473,9 +477,42 @@ export async function newTask(
       ...(usage.canStart ? {} : { forced: usage.advice }),
     },
   });
+  const warnings = launchWarn ? [launchWarn] : [];
+  const kicked = launchWarn ? 'waiting' : await kickoffNewWorker(ctx, task, opts.kickoff);
+  if (kicked === 'waiting')
+    warnings.push(
+      `${id} is not at its prompt yet${launchWarn ? '' : ' (a menu such as the trust-folder dialog may be open)'}; the daemon sends its first message once it is.`,
+    );
   // Counting the worker that just started, for the control chat's next decision.
   const after = usageReport(await readUsage(ctx.paths), usage.activeWorkers + 1, ctx.config.limits);
-  return { ...task, usage: after, ...(launchWarn ? { warnings: [launchWarn] } : {}) };
+  const saved = (await ctx.ledger.getTask(project.name, id)) ?? task;
+  return { ...saved, usage: after, ...(warnings.length ? { warnings } : {}) };
+}
+
+export interface KickoffWait {
+  timeoutMs?: number;
+  wait?: (ms: number) => Promise<void>;
+}
+
+/** Wait for a new worker's prompt (normally ~6 s), then send its first message (SPEC §8.2). */
+async function kickoffNewWorker(ctx: Ctx, task: TaskRecord, o: KickoffWait = {}): Promise<KickoffResult> {
+  const envMs = Number(ctx.env.SUPERCHARGE_KICKOFF_WAIT_MS || NaN);
+  const {
+    timeoutMs = Number.isFinite(envMs) && envMs >= 0 ? envMs : 30_000,
+    wait = (ms) => new Promise<void>((r) => setTimeout(r, ms)),
+  } = o;
+  const transcripts = transcriptStore(ctx);
+  const until = Date.now() + timeoutMs;
+  for (;;) {
+    const s = (await ctx.aoe.listSessions().catch(() => [])).find((x) => x.id === task.aoeSessionId);
+    const status = normalizeAoeStatus(s?.status);
+    const r = await kickoffWorker(ctx, task, { status, transcripts, actor: 'cli' }).catch((err) => {
+      ctx.logger.warn('could not send the first message', { task: task.id, err: (err as Error).message });
+      return 'waiting' as const;
+    });
+    if (r !== 'waiting' || Date.now() >= until) return r;
+    await wait(1_000);
+  }
 }
 
 /** Your usage right now, from the status line's last reading and the workers already active. */
@@ -1111,7 +1148,7 @@ export async function sendToSession(
   opts: {
     sessionId: string;
     message: string;
-    actor: 'cli' | 'ui' | 'control';
+    actor: 'cli' | 'ui' | 'control' | 'daemon';
     project?: string | null;
     taskId?: string | null;
   },
@@ -1128,6 +1165,64 @@ export async function sendToSession(
     text: message,
   });
   await deliver(ctx, opts.sessionId, message);
+}
+
+/** A new worker's first message; its brief is in its system prompt (roles/worker.md). */
+export const KICKOFF_MESSAGE =
+  'Start on your task: your brief is in your system prompt (the Supercharge worker section). Investigate and propose a plan.';
+
+export type KickoffResult = 'sent' | 'waiting' | 'skipped';
+
+/**
+ * Claude Code waits for a first user message whatever its system prompt says, so a new worker gets
+ * one (SPEC §8.2). Sent once, when its session is idle at the prompt with no menu on screen (the
+ * trust-folder dialog, say: AoE's Enter would pick its option). A worker someone already wrote to is
+ * left alone. `task new` and the daemon both call this; the claim in the task's lock means one sends.
+ */
+export async function kickoffWorker(
+  ctx: Ctx,
+  task: TaskRecord,
+  opts: { status: LiveStatus; transcripts?: TranscriptStore | null; actor: 'cli' | 'daemon' },
+): Promise<KickoffResult> {
+  if (task.kickoffAt !== null) return 'skipped';
+  const settle = (fn: (t: TaskRecord) => boolean) =>
+    ctx.ledger.updateTask(task.project, task.id, (t) =>
+      fn(t) ? { ...t, kickoffAt: new Date().toISOString() } : t,
+    );
+  if (task.stage !== 'planning') {
+    await settle((t) => t.kickoffAt === null);
+    return 'skipped';
+  }
+  if (opts.status !== 'idle') return 'waiting';
+  if (await menuOnScreen(ctx, task.aoeSessionId)) return 'waiting';
+  const chat = opts.transcripts
+    ? await opts.transcripts.read(task.aoeSessionId, task.worktreePath || null).catch(() => null)
+    : null;
+  if (chat?.messages.some((m) => m.role === 'user')) {
+    await settle((t) => t.kickoffAt === null);
+    return 'skipped';
+  }
+  let claimed = false;
+  await settle((t) => {
+    claimed = t.kickoffAt === null && t.stage === 'planning';
+    return claimed;
+  });
+  if (!claimed) return 'skipped';
+  try {
+    await sendToSession(ctx, {
+      sessionId: task.aoeSessionId,
+      message: KICKOFF_MESSAGE,
+      actor: opts.actor,
+      project: task.project,
+      taskId: task.id,
+    });
+  } catch (err) {
+    // Not delivered (a menu came up in between, AoE hiccuped): the next try sends it.
+    await ctx.ledger.updateTask(task.project, task.id, (t) => ({ ...t, kickoffAt: null }));
+    if (err instanceof MenuOpenError) return 'waiting';
+    throw err;
+  }
+  return 'sent';
 }
 
 /**
