@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { userInfo } from 'node:os';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { writeFileAtomic, type Paths } from '@aoe-supercharge/core/node';
 import { run } from '../util/exec.ts';
 
@@ -117,9 +118,18 @@ class LaunchdManager implements ServiceManager {
     );
   }
   async start() {
-    if (await this.loaded())
+    if (await this.loaded()) {
       await run('launchctl', ['bootout', `${this.domain}/${SERVICE_LABEL}`], { timeoutMs: 15_000 });
-    const r = await run('launchctl', ['bootstrap', this.domain, this.file], { timeoutMs: 15_000 });
+      // bootout returns before the running daemon has exited; loading again before then fails with
+      // "Bootstrap failed: 5: Input/output error".
+      for (let i = 0; i < 40 && (await this.loaded()); i++) await sleep(250);
+    }
+    let r = await run('launchctl', ['bootstrap', this.domain, this.file], { timeoutMs: 15_000 });
+    for (let i = 0; r.code !== 0 && i < 4; i++) {
+      await sleep(1000);
+      if (await this.loaded()) return;
+      r = await run('launchctl', ['bootstrap', this.domain, this.file], { timeoutMs: 15_000 });
+    }
     if (r.code !== 0) throw new Error(`launchctl bootstrap failed: ${(r.stderr || r.stdout).trim()}`);
   }
   async stop() {
