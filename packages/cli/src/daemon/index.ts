@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { serve, type ServerType } from '@hono/node-server';
-import { ensureToken, readJson, writeJsonAtomic } from '@aoe-supercharge/core/node';
+import { ensureToken, readDismissed, readJson, writeJsonAtomic } from '@aoe-supercharge/core/node';
 import type { Health } from '@aoe-supercharge/core/shared';
 import { checkAoeCompat, createCtx, SHIPPED_COMPAT, VERSION } from '../context.ts';
 import { notify, Notifier } from '../notify.ts';
@@ -107,6 +107,7 @@ async function runWorker(): Promise<void> {
   const store = new Store(health, {
     waitingDebounceSeconds: () => ctx.config.notifications.waitingDebounceSeconds,
   });
+  store.dismissedReplies = await readDismissed(ctx.paths).catch(() => ({}));
   store.ui = {
     theme: ctx.config.ui.theme,
     density: ctx.config.ui.density,

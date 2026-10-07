@@ -19,6 +19,11 @@ export interface NeedsYouInput {
   aoeReachable: boolean;
   now: Date;
   waitingDebounceSeconds: number;
+  /**
+   * "Control chat replied" items you dismissed: when, by control chat session id. Hidden until a newer
+   * reply (one whose idle stretch began after the dismissal).
+   */
+  dismissedReplies?: Record<string, string>;
 }
 
 /**
@@ -38,6 +43,10 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
   const debounceMs = input.waitingDebounceSeconds * 1000;
   const iso = (s: string | null, fallback: string) => s ?? fallback;
   const nowIso = now.toISOString();
+  const dismissed = (sessionId: string, since: string) => {
+    const at = input.dismissedReplies?.[sessionId];
+    return !!at && Date.parse(at) >= Date.parse(since);
+  };
 
   for (const t of tasks) {
     if (t.stage === 'blocked' && t.openQuestion && !t.openQuestion.answeredAt) {
@@ -134,7 +143,7 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         detail: s.lastError ?? 'AoE reports an error for this session',
         since,
       });
-    } else if (s.status === 'idle' && isControl && s.unread) {
+    } else if (s.status === 'idle' && isControl && s.unread && !dismissed(s.id, since)) {
       items.push({
         id: `control_replied:${s.id}`,
         kind: 'control_replied',

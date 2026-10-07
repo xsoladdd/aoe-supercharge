@@ -42,6 +42,51 @@ test.describe('overview', () => {
     await axe(page, 'overview');
   });
 
+  test('"Control chat replied" can be dismissed until the control chat replies again', async ({
+    signedIn: page,
+  }) => {
+    const needs = page.locator('section[aria-labelledby="needs-you-heading"]');
+    const replied = needs.locator('li', { hasText: 'northwind-web control chat' }).filter({
+      hasText: 'Control chat replied',
+    });
+    await expect(replied).toHaveCount(1);
+    // Only that kind can be dismissed.
+    await expect(needs.locator('[data-dismiss^="control_replied:"]')).toHaveCount(
+      await needs.locator('li', { hasText: 'Control chat replied' }).count(),
+    );
+    await replied.getByRole('button', { name: /^Dismiss: northwind-web control chat/ }).click();
+    await expect(replied).toHaveCount(0);
+    // It stays dismissed after a reload: the daemon keeps it.
+    await page.reload();
+    await expect(needs.getByText('Question', { exact: true })).toBeVisible();
+    await expect(replied).toHaveCount(0);
+    // Only "Control chat replied" can be dismissed.
+    const res = await page.evaluate(async () => {
+      const { token } = (await (await fetch('/api/csrf')).json()) as { token: string };
+      const items = (await (await fetch('/api/snapshot')).json()).needsYou as { id: string; kind: string }[];
+      const other = items.find((i) => i.kind !== 'control_replied')!;
+      const r = await fetch('/api/needs-you/dismiss', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-csrf-token': token },
+        body: JSON.stringify({ id: other.id }),
+      });
+      return r.status;
+    });
+    expect(res).toBe(400);
+    // A newer reply brings it back.
+    const control = await sessionId('northwind-web control');
+    await fake(`/__fake/sessions/${control}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'Running' }),
+    });
+    await page.waitForTimeout(2_500);
+    await fake(`/__fake/sessions/${control}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'Idle', unread: true }),
+    });
+    await expect(replied).toHaveCount(1, { timeout: 15_000 });
+  });
+
   test('opening an unmanaged session opens its chat, with the terminal one click away', async ({
     signedIn: page,
   }) => {

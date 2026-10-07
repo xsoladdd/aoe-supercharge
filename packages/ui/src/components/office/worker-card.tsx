@@ -20,6 +20,7 @@ import {
 } from '@aoe-supercharge/core/shared';
 import { CostLine, ESTIMATE_NOTE } from '@/components/office/cost';
 import { GoHome, RestoreButton } from '@/components/office/go-home';
+import { DismissReply } from '@/components/needs-you';
 import { PromptCard, TaskAsks } from '@/components/answer';
 import { Avatar } from '@/components/office/avatar';
 import { Reason } from '@/components/office/roster';
@@ -225,6 +226,17 @@ export function WorkerCard({
         </dl>
 
         {w.zone === 'pantry' && <GoHome w={w} now={now} className="rounded-lg border border-border p-3" />}
+        {w.items
+          .filter((i) => i.kind === 'control_replied')
+          .map((i) => (
+            <div
+              key={i.id}
+              className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
+            >
+              <span className="min-w-0 flex-1">Replied {relativeTime(i.since, now)}, not yet read.</span>
+              <DismissReply item={i} />
+            </div>
+          ))}
         {w.zone === 'archived' && (
           <div className="space-y-2 text-sm">
             <p className="text-muted-foreground">

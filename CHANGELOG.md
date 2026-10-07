@@ -27,6 +27,9 @@ history.
 - **Runaway workers are flagged.** Over a token limit, spending fast, or working half an hour without
   changing anything: a red warning on the floor, a toast, a desktop notification, and a "needs
   attention" count in the header. Set the limits in Settings, Office (`office.runaway`).
+- **Dismiss "Control chat replied".** It used to stay until you opened the chat in AoE. Its card in
+  Needs you, and the team lead's card in the office, now have a Dismiss button; it stays away until the
+  control chat replies again. Nothing else in Needs you can be dismissed.
 - **Office history mode and "Since I was away".** Replay the office: a scrubber over the last hour to
   7 days, play at 1×, 10× or 60×, filters by project and agent, and Back to Live always in view.
   "Since I was away" sums up what happened since your last visit: agents finished, MRs raised,

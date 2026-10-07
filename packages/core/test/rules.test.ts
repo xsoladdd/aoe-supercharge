@@ -160,6 +160,28 @@ describe('computeNeedsYou', () => {
     expect(items.map((i) => i.kind)).toEqual(['question', 'control_waiting', 'approval', 'mr_ready']);
     expect(items.find((i) => i.kind === 'approval')?.taskId).toBe('NW-0001');
   });
+  it('a dismissed "Control chat replied" stays away until the control chat replies again', () => {
+    const args = { now, aoeReachable: true, waitingDebounceSeconds: 20, projects: [], tasks: [] };
+    // The control chat replied at 11:00 and you have not read it; a worker waits on you too.
+    const sessions = [
+      session({ id: 'ctrl', unread: true, statusSince: '2026-10-05T11:00:00Z' }),
+      session({ id: 'w', parentId: 'ctrl', status: 'waiting', statusSince: '2026-10-05T11:30:00Z' }),
+    ];
+    const kinds = (dismissedReplies?: Record<string, string>) =>
+      computeNeedsYou({ ...args, sessions, dismissedReplies }).map((i) => i.kind);
+    expect(kinds()).toEqual(['control_replied', 'approval']);
+    // Dismissed at 11:05: gone; nothing else changes.
+    expect(kinds({ ctrl: '2026-10-05T11:05:00Z' })).toEqual(['approval']);
+    // Dismissing another chat's reply does nothing here.
+    expect(kinds({ other: '2026-10-05T11:05:00Z' })).toEqual(['control_replied', 'approval']);
+    // A newer reply (idle again since 11:40) brings it back.
+    const newer = [{ ...sessions[0]!, statusSince: '2026-10-05T11:40:00Z' }, sessions[1]!];
+    expect(
+      computeNeedsYou({ ...args, sessions: newer, dismissedReplies: { ctrl: '2026-10-05T11:05:00Z' } }).map(
+        (i) => i.kind,
+      ),
+    ).toEqual(['approval', 'control_replied']);
+  });
   it("lists a control chat's NEEDS YOU items, blockers marked, with the same id for the same item", () => {
     const asks = {
       at: '2026-10-05T11:40:00Z',

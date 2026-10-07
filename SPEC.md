@@ -518,6 +518,8 @@ Only `ClaudeCodeAdapter` is built. The rest of the code depends on the interface
 | `Unknown`, `Deleting` | Unknown | — |
 | *(not in AoE list)* | Missing session | Yes, when the ledger task isn't `done` |
 
+**Dismissing "Control chat replied"** (0.5.0). AoE keeps `unread` until the chat is opened in AoE, so this item could stay for good. Its card in Needs you (and the team lead's card in the office) has a **Dismiss** button: `POST /api/needs-you/dismiss` (§12) notes the time per control chat session in `$XDG_DATA_HOME/supercharge/needs-you.json`, and the item is hidden while that time is at or after the start of the chat's current idle stretch (`statusSince`). A newer reply (the chat works, then goes idle again) brings it back. No other kind can be dismissed (400): they clear when what they are about is done.
+
 - **Answering in AoE:** "Approval waiting" items open the session in AoE, because terminal-mode prompts can only be answered there.
 - **ACP sessions:** for structured sessions, `pending_approvals[]` is shown with `tool_name`/`target`. Answering from the dashboard is out of scope for v1.
 
@@ -599,6 +601,7 @@ Bound to **127.0.0.1 only**. Requests are rejected unless the `Host` header is `
 | GET | `/api/notes[?archived=1]` | ✓ | Notes and todos (§14.6) not archived, or only the archived ones |
 | POST | `/api/notes` | ✓+CSRF | Body `{ kind: "note" \| "todo", text, project }` (`project: null` is global); `by: you` |
 | PATCH | `/api/notes/:id` | ✓+CSRF | Body `{ done }`, `{ text }` or `{ archived }`: tick a todo, edit, archive or restore |
+| POST | `/api/needs-you/dismiss` | ✓+CSRF | Body `{ id }`: dismiss a `control_replied` item until that control chat replies again (§10.2); any other kind is 400, an unknown id 404 |
 | POST | `/api/office/marks` | ✓+CSRF | Body `{ key, action: "archive" \| "keep" \| "snooze" \| "restore" }` (§14.5): a worker's office mark, by character key; workers only (a lead is 400, an unknown key 404). Office-only: it writes `office.json` and never touches the session, worktree or transcript |
 | GET | `/api/office/history?from&to[&project][&key]` | ✓ | The office history (§14.5): `{ start, records }`, the state at `from` as a frame, then the records up to `to` (ISO times; default the last 24 h), narrowed to a project or a character key |
 

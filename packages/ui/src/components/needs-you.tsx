@@ -8,10 +8,14 @@ import {
   ShieldCheckIcon,
   SmileyIcon,
   WarningOctagonIcon,
+  XIcon,
   type Icon,
 } from '@phosphor-icons/react';
 import { relativeTime, type NeedsYouItem, type NeedsYouKind } from '@aoe-supercharge/core/shared';
+import { useState } from 'react';
+import { toast } from 'sonner';
 import { Link } from 'wouter';
+import { ApiError, sendJson } from '@/lib/api';
 import { chatHref } from '@/lib/nav';
 import { useNow } from '@/lib/theme';
 import { cn } from '@/lib/utils';
@@ -40,6 +44,39 @@ export function hrefFor(item: NeedsYouItem): string {
   return '/';
 }
 
+/**
+ * Dismiss a "Control chat replied" item until the control chat replies again (SPEC §10.2). The only
+ * kind you can dismiss: everything else clears when what it is about is done.
+ */
+export function DismissReply({ item, className }: { item: NeedsYouItem; className?: string }) {
+  const [busy, setBusy] = useState(false);
+  if (item.kind !== 'control_replied') return null;
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      data-dismiss={item.id}
+      aria-label={`Dismiss: ${item.title} replied`}
+      title="Dismiss until it replies again"
+      onClick={async () => {
+        setBusy(true);
+        try {
+          await sendJson('POST', '/api/needs-you/dismiss', { id: item.id });
+        } catch (e) {
+          toast.error('That did not work', { description: e instanceof ApiError ? e.message : undefined });
+          setBusy(false);
+        }
+      }}
+      className={cn(
+        'grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground hover:bg-raised hover:text-foreground disabled:opacity-50',
+        className,
+      )}
+    >
+      <XIcon weight="bold" className="size-4" aria-hidden />
+    </button>
+  );
+}
+
 export function NeedsYouStrip({ items }: { items: NeedsYouItem[] }) {
   const now = useNow();
   return (
@@ -64,7 +101,7 @@ export function NeedsYouStrip({ items }: { items: NeedsYouItem[] }) {
           {items.map((item) => {
             const k = KIND[item.kind];
             return (
-              <li key={item.id} className="w-[19rem] shrink-0 snap-start">
+              <li key={item.id} className="relative w-[19rem] shrink-0 snap-start">
                 <Link
                   href={hrefFor(item)}
                   className="group flex h-full w-full flex-col gap-1.5 rounded-lg border border-border bg-card p-3.5 text-left transition-colors hover:border-border-strong hover:bg-raised"
@@ -91,6 +128,7 @@ export function NeedsYouStrip({ items }: { items: NeedsYouItem[] }) {
                     {item.detail}
                   </span>
                 </Link>
+                <DismissReply item={item} className="absolute right-2 bottom-2" />
               </li>
             );
           })}

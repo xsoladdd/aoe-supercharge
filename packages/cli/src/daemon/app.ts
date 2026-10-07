@@ -14,6 +14,7 @@ import {
   patchConfig,
   safeEqual,
   updateOfficeMark,
+  dismissControlReply,
   type NoteChange,
 } from '@aoe-supercharge/core/node';
 import {
@@ -915,6 +916,22 @@ export function createApp(deps: AppDeps) {
       key: c.req.query('key') || null,
     });
     return c.json(history);
+  });
+
+  // Dismiss a "Control chat replied" item (SPEC §10.2) until the control chat replies again. Only that
+  // kind: everything else in Needs you clears when what it is about is done.
+  app.post('/api/needs-you/dismiss', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { id?: unknown } | null;
+    if (typeof body?.id !== 'string')
+      return c.json({ error: 'bad_request', message: 'Expected { id }' }, 400);
+    const item = store.needsYou.find((i) => i.id === body.id);
+    if (!item) return c.json({ error: 'not_found', message: 'No such Needs-you item' }, 404);
+    if (item.kind !== 'control_replied' || !item.sessionId)
+      return c.json({ error: 'bad_request', message: 'Only "Control chat replied" can be dismissed' }, 400);
+    // At least the reply's own time, so a clock skew cannot leave it showing.
+    const at = new Date(Math.max(Date.now(), Date.parse(item.since))).toISOString();
+    store.setDismissedReplies(await dismissControlReply(ctx.paths, item.sessionId, at));
+    return c.json({ ok: true });
   });
 
   // The office's idle timeout (SPEC §14.5): send a worker home, keep it, snooze the prompt, or bring it
