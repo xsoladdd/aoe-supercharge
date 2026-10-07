@@ -27,6 +27,11 @@ history.
 - **Runaway workers are flagged.** Over a token limit, spending fast, or working half an hour without
   changing anything: a red warning on the floor, a toast, a desktop notification, and a "needs
   attention" count in the header. Set the limits in Settings, Office (`office.runaway`).
+- **Idle workers go home.** After half an hour idle in the pantry a worker asks to go home: Archive,
+  Keep, or Snooze 30m. Archive asks first and only changes the office: the worker walks out and waits
+  under Archived with Restore, and comes back by itself when it works or needs you. Its session,
+  worktree and history are never touched. `office.idle.autoArchiveMinutes` sends idle workers home by
+  themselves (off by default).
 - **The office keeps a history.** The daemon writes down every time someone in the office moves, or
   their reason changes, in a file per day under `~/.local/state/supercharge/history/`. It keeps 30 days
   (`office.history.retentionDays`). `GET /api/office/history` reads it back. History starts with this

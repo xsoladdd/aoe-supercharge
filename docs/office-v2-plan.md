@@ -117,7 +117,7 @@ away}.{label, timeZone, latitude, longitude}` · `office.weather.enabled` · `of
 | 3 | Finish errand (walk to the lead, hand over a folder, then on), spawn queue at the entrance, animations toggle | 2 | 0.5.0 | Done |
 | 4 | Review lounge (pool table), folders, MR badges (click opens the MR), header count | 3 | 0.5.0 | Done |
 | 5 | Token/cost meter on desks, characters and header; runaway detection, warning, notification | 4 | 0.5.0 | Done |
-| 6 | Idle "go home" prompt (Archive / Keep / Snooze 30m), auto-archive, Archived list with Restore | 5 | 0.5.0 | |
+| 6 | Idle "go home" prompt (Archive / Keep / Snooze 30m), auto-archive, Archived list with Restore | 5 | 0.5.0 | Done |
 | 7 | Activity lighting (day, dim, night), clocks with time difference, Stockholm weather, window ambience | 6 | 0.5.0 | |
 | 8 | History mode (scrubber, play 1x/10x/60x, filters, Back to Live), "Since I was away" | 7 | 0.5.0 | |
 
@@ -165,6 +165,12 @@ updated, demo data extended so it can be seen without real agents.
 - The meter follows the session's live conversation: after /clear it starts again, and "today" only
   counts the conversations on the floor now.
 - A desk shows its worker's meter at the worker's feet; there is no separate gauge drawn on the desk.
+
+- **Idle** means idle in the pantry: an MR waiting in the review lounge has a deliverable and is never
+  asked to go home, nor is a lead. The prompt is shown on the floor as a sign and acted on in the row
+  or the card (the canvas has no buttons). "Archived" in List view is the roster's Archived section.
+- **Restore** counts as Keep for the current idle stretch, so a restored worker is not asked again at
+  once. A worker that comes back by itself has its mark cleared by the daemon.
 
 ## Open questions
 

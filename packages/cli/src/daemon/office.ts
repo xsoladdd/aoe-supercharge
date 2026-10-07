@@ -1,11 +1,18 @@
-import { appendHistory, lastHistoryState, pruneHistory, readOfficeMarks } from '@aoe-supercharge/core/node';
+import {
+  appendHistory,
+  lastHistoryState,
+  pruneHistory,
+  readOfficeMarks,
+  updateOfficeMark,
+} from '@aoe-supercharge/core/node';
 import {
   buildOffice,
   diffFloor,
   FRAME_EVERY_MS,
   floorStates,
   historyDay,
-  nextHoldEnd,
+  markChange,
+  nextOfficeLook,
   type CharState,
   type HistoryRecord,
   type HoldMemory,
@@ -70,9 +77,12 @@ export class OfficeWatcher {
 
   async reloadMarks() {
     try {
+      const o = this.ctx.config.office;
       this.store.setOffice({
+        ...this.store.office,
         marks: await readOfficeMarks(this.ctx.paths),
-        runaway: this.ctx.config.office.runaway,
+        runaway: o.runaway,
+        idle: o.idle,
       });
     } catch (err) {
       this.ctx.logger.warn('office state unreadable', { err: (err as Error).message });
@@ -117,7 +127,8 @@ export class OfficeWatcher {
     const ts = now.toISOString();
     const model = buildOffice(this.store, now, this.holds);
     this.model = model;
-    this.scheduleHold(model, now.getTime());
+    this.scheduleHold(model, now);
+    await this.keepMarks(model, now);
     const next = floorStates(model);
     const out: HistoryRecord[] = [];
     const day = historyDay(now);
@@ -138,12 +149,33 @@ export class OfficeWatcher {
     return out;
   }
 
-  private scheduleHold(model: OfficeModel, now: number) {
+  private scheduleHold(model: OfficeModel, now: Date) {
     if (this.holdTimer) clearTimeout(this.holdTimer);
-    const next = nextHoldEnd(model, now);
+    const next = nextOfficeLook(model, this.store.office, now);
     if (next === null) return;
-    this.holdTimer = setTimeout(() => this.queue(false), Math.max(250, next - now + 50));
+    this.holdTimer = setTimeout(() => this.queue(false), Math.max(250, next - now.getTime() + 50));
     this.holdTimer.unref();
+  }
+
+  /**
+   * The idle timeout's own moves (SPEC §14.5), office-only: sends home whoever is due its auto-archive,
+   * and clears the mark of an archived worker that came back (it works again, or needs you), so it is
+   * not sent home again. The new marks reach the store, which builds the floor again.
+   */
+  private async keepMarks(model: OfficeModel, now: Date) {
+    const changes: [string, Parameters<typeof updateOfficeMark>[2]][] = [];
+    for (const w of model.everyone) {
+      if (w.idle.autoArchive) changes.push([w.key, markChange('archive', now)]);
+      else if (w.mark?.archivedAt && w.zone !== 'archived' && w.zone !== 'gone')
+        changes.push([w.key, { archivedAt: null }]);
+    }
+    if (!changes.length) return;
+    let marks = this.store.office.marks;
+    for (const [key, change] of changes) {
+      marks = await updateOfficeMark(this.ctx.paths, key, change);
+      this.ctx.logger.info(change.archivedAt ? 'office: sent home' : 'office: came back', { key });
+    }
+    this.store.setOffice({ ...this.store.office, marks });
   }
 }
 

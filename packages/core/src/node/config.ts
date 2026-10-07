@@ -289,6 +289,28 @@ export const ConfigSchema = z.strictObject({
             ),
         })
         .prefault({}),
+      idle: z
+        .strictObject({
+          promptMinutes: z
+            .number()
+            .int()
+            .min(0)
+            .max(10_080)
+            .default(30)
+            .describe(
+              'Ask a worker idle in the pantry this long to go home (Archive, Keep, Snooze). 0 is off.',
+            ),
+          autoArchiveMinutes: z
+            .number()
+            .int()
+            .min(0)
+            .max(10_080)
+            .default(0)
+            .describe(
+              'Send a worker idle this long home by itself. Office-only: its session, worktree and history stay. 0 is off.',
+            ),
+        })
+        .prefault({}),
     })
     .prefault({}),
   logging: z

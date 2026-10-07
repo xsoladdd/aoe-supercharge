@@ -340,6 +340,7 @@ export interface AuditEntry {
     | 'command_run'
     | 'prompt_answered'
     | 'config_changed'
+    | 'office_mark'
     | 'daemon_restart'
     | 'task_created'
     | 'project_init'

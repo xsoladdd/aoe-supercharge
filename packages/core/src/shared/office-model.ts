@@ -10,7 +10,8 @@ import {
 } from './office.ts';
 import { outfitFor, type Outfit } from './outfit.ts';
 import type { SessionCost } from './office-cost.ts';
-import type { NeedsYouItem, SessionView, Snapshot, TaskRecord } from './types.ts';
+import { comesBack, idleCheck, nextIdleDeadline, type IdleCheck, type IdleLimits } from './office-idle.ts';
+import type { NeedsYouItem, OfficeMark, OfficeState, SessionView, Snapshot, TaskRecord } from './types.ts';
 
 /**
  * The whole floor from a snapshot (SPEC §14.5). Pure: the dashboard draws it, and the daemon logs it
@@ -44,6 +45,10 @@ export interface OfficeWorker {
   items: NeedsYouItem[];
   /** Tokens and estimated cost of its live conversation, when known (SPEC §14.5). */
   cost: SessionCost | null;
+  /** Its office mark (archived, kept, snoozed), if it has one. */
+  mark: OfficeMark | null;
+  /** The idle timeout: whether to ask it to go home. */
+  idle: IdleCheck;
 }
 
 export interface OfficeTeam {
@@ -62,12 +67,18 @@ export interface OfficeModel {
   /** Workers with an MR out, idle in the review lounge, by project then desk. */
   review: OfficeWorker[];
   away: OfficeWorker[];
+  /** Sent home from the office (office-only): off the floor, listed apart with Restore. */
+  archived: OfficeWorker[];
   everyone: OfficeWorker[];
 }
 
 export type OfficeInput = Pick<Snapshot, 'sessions' | 'projects' | 'tasks' | 'needsYou'> & {
   costs?: Snapshot['costs'];
+  office?: Pick<OfficeState, 'marks' | 'idle'>;
 };
+
+/** `office.idle`'s defaults, for a build without the config. */
+export const DEFAULT_IDLE: IdleLimits = { promptMinutes: 30, autoArchiveMinutes: 0 };
 
 /**
  * Where each character was last seen. A hold (see `OfficeSpot.hold`) keeps it there; the caller owns
@@ -102,8 +113,12 @@ export function spawnedSessions(input: OfficeInput, controlSessionId: string | n
 }
 
 export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = new Map()): OfficeModel {
-  const resolve = (key: string, spot: OfficeSpot): Zone => {
-    const zone = spot.hold ? (holds.get(key) ?? spot.zone) : spot.zone;
+  const marks = input.office?.marks ?? {};
+  const limits = input.office?.idle ?? DEFAULT_IDLE;
+  const resolve = (key: string, spot: OfficeSpot, session: SessionView | null): Zone => {
+    // Archived stays off the floor until its session works again or it needs you.
+    const archived = !!marks[key]?.archivedAt && spot.zone !== 'gone' && !comesBack({ spot, session });
+    const zone = archived ? 'archived' : spot.hold ? (holds.get(key) ?? spot.zone) : spot.zone;
     holds.set(key, zone);
     return zone;
   };
@@ -133,11 +148,13 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
         desk: null,
         outfit: outfitFor('lead', name),
         spot,
-        zone: resolve(key, spot),
+        zone: resolve(key, spot, session),
         since: spot.queuedSince ?? session?.statusSince ?? null,
         href: chatPath(project.controlSessionId),
         items,
         cost: costOf(project.controlSessionId),
+        mark: marks[key] ?? null,
+        idle: idleCheck({ role: 'lead', spot, session }, marks[key], limits, now),
       };
       everyone.push(lead);
     }
@@ -159,11 +176,13 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
         desk: task.desk ?? null,
         outfit: outfitFor(task.id, name),
         spot,
-        zone: resolve(key, spot),
+        zone: resolve(key, spot, session),
         since: spot.queuedSince ?? session?.statusSince ?? null,
         href: taskPath(name, task.id),
         items,
         cost: costOf(task.aoeSessionId),
+        mark: marks[key] ?? null,
+        idle: idleCheck({ role: 'worker', spot, session }, marks[key], limits, now),
       });
     }
     // Workers the control chat started straight through AoE: no task, so they take the free desks after
@@ -192,11 +211,13 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
         desk,
         outfit: outfitFor(session.id, name),
         spot,
-        zone: resolve(key, spot),
+        zone: resolve(key, spot, session),
         since: spot.queuedSince ?? session.statusSince ?? null,
         href: chatPath(session.id),
         items,
         cost: costOf(session.id),
+        mark: marks[key] ?? null,
+        idle: idleCheck({ role: 'worker', spot, session }, marks[key], limits, now),
       });
     }
     const mine = everyone.filter((w) => w.project === name && w.role === 'worker');
@@ -216,6 +237,7 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
     pantry: everyone.filter((w) => w.zone === 'pantry'),
     review: everyone.filter((w) => w.zone === 'review'),
     away: everyone.filter((w) => w.zone === 'away'),
+    archived: everyone.filter((w) => w.zone === 'archived'),
     everyone,
   };
 }
@@ -225,9 +247,26 @@ export function runaways(model: OfficeModel): OfficeWorker[] {
   return model.everyone.filter((w) => w.cost?.runaway.length);
 }
 
+/** Who to ask to go home: idle in the pantry past `office.idle.promptMinutes`, not kept or snoozed. */
+export function goingHome(model: OfficeModel): OfficeWorker[] {
+  return model.everyone.filter((w) => w.zone === 'pantry' && w.idle.prompt);
+}
+
 /** The soonest a hold runs out (epoch ms after `now`), or null when nobody is holding. */
 export function nextHoldEnd(model: OfficeModel, now: number): number | null {
   const ends = model.everyone.map((w) => w.spot.holdUntil ?? Infinity).filter((t) => t > now);
   const next = Math.min(...ends);
   return Number.isFinite(next) ? next : null;
+}
+
+/**
+ * When the floor should be built again with nothing else changing: a hold runs out, or an idle worker is
+ * due its "go home" prompt or its auto-archive. Epoch ms, or null.
+ */
+export function nextOfficeLook(model: OfficeModel, office: OfficeInput['office'], now: Date): number | null {
+  const ends = [
+    nextHoldEnd(model, now.getTime()),
+    nextIdleDeadline(model.everyone, office?.marks ?? {}, office?.idle ?? DEFAULT_IDLE, now),
+  ].filter((t): t is number => t !== null);
+  return ends.length ? Math.min(...ends) : null;
 }

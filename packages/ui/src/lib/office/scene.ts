@@ -310,8 +310,9 @@ export class OfficeScene {
       w.ch.setBadge(badgeFor(worker));
       w.ch.setMeter(this.meterFor(worker));
       w.ch.setWarning(!!worker.cost?.runaway.length);
+      w.ch.setHome(worker.zone === 'pantry' && worker.idle.prompt);
       const prop = worker.zone === worker.spot.zone || worker.zone === 'door' ? worker.spot.prop : null;
-      const shown = worker.zone === 'away' ? null : prop;
+      const shown = worker.zone === 'away' || worker.zone === 'archived' ? null : prop;
       if (w.errand) {
         // On an errand to the lead: carry on unless where it is going has changed.
         if (spotKey(spot) === w.errand.finalKey) continue;
@@ -435,8 +436,8 @@ export class OfficeScene {
       });
     }
 
-    // Away: out of the entrance.
-    for (const w of model.away)
+    // Away, or sent home: out of the entrance.
+    for (const w of [...model.away, ...model.archived])
       out.set(w.key, { tile: L.entrance, stance: 'stand', hands: 'down', face: [-1, 0], vanish: 'exit' });
     return out;
   }

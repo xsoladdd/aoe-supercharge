@@ -580,6 +580,8 @@ export class Character {
   private meter: Meter | null = null;
   private warnBox = new Graphics();
   private warned = false;
+  private homeBox = new Graphics();
+  private homeAsked = false;
   private plateText: Text;
   private plateBg = new Graphics();
   private view: 'front' | 'back' = 'front';
@@ -617,8 +619,9 @@ export class Character {
     // Scale from the bubble's tail tip and the plate's top edge, so they grow away from the body.
     this.bubble.pivot.y = 16;
     this.plate.pivot.y = -8;
-    this.overlay.addChild(this.bubble, this.plate, this.badgeBox, this.meterBox, this.warnBox);
+    this.overlay.addChild(this.bubble, this.plate, this.badgeBox, this.meterBox, this.warnBox, this.homeBox);
     this.badgeBox.visible = false;
+    this.homeBox.visible = false;
     this.meterBox.visible = false;
     this.warnBox.visible = false;
     this.plate.visible = false;
@@ -636,6 +639,9 @@ export class Character {
     const warned = this.warned;
     this.warned = !warned;
     this.setWarning(warned);
+    const asked = this.homeAsked;
+    this.homeAsked = !asked;
+    this.setHome(asked);
     this.plateText.style.fill = p.nameplateText;
     this.redraw();
     this.drawBubble();
@@ -728,6 +734,7 @@ export class Character {
     this.badgeBox.scale.set(s);
     this.meterBox.scale.set(s);
     this.warnBox.scale.set(s);
+    this.homeBox.scale.set(s);
   }
 
   /**
@@ -777,6 +784,25 @@ export class Character {
       .fill(0xffffff)
       .circle(0, 4.6, 1.1)
       .fill(0xffffff);
+  }
+
+  /** The idle timeout's "go home?" sign: a small house by the head, while it is asked to go home. */
+  setHome(on: boolean) {
+    if (on === this.homeAsked) return;
+    this.homeAsked = on;
+    this.homeBox.clear();
+    this.homeBox.visible = on;
+    if (!on) return;
+    const p = this.p;
+    this.homeBox
+      .circle(0, 0, 9.5)
+      .fill({ color: p.nameplate, alpha: 0.9 })
+      .poly([-5.5, -0.5, 0, -5.5, 5.5, -0.5])
+      .fill(p.nameplateText)
+      .rect(-4, -0.5, 8, 5.5)
+      .fill(p.nameplateText)
+      .rect(-1.2, 1.5, 2.4, 3.5)
+      .fill(p.nameplate);
   }
 
   /** The MR badge (review lounge only); null hides it. */
@@ -874,6 +900,7 @@ export class Character {
     this.badgeBox.position.set(this.badgeAt.x, this.badgeAt.y);
     this.meterBox.position.set(x, y + 5 + (this.badgeBox.visible ? 44 : 26) * s);
     this.warnBox.position.set(x - 22 * s, y - (40 - lift) * SCALE);
+    this.homeBox.position.set(x + 22 * s, y - (40 - lift) * SCALE);
   }
 
   private drawPlate() {

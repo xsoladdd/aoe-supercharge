@@ -19,6 +19,7 @@ import {
   ZONE_LABEL,
 } from '@aoe-supercharge/core/shared';
 import { CostLine, ESTIMATE_NOTE } from '@/components/office/cost';
+import { GoHome, RestoreButton } from '@/components/office/go-home';
 import { PromptCard, TaskAsks } from '@/components/answer';
 import { Avatar } from '@/components/office/avatar';
 import { Reason } from '@/components/office/roster';
@@ -223,6 +224,16 @@ export function WorkerCard({
           )}
         </dl>
 
+        {w.zone === 'pantry' && <GoHome w={w} now={now} className="rounded-lg border border-border p-3" />}
+        {w.zone === 'archived' && (
+          <div className="space-y-2 text-sm">
+            <p className="text-muted-foreground">
+              Sent home from the office. Its session, worktree and history are untouched; it comes back by
+              itself on starting work again or needing you.
+            </p>
+            <RestoreButton w={w} />
+          </div>
+        )}
         {w.zone === 'door' && w.task && <TaskAsks task={w.task} session={w.session} />}
         {w.zone === 'door' && !w.task && w.role === 'worker' && w.session?.prompt && (
           <PromptCard session={w.session} />

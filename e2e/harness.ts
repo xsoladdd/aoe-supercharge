@@ -325,6 +325,7 @@ export async function startDemo(opts: {
       ['om-darkmode', 'Dark mode polish', 'Fix the contrast issues reported on the dark theme.'],
       ['om-crash', 'Fix the startup crash on Android 12', 'Reproduce and fix the cold start crash.'],
       ['om-i18n', 'Swedish and Tagalog translations', 'Wire up the two new locales with placeholder copy.'],
+      ['om-widgets', 'Home screen widgets', 'An order status widget for iOS and Android.'],
     ];
     for (const [key, title, brief] of work) {
       await add(key, om, title, brief);
@@ -357,8 +358,24 @@ export async function startDemo(opts: {
   setStatus(tasks.qa!.aoeSessionId, { status: 'Running' });
   for (const k of orion)
     setStatus(tasks[k]!.aoeSessionId, {
-      status: ['om-i18n', 'om-crash', 'om-push'].includes(k) ? 'Idle' : 'Running',
+      status: ['om-i18n', 'om-crash', 'om-push', 'om-widgets'].includes(k) ? 'Idle' : 'Running',
     });
+  // The idle timeout (demo only): one worker idle long enough to be asked to go home, one sent home.
+  if (opts.rich) {
+    const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+    setStatus(tasks['om-i18n']!.aoeSessionId, { idle_entered_at: ago(48) });
+    setStatus(tasks['om-widgets']!.aoeSessionId, { idle_entered_at: ago(160) });
+    const officeDir = join(opts.dir, '.local/share/supercharge/office');
+    mkdirSync(officeDir, { recursive: true });
+    const archived = `orion-mobile/${tasks['om-widgets']!.id}`;
+    writeFileSync(
+      join(officeDir, 'office.json'),
+      JSON.stringify({
+        schema: 1,
+        marks: { [archived]: { archivedAt: ago(40), keptAt: null, snoozedUntil: null } },
+      }),
+    );
+  }
   const controls = fake.state.sessions.filter(
     (s) => s.title.endsWith(' control') && s.group_path.startsWith('supercharge/'),
   );

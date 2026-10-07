@@ -118,6 +118,8 @@ const LABEL: Record<string, string> = {
   'office.runaway.sessionTokens': 'Runaway: tokens per conversation',
   'office.runaway.usdPerHour': 'Runaway: estimated $ per hour',
   'office.runaway.stallMinutes': 'Runaway: minutes without progress',
+  'office.idle.promptMinutes': 'Ask idle workers to go home after (minutes)',
+  'office.idle.autoArchiveMinutes': 'Send idle workers home after (minutes)',
   'notifications.runaway': 'A worker may be a runaway',
   'logging.level': 'Log level',
   'logging.maxFileMb': 'Rotate at (MB)',

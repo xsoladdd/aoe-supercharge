@@ -211,6 +211,10 @@ sessionTokens = 50000000           # tokens in one conversation
 usdPerHour = 20                    # estimated spend in the last hour
 stallMinutes = 30                  # working and spending, nothing changed
 
+[office.idle]                      # 0 turns it off
+promptMinutes = 30                 # idle in the pantry: ask it to go home
+autoArchiveMinutes = 0             # idle this long: send it home (office-only)
+
 [projects.my-repo]                 # per-project overrides
 baseBranch = "develop"
 gitlabHost = "gitlab.example.com"
@@ -241,6 +245,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - Workers with an MR out wait in the **review lounge**, round the pool table, holding a folder: green when it is ready for review, amber while the pipeline runs or review threads are open, red when the pipeline failed or the MR was closed. A badge under each shows the MR number, the pipeline and the open threads; click it to open the MR. An MR ready for review still shows in Needs you, but no longer queues at your door.
   - Idle workers take a break in the pantry after 15 seconds idle.
   - A **meter** under everyone shows the tokens of their live Claude Code conversation and what it would cost on the Claude API (an estimate: "≈ $1.20"; on a Claude plan it is not a bill). The header adds today's and the floor's total. Models without a price show tokens only. Prices live in one file, `packages/core/src/shared/model-prices.ts`.
+  - A worker idle in the pantry for half an hour is asked to **go home**: Archive, Keep, or Snooze 30m. Archive (after a confirmation) only changes the office: the worker walks out and is listed under Archived with Restore; its session, worktree and history stay. It comes back by itself when it starts working or needs you.
   - A worker burning tokens is flagged as a **runaway**: over a token limit, spending fast, or working for a while without changing a file or a stage. It gets a red warning, a toast and a desktop notification, and the header counts who needs attention. The limits are under Settings, Office.
   - Each worker has a desk number and an outfit picked from seven dress codes, from business formal to medieval garb.
   - The floor is drawn like a game (PixiJS). Drag to look around, scroll or pinch to zoom, double-click an area to zoom in, or use the chips: Whole office, your door, Pantry, and one per room.

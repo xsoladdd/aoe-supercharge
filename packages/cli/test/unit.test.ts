@@ -16,7 +16,8 @@ import { claudeModelsCheck } from '../src/commands/doctor.ts';
 import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '../src/statusline.ts';
 import { renderCaddyfile } from '../src/commands/proxy.ts';
 import { MrWatcher } from '../src/daemon/mr-watcher.ts';
-import { CostWatcher } from '../src/daemon/office.ts';
+import { CostWatcher, OfficeWatcher } from '../src/daemon/office.ts';
+import { at, project, session as view, T0, task as taskRecord } from '../../core/test/office-fixtures.ts';
 import { Store } from '../src/daemon/store.ts';
 import { countUnresolvedThreads, GitLabProvider, parseMrView } from '../src/mr/gitlab.ts';
 import { Notifier } from '../src/notify.ts';
@@ -229,6 +230,57 @@ describe('office cost meters (CostWatcher)', () => {
     expect(alerts).toEqual(['Worker a: Over the token limit']);
     await w.tick();
     expect(alerts).toHaveLength(1);
+  });
+});
+
+describe('office idle timeout (OfficeWatcher)', () => {
+  it('sends a worker idle past autoArchiveMinutes home, and clears the mark when it works again', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'sc-office-'));
+    try {
+      const config = defaultConfig();
+      config.office.idle = { promptMinutes: 30, autoArchiveMinutes: 60 };
+      const logger = { info() {}, warn() {} };
+      const ctx = { config, logger, paths: resolvePaths({ HOME: home }, home) } as never;
+      const store = new Store({ daemon: {}, aoe: {}, config: {} } as never, {
+        waitingDebounceSeconds: () => 0,
+      });
+      store.projects = [project('alpha', 'ctl')];
+      store.tasks = [taskRecord('XX-0001', 'alpha', 's1'), taskRecord('XX-0002', 'alpha', 's2', { desk: 2 })];
+      store.sessions = [
+        view('ctl', 'idle'),
+        view('s1', 'idle', { statusSince: at(-90) }),
+        view('s2', 'idle', { statusSince: at(-45) }),
+      ];
+      store.ledgerLoaded = store.sessionsLoaded = true;
+      let now = new Date(T0);
+      const w = new OfficeWatcher(ctx, store, () => now);
+      await w.reloadMarks();
+      expect(store.office.idle).toEqual({ promptMinutes: 30, autoArchiveMinutes: 60 });
+      await w.tick();
+      // Idle 90 minutes: sent home; idle 45: only asked.
+      expect(Object.keys(store.office.marks)).toEqual(['alpha/XX-0001']);
+      expect(store.office.marks['alpha/XX-0001']?.archivedAt).toBe(now.toISOString());
+      await w.tick();
+      expect(w.model?.archived.map((x) => x.key)).toEqual(['alpha/XX-0001']);
+      expect(w.model?.pantry.map((x) => x.key)).toEqual(['alpha/XX-0002']);
+      expect(w.model?.pantry[0]?.idle.prompt).toBe(true);
+      // The mark is on disk, in the office's own state.
+      const file = JSON.parse(
+        await readFile(join(home, '.local/share/supercharge/office/office.json'), 'utf8'),
+      );
+      expect(file.marks['alpha/XX-0001'].archivedAt).toBe(now.toISOString());
+
+      // It starts working again: back on the floor, and the mark is cleared.
+      now = new Date(T0 + 60_000);
+      store.sessions = store.sessions.map((s) => (s.id === 's1' ? { ...s, status: 'working' } : s));
+      await w.tick();
+      expect(store.office.marks['alpha/XX-0001']?.archivedAt ?? null).toBeNull();
+      await w.tick();
+      expect(w.model?.everyone.find((x) => x.key === 'alpha/XX-0001')?.zone).toBe('desk');
+      w.stop();
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });
 

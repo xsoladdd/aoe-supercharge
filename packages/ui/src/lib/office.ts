@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   buildOffice as buildFloor,
-  nextHoldEnd,
+  nextOfficeLook,
   RUNAWAY_LABEL,
   type HoldMemory,
   type OfficeModel,
@@ -35,10 +35,10 @@ const MOVED: Record<Zone, string> = {
  */
 export function useOffice(snap: Snapshot): { office: OfficeModel; announcement: string } {
   const [tick, setTick] = useState(0);
-  // `tick` re-reads the clock when a hold ends.
+  // `tick` re-reads the clock when a hold ends or someone is due the "go home" prompt.
   const office = useMemo(() => buildOffice(snap, new Date()), [snap, tick]);
 
-  const nextLook = nextHoldEnd(office, Date.now());
+  const nextLook = nextOfficeLook(office, snap.office, new Date());
   useEffect(() => {
     if (nextLook === null) return;
     const t = setTimeout(() => setTick((n) => n + 1), Math.max(250, nextLook - Date.now() + 50));

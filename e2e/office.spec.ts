@@ -294,6 +294,104 @@ test.describe('office', () => {
     }
   });
 
+  test('a worker idle in the pantry is asked to go home: Keep, Archive with a confirmation, Restore, and coming back', async ({
+    signedIn: page,
+  }) => {
+    const mark = (key: string, action: string) =>
+      page.evaluate(
+        async ([k, a]) => {
+          const { token } = (await (await fetch('/api/csrf')).json()) as { token: string };
+          const res = await fetch('/api/office/marks', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-csrf-token': token },
+            body: JSON.stringify({ key: k, action: a }),
+          });
+          return { status: res.status, body: (await res.json()) as Record<string, unknown> };
+        },
+        [key, action] as const,
+      );
+    const id = await sessionId('NW-0003');
+    const key = 'northwind-web/NW-0003';
+    await setStatus(id, 'Idle');
+    try {
+      // Half an hour on: the dashboard's clock runs ahead, so the 30-minute prompt is due now.
+      await page.clock.setFixedTime(new Date(Date.now() + 31 * 60_000));
+      await page.goto('/office?view=list');
+      const row = page.locator('li[data-task="NW-0003"]');
+      await expect(row).toHaveAttribute('data-zone', 'pantry', { timeout: 20_000 });
+      const prompt = page.locator(`[data-go-home="${key}"]`);
+      await expect(prompt).toContainText(/Idle \d+m\. Go home\?/);
+      await axe(page, 'office: go home prompt');
+
+      // Keep: not asked again for this idle stretch.
+      await prompt.getByRole('button', { name: 'Keep' }).click();
+      await expect(prompt).toHaveCount(0);
+      // A new idle stretch asks again.
+      await setStatus(id, 'Running');
+      await expect(row).toHaveAttribute('data-zone', 'desk', { timeout: 15_000 });
+      await setStatus(id, 'Idle');
+      await expect(prompt).toBeVisible({ timeout: 15_000 });
+
+      // Snooze is written for half an hour.
+      const snoozed = await mark(key, 'snooze');
+      expect(snoozed.status).toBe(200);
+      const until = Date.parse((snoozed.body.mark as { snoozedUntil: string }).snoozedUntil);
+      expect(until - Date.now()).toBeGreaterThan(29 * 60_000);
+      expect((await mark(key, 'keep')).status).toBe(200);
+      await setStatus(id, 'Running');
+      await expect(row).toHaveAttribute('data-zone', 'desk', { timeout: 15_000 });
+      await setStatus(id, 'Idle');
+      await expect(prompt).toBeVisible({ timeout: 15_000 });
+
+      // Archive asks first, and says what it leaves alone.
+      await prompt.getByRole('button', { name: 'Archive' }).click();
+      const dialog = page.getByRole('alertdialog');
+      await expect(dialog).toContainText('This only changes the office');
+      await axe(page, 'office: archive confirmation');
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await expect(row).toHaveAttribute('data-zone', 'pantry');
+      await prompt.getByRole('button', { name: 'Archive' }).click();
+      await dialog.getByRole('button', { name: 'Send home' }).click();
+      await expect(row).toHaveAttribute('data-zone', 'archived');
+      await expect(page.locator('[data-zone-section="archived"] li[data-task="NW-0003"]')).toContainText(
+        'Sent home',
+      );
+      // Office-only: the AoE session is still there, not archived.
+      const state = (await fake('/__fake/state')) as {
+        sessions: { id: string; archived_at?: string | null }[];
+      };
+      expect(state.sessions.find((s) => s.id === id)?.archived_at ?? null).toBeNull();
+
+      // Restore brings it back, and counts as Keep.
+      await page.getByRole('button', { name: /^Restore .* to the office$/ }).click();
+      await expect(row).toHaveAttribute('data-zone', 'pantry');
+      await expect(prompt).toHaveCount(0);
+      await expect(page.locator('[data-zone-section="archived"]')).toHaveCount(0);
+
+      // Sent home again, it comes back by itself when its session starts working.
+      expect((await mark(key, 'archive')).status).toBe(200);
+      await expect(row).toHaveAttribute('data-zone', 'archived');
+      await setStatus(id, 'Running');
+      await expect(row).toHaveAttribute('data-zone', 'desk', { timeout: 15_000 });
+      await expect
+        .poll(async () => {
+          const snap = (await (await page.request.get('/api/snapshot')).json()) as {
+            office: { marks: Record<string, { archivedAt: string | null }> };
+          };
+          return snap.office.marks[key]?.archivedAt ?? null;
+        })
+        .toBeNull();
+
+      // Only workers go home, and only known ones.
+      expect((await mark('northwind-web/lead', 'archive')).status).toBe(400);
+      expect((await mark('northwind-web/NW-9999', 'archive')).status).toBe(404);
+      expect((await mark(key, 'delete')).status).toBe(400);
+    } finally {
+      await mark(key, 'restore').catch(() => null);
+      await setStatus(id, 'Running');
+    }
+  });
+
   test('Show in office from the right-click menu highlights that worker', async ({ signedIn: page }) => {
     await page.goto('/p/northwind-web');
     await page

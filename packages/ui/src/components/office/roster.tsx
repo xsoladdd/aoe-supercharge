@@ -21,6 +21,7 @@ import { Link } from 'wouter';
 import { blocksWork, DRESS_CODE_LABEL, relativeTime, type Prop } from '@aoe-supercharge/core/shared';
 import { Avatar } from '@/components/office/avatar';
 import { CostLine } from '@/components/office/cost';
+import { GoHome, RestoreButton } from '@/components/office/go-home';
 import { KIND } from '@/components/needs-you';
 import { LiveStatus, StageBadge } from '@/components/status';
 import type { OfficeModel, OfficeTeam, OfficeWorker } from '@/lib/office';
@@ -69,6 +70,12 @@ export function Reason({ w }: { w: OfficeWorker }) {
     if (w.task) return <StageBadge stage={w.task.stage} size="sm" />;
     return <LiveStatus status={w.session?.status ?? 'missing'} />;
   }
+  if (w.zone === 'archived')
+    return (
+      <Pill icon={ArchiveIcon} color={MUTED}>
+        Sent home
+      </Pill>
+    );
   if (w.zone === 'away')
     return (
       <Pill icon={w.spot.reason === 'Archived' ? ArchiveIcon : StopIcon} color={MUTED}>
@@ -139,6 +146,7 @@ function WorkerRow({
   onSelect,
   steal,
   extra,
+  below,
 }: {
   w: OfficeWorker;
   now: Date;
@@ -152,6 +160,8 @@ function WorkerRow({
   steal: boolean;
   /** A control beside the row (not inside its link or button): the MR badge. */
   extra?: React.ReactNode;
+  /** Controls under the row: the "go home?" prompt. */
+  below?: React.ReactNode;
 }) {
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -215,7 +225,11 @@ function WorkerRow({
       data-since={w.since ?? undefined}
       data-blocks={w.zone === 'door' ? String(blocksWork(w.spot)) : undefined}
       className={
-        extra ? 'flex items-center gap-2 pr-3 [&>:first-child]:min-w-0 [&>:first-child]:flex-1' : undefined
+        extra
+          ? 'flex items-center gap-2 pr-3 [&>:first-child]:min-w-0 [&>:first-child]:flex-1'
+          : below
+            ? 'pb-2'
+            : undefined
       }
     >
       {onSelect ? (
@@ -241,6 +255,7 @@ function WorkerRow({
         </Link>
       )}
       {extra}
+      {below}
     </li>
   );
 }
@@ -450,6 +465,7 @@ export function OfficeRoster({
                     showProject
                     onSelect={focus.onSelect}
                     steal={!!focus.steal}
+                    below={w.idle.prompt ? <GoHome w={w} now={now} className="px-4" /> : undefined}
                   />
                 ))}
               </ul>
@@ -477,6 +493,37 @@ export function OfficeRoster({
                     showProject
                     onSelect={focus.onSelect}
                     steal={!!focus.steal}
+                  />
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {office.archived.length > 0 && (
+            <section
+              aria-labelledby="zone-archived"
+              data-zone-section="archived"
+              className={sectionCls('archived')}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <ArchiveIcon className="size-5 text-muted-foreground" />
+                <h2 id="zone-archived" className="text-base font-semibold">
+                  Archived
+                </h2>
+                <Count n={office.archived.length} />
+                <span className="text-sm text-muted-foreground">Sent home from the office only.</span>
+              </div>
+              <ul className={LIST} aria-label="Archived">
+                {office.archived.map((w) => (
+                  <WorkerRow
+                    key={w.key}
+                    w={w}
+                    now={now}
+                    highlighted={focus.worker === w.key}
+                    showProject
+                    onSelect={focus.onSelect}
+                    steal={!!focus.steal}
+                    extra={<RestoreButton w={w} />}
                   />
                 ))}
               </ul>

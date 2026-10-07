@@ -2,6 +2,7 @@ import type { ControlAsk } from './control-asks.ts';
 import type { SessionPrompt } from './prompt.ts';
 import type { Stage } from './stages.ts';
 import type { RunawayLimits, SessionCost } from './office-cost.ts';
+import type { IdleLimits } from './office-idle.ts';
 import type { UsageReport } from './usage.ts';
 
 export type Actor = 'worker' | 'daemon' | 'user' | 'control';
@@ -244,6 +245,8 @@ export interface OfficeState {
   marks: Record<string, OfficeMark>;
   /** `office.runaway` from the config, for the meters' scale. */
   runaway?: RunawayLimits;
+  /** `office.idle` from the config, for the "go home" prompt. */
+  idle?: IdleLimits;
 }
 
 export interface Snapshot {

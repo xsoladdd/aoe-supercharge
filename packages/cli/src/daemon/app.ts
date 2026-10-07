@@ -13,9 +13,16 @@ import {
   loadConfig,
   patchConfig,
   safeEqual,
+  updateOfficeMark,
   type NoteChange,
 } from '@aoe-supercharge/core/node';
-import type { PlanComment, SlashCommand } from '@aoe-supercharge/core/shared';
+import {
+  buildOffice,
+  markChange,
+  type OfficeAction,
+  type PlanComment,
+  type SlashCommand,
+} from '@aoe-supercharge/core/shared';
 import { VERSION, type Ctx } from '../context.ts';
 import { buildProjectStatus } from '../status.ts';
 import { CliError } from '../util/errors.ts';
@@ -908,6 +915,35 @@ export function createApp(deps: AppDeps) {
       key: c.req.query('key') || null,
     });
     return c.json(history);
+  });
+
+  // The office's idle timeout (SPEC §14.5): send a worker home, keep it, snooze the prompt, or bring it
+  // back. Office-only: it writes the office's own state and never touches the session or worktree.
+  app.post('/api/office/marks', async (c) => {
+    const body = (await c.req.json().catch(() => null)) as { key?: unknown; action?: unknown } | null;
+    const actions: OfficeAction[] = ['archive', 'keep', 'snooze', 'restore'];
+    if (
+      typeof body?.key !== 'string' ||
+      typeof body.action !== 'string' ||
+      !actions.includes(body.action as OfficeAction)
+    )
+      return c.json(
+        {
+          error: 'bad_request',
+          message: 'Expected { key, action: "archive" | "keep" | "snooze" | "restore" }',
+        },
+        400,
+      );
+    const now = new Date();
+    const who = buildOffice(store, now).everyone.find((w) => w.key === body.key);
+    if (!who) return c.json({ error: 'not_found', message: `Nobody "${body.key}" in the office` }, 404);
+    if (who.role !== 'worker')
+      return c.json({ error: 'bad_request', message: 'Only workers go home; the team lead stays.' }, 400);
+    const action = body.action as OfficeAction;
+    const marks = await updateOfficeMark(ctx.paths, who.key, markChange(action, now));
+    store.setOffice({ ...store.office, marks });
+    await appendAudit(ctx.paths, { actor: 'ui', action: 'office_mark', details: { key: who.key, action } });
+    return c.json({ mark: marks[who.key] ?? null });
   });
 
   app.put('/api/config', async (c) => {
