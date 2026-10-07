@@ -595,6 +595,7 @@ Bound to **127.0.0.1 only**. Requests are rejected unless the `Host` header is `
 | POST | `/api/daemon/restart` | ✓+CSRF | Asks the service manager to restart (`launchctl kickstart -k` / `systemctl --user restart`) |
 | POST | `/api/notifications/test` | ✓+CSRF | |
 | POST | `/api/tasks/:id/reply` | ✓+CSRF | Phase 4. Body `{ message, confirm: true }` → audit + `aoe send` |
+| GET (WebSocket) | `/api/sessions/:id/shell/ws` | cookie + dashboard `Origin` | The session's paired shell (AoE's Terminal tab), relayed from AoE's `/sessions/{id}/terminal/live-ws`. A `{type:"run",command}` message is audited (`command_run`, `where: terminal`), then pasted (bracketed) and entered |
 
 - **Auth model:** an `Authenticator` chain with two strategies: the `sc_session` cookie (browser) and `Authorization: Bearer <auth.token>` (CLI).
 - **CSRF** applies to cookie-authenticated mutating requests: an `X-CSRF-Token` header plus `Origin` equal to the configured origin.
@@ -967,6 +968,11 @@ All four phases are built. The verification behind each claim below is listed in
   - Binary frames are raw pane input. Supercharge sends no `resize`, so the window keeps its size, and closing the socket releases the lock.
   - If someone is viewing the session in AoE, `claim_if_vacant` fails. Supercharge then sends `{"type":"claim"}`, AoE's explicit take-over: with no `resize` sent, the window keeps the viewer's size. It closes the socket right after the Escape, and AoE's web view takes the lock back within about 1.5 s (its capture loop reclaims a vacant lock while it is at the live edge). Supercharge says `terminal_busy` only if the take-over fails too. (AoE 1.17.2 `src/server/live_ws.rs`, `steal_size_owner` in `src/tmux/session.rs`.)
   - Verified in a sandboxed AoE 1.17.2: a lone `1b`, then a separate `32`, with an unchanged 80×24 window. A lone Escape cancels Claude Code menus.
+- **A session's own shell (AoE 1.17.2, `src/server/live_ws.rs`, `src/server/api/sessions/ensure.rs`).** AoE keeps a paired shell next to each session, in its folder, as its own tmux session: its web view's Terminal tab, and the TUI's terminal (index 0 is shared with them).
+  - `POST /api/sessions/{id}/terminal` starts it: 201 `created`, or 200 `exists`.
+  - `/sessions/{id}/terminal/live-ws` speaks the agent pane's protocol. Down: JSON `frame` messages, each the whole window as ANSI text (history lines first, the live screen as the last `rows` lines), with `cursor`, plus `size_owner`. Up: binary raw input, and JSON `resize` (takes the size lock and sizes the window), `claim`, `window` (lines of history), `cadence`.
+  - The dashboard's Shell tab relays it through the daemon (`/api/sessions/:id/shell/ws`), so AoE's token stays server-side. It never asks for `caps`, so frames stay JSON text. It paints each frame into xterm.js whole.
+  - A command run there is pasted as `ESC[200~…ESC[201~` and then entered. In a sandboxed AoE 1.17.2 with zsh, a two-line paste waited whole at the prompt until the Enter, then ran both lines.
 - **Claude Code does not always write an AskUserQuestion call to the transcript before it is answered**, while ExitPlanMode is written while waiting. So the question on screen, its options and descriptions, and the other questions' headers (from the tab bar) are read from the pane. The full set is used when the transcript has it.
   - The daemon reads menus from the pane (`parseTerminalMenu`) for waiting sessions only. It takes the kind (plan, permission, question) from the pending tool call in the transcript. An answer is delivered only while a menu with the same key is still on screen.
 

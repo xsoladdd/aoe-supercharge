@@ -8,6 +8,7 @@ import { checkAoeCompat, createCtx, SHIPPED_COMPAT, VERSION } from '../context.t
 import { notify, Notifier } from '../notify.ts';
 import { mrProvider } from '../workflow.ts';
 import { createApp } from './app.ts';
+import { attachShellSockets } from './shell.ts';
 import { PromptReader } from '../prompt.ts';
 import { TranscriptStore } from '../transcript.ts';
 import { MrWatcher } from './mr-watcher.ts';
@@ -172,6 +173,7 @@ async function runWorker(): Promise<void> {
   await new Promise<void>((resolveListen, rejectListen) => {
     server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port }, () => resolveListen());
     server.on('error', rejectListen);
+    attachShellSockets(server, { ctx, store, token });
   }).catch(async (err: NodeJS.ErrnoException) => {
     const msg = err.code === 'EADDRINUSE' ? `Port ${port} is already in use.` : err.message;
     logger.error('could not listen', { port, err: msg });

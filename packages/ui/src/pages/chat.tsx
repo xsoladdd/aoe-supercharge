@@ -21,6 +21,7 @@ import {
   PlayIcon,
   CpuIcon,
   ArrowClockwiseIcon,
+  TerminalIcon,
 } from '@phosphor-icons/react';
 import {
   LIVE_STATUS_LABEL,
@@ -74,6 +75,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError, sendJson, uploadFile } from '@/lib/api';
 import { HeaderActions } from '@/lib/header-slot';
 import { useSearchParam } from '@/lib/nav';
+import { hasShellRuns, requestShellRun, useShellRunVersion } from '@/lib/shell-runs';
 import { cn } from '@/lib/utils';
 
 type Tool = Extract<ChatBlock, { kind: 'tool' }>;
@@ -324,8 +326,10 @@ function ShellRun({
 }
 
 /**
- * Run a command from one of Claude's shell blocks, once you confirm it. Supercharge types `!` and the
- * command into the session, so Claude Code runs it as you, in the session's folder (shell mode).
+ * Run a command from Claude's reply, once you confirm it, in one of two ways. In the chat: Supercharge
+ * types `!` and the command into the session, so Claude Code runs it as you, in the session's folder
+ * (shell mode), and Claude reads the output. In the terminal (control chats): it goes into the session's
+ * own shell in the side panel, where you see the output and can answer its prompts.
  */
 function RunCommand({
   session,
@@ -333,12 +337,15 @@ function RunCommand({
   open,
   onOpenChange,
   onRan,
+  terminal = false,
 }: {
   session: SessionView;
   command: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onRan: (command: string) => void;
+  /** Offer Run in terminal: the session has a Shell tab in its side panel. */
+  terminal?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const working = session.status === 'working';
@@ -368,8 +375,7 @@ function RunCommand({
             ) : (
               "the session's folder"
             )}
-            , through Claude Code's shell mode, like typing <span className="font-mono">!</span> and the
-            command in its terminal. Claude then reads the output and replies. Recorded in the audit log.
+            . Recorded in the audit log.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <pre
@@ -378,18 +384,55 @@ function RunCommand({
         >
           {command}
         </pre>
+        <ul className="space-y-1.5 text-sm text-muted-foreground">
+          {terminal && (
+            <li>
+              <span className="font-medium text-foreground">Run in terminal:</span> in this chat's shell, in
+              the Shell tab of the side panel. You see the output there and can answer its prompts; Claude
+              doesn't see it.
+            </li>
+          )}
+          <li>
+            <span className="font-medium text-foreground">{terminal ? 'Run in chat' : 'Run'}:</span> through
+            Claude Code's shell mode, like typing <span className="font-mono">!</span> and the command in its
+            terminal. Claude reads the output and replies.
+          </li>
+        </ul>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction
-            disabled={busy || working}
-            onClick={(e) => {
-              e.preventDefault();
-              void run();
-            }}
-          >
-            {busy ? <CircleNotchIcon className="animate-spin" /> : <PlayIcon weight="fill" />}
-            {working ? 'Wait until Claude is done' : 'Run'}
-          </AlertDialogAction>
+          {terminal ? (
+            <>
+              <Button
+                variant="outline"
+                disabled={busy || working}
+                onClick={() => void run()}
+                title={working ? 'Wait until Claude is done' : undefined}
+              >
+                {busy ? <CircleNotchIcon className="animate-spin" /> : <ChatTeardropTextIcon />}
+                Run in chat
+              </Button>
+              <AlertDialogAction
+                onClick={() => {
+                  requestShellRun(session.id, command);
+                  onOpenChange(false);
+                }}
+              >
+                <TerminalIcon />
+                Run in terminal
+              </AlertDialogAction>
+            </>
+          ) : (
+            <AlertDialogAction
+              disabled={busy || working}
+              onClick={(e) => {
+                e.preventDefault();
+                void run();
+              }}
+            >
+              {busy ? <CircleNotchIcon className="animate-spin" /> : <PlayIcon weight="fill" />}
+              {working ? 'Wait until Claude is done' : 'Run'}
+            </AlertDialogAction>
+          )}
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
@@ -1251,6 +1294,13 @@ export function SessionChat({
   const [pending, setPending] = useState<Pending[]>([]);
   const [run, setRun] = useState<{ command: string; open: boolean }>({ command: '', open: false });
   const askToRun = useCallback((command: string) => setRun({ command, open: true }), []);
+  // Run in terminal opens the side panel, whose Shell tab runs it.
+  const shellRuns = useShellRunVersion();
+  useEffect(() => {
+    if (role.kind === 'control' && hasShellRuns(session.id)) setPanelOpen(true);
+    // setPanelOpen is a new function each render; the run version is what matters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shellRuns, role.kind, session.id]);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -1341,6 +1391,7 @@ export function SessionChat({
           open={run.open}
           onOpenChange={(open) => setRun((r) => ({ ...r, open }))}
           onRan={(command) => onSent(`!${command}`, [], true)}
+          terminal={role.kind === 'control'}
         />
 
         {view === 'terminal' ? (

@@ -202,3 +202,13 @@ export function runnableCommand(language: string | null, code: string): string |
     .map((l) => l.slice(2))
     .join('\n');
 }
+
+/**
+ * The command in inline code written the way Claude Code's shell mode takes it, `! aoe remove x`, or
+ * null for any other inline code.
+ */
+export function inlineCommand(code: string): string | null {
+  // A command starts with a word, a path or a quote; `!=` and `!==` are operators.
+  const m = /^!\s*([\w./~$"'][^\n]*)$/.exec(code.trim());
+  return m ? m[1]!.trim() : null;
+}

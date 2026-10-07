@@ -1,5 +1,5 @@
 import { CheckIcon, CopyIcon, PlayIcon } from '@phosphor-icons/react';
-import { runnableCommand } from '@aoe-supercharge/core/shared';
+import { inlineCommand, runnableCommand } from '@aoe-supercharge/core/shared';
 import { memo, useState, type ReactNode } from 'react';
 import Markdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
@@ -70,7 +70,10 @@ export function CodeBlock({
   );
 }
 
-/** Claude's markdown: GFM, sanitised (no raw HTML), highlighted code blocks; `onRun` adds Run to shell blocks. */
+/**
+ * Claude's markdown: GFM, sanitised (no raw HTML), highlighted code blocks. `onRun` adds Run to shell
+ * blocks, and to inline commands written for Claude Code's shell mode (`! aoe remove x`).
+ */
 export const ChatMarkdown = memo(function ChatMarkdown({
   text,
   className,
@@ -95,6 +98,25 @@ export const ChatMarkdown = memo(function ChatMarkdown({
               <CodeBlock language={language} code={textOf(props.children).replace(/\n$/, '')} onRun={onRun}>
                 {props.children}
               </CodeBlock>
+            );
+          },
+          // Inline code only: fenced code goes through `pre` above, which renders its own children.
+          code: ({ className, children }) => {
+            const command = onRun && !className ? inlineCommand(textOf(children)) : null;
+            if (!command) return <code className={className}>{children}</code>;
+            return (
+              <span>
+                <code>{children}</code>
+                <button
+                  type="button"
+                  onClick={() => onRun!(command)}
+                  aria-label={`Run ${command}`}
+                  title="Run this command"
+                  className="ml-0.5 inline-grid size-6 cursor-pointer place-items-center rounded-md align-middle text-st-green transition-colors hover:bg-raised"
+                >
+                  <PlayIcon weight="fill" className="size-3.5" />
+                </button>
+              </span>
             );
           },
           a: ({ href, children }) => (

@@ -438,7 +438,7 @@ test.describe('project', () => {
     await dialog.getByRole('button', { name: 'Cancel' }).click();
     expect(await lastSent()).toBe(before);
     await run.click();
-    await dialog.getByRole('button', { name: 'Run', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Run in chat' }).click();
     await expect
       .poll(lastSent)
       .toBe(
@@ -449,6 +449,36 @@ test.describe('project', () => {
       timeout: 15_000,
     });
     await expect(log.getByText('That ran cleanly.').last()).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("Run in terminal runs a command in the control chat's own shell, in the side panel", async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const id = await sessionId('northwind-web control');
+    const ran = async () =>
+      ((await fake('/__fake/state')) as { shellRan: { id: string; command: string }[] }).shellRan
+        .filter((m) => m.id === id)
+        .map((m) => m.command);
+    await page.goto(`/chat/${id}`);
+    const log = page.getByRole('log', { name: /^Conversation with/ });
+    // The inline `! command` Claude wrote has a Run button too.
+    await log.getByRole('button', { name: 'Run aoe session list-trash' }).click();
+    const dialog = page.getByRole('alertdialog', { name: 'Run this command?' });
+    await expect(dialog).toContainText('aoe session list-trash');
+    await axe(page, 'run in terminal');
+    await dialog.getByRole('button', { name: 'Run in terminal' }).click();
+    await expect(page.getByRole('tab', { name: 'Shell' })).toHaveAttribute('aria-selected', 'true');
+    const screen = page.locator('.xterm-rows');
+    await expect(screen).toContainText('ran: aoe session list-trash', { timeout: 15_000 });
+    expect(await ran()).toContain('aoe session list-trash');
+    // It is a terminal: what you type goes to the shell.
+    await page.locator('.xterm').click();
+    await page.keyboard.type(`echo from ${browserName}`);
+    await page.keyboard.press('Enter');
+    await expect(screen).toContainText(`ran: echo from ${browserName}`);
+    await expect.poll(ran).toContain(`echo from ${browserName}`);
   });
 
   test('a control chat off Opus says so, and switches back after saying what it does', async ({

@@ -193,7 +193,8 @@ export function seedControlChat(t: FakeTranscript, repo: string) {
         '  --brief "Header, listing and detail templates. Match the Figma frames."',
         '```',
         '',
-        'Workers plan first and wait for your approval before they write code.',
+        'Workers plan first and wait for your approval before they write code. To see what is in',
+        "AoE's trash first, run `! aoe session list-trash`.",
       ].join('\n'),
     ),
   );

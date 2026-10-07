@@ -26,6 +26,13 @@ export default defineConfig({
     // Host/Origin gate and CSRF check stay strict. Cookies are per host, not per port, so the
     // sign-in cookie set through this proxy works on localhost:5180.
     proxy: {
+      // A session's shell is a websocket (listed first: Vite tries these in order).
+      '^/api/sessions/[^/]+/shell/ws': {
+        target: daemon,
+        ws: true,
+        changeOrigin: true,
+        headers: { origin: daemon },
+      },
       '/api': { target: daemon, changeOrigin: true, headers: { origin: daemon } },
       '/auth': { target: daemon, changeOrigin: true, headers: { origin: daemon } },
     },

@@ -92,6 +92,29 @@ const CSP = [
   "object-src 'none'",
 ].join('; ');
 
+type ServerConfig = { hostname: string; port: number };
+
+/** Host headers the dashboard answers to; anything else is refused (DNS rebinding). */
+export function hostsFor({ hostname, port }: ServerConfig): Set<string> {
+  return new Set([
+    `${hostname}:${port}`,
+    `127.0.0.1:${port}`,
+    `localhost:${port}`,
+    `[::1]:${port}`,
+    hostname,
+  ]);
+}
+
+/** Origins the dashboard's own pages have; cookie-authenticated writes and websockets need one of them. */
+export function originsFor({ hostname, port }: ServerConfig): Set<string> {
+  return new Set([
+    `http://${hostname}:${port}`,
+    `http://127.0.0.1:${port}`,
+    `http://localhost:${port}`,
+    `http://${hostname}`,
+  ]);
+}
+
 /** A refused or failed send: 409 while a menu is open, 400 for usage errors, 502 when AoE failed. */
 function sendError(c: Context, err: unknown, code: string) {
   const e = err as CliError;
@@ -120,32 +143,16 @@ export function createApp(deps: AppDeps) {
   const sessionValue = hmac(token, 'ui-session');
   const csrfValue = hmac(token, 'csrf');
 
-  const allowedHosts = () => {
-    const { hostname, port } = ctx.config.server;
-    return new Set([
-      `${hostname}:${port}`,
-      `127.0.0.1:${port}`,
-      `localhost:${port}`,
-      `[::1]:${port}`,
-      hostname,
-    ]);
-  };
-  const allowedOrigins = () => {
-    const { hostname, port } = ctx.config.server;
-    return new Set([
-      `http://${hostname}:${port}`,
-      `http://127.0.0.1:${port}`,
-      `http://localhost:${port}`,
-      `http://${hostname}`,
-    ]);
-  };
+  const allowedHosts = () => hostsFor(ctx.config.server);
+  const allowedOrigins = () => originsFor(ctx.config.server);
 
   // DNS-rebinding gate + security headers on every response. No CORS headers, ever.
   app.use('*', async (c, next) => {
     const host = (c.req.header('host') ?? '').toLowerCase();
     if (!allowedHosts().has(host)) return c.text('Unknown host', 421);
     await next();
-    c.header('Content-Security-Policy', CSP);
+    // The shell's websocket: older Safari does not count ws: to the same host as 'self'.
+    c.header('Content-Security-Policy', CSP.replace("connect-src 'self'", `connect-src 'self' ws://${host}`));
     c.header('X-Frame-Options', 'DENY');
     c.header('X-Content-Type-Options', 'nosniff');
     c.header('Referrer-Policy', 'no-referrer');

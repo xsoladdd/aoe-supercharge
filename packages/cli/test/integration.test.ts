@@ -6,6 +6,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { WebSocket } from 'ws';
 import type { ChatResponse, Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
 import {
   ASK_MENU,
@@ -1183,6 +1184,59 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(existsSync(join(home, '.local/share/supercharge/projects/throwaway'))).toBe(false);
     const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
     expect(audit).toMatch(/"action":"project_deleted","project":"throwaway"/);
+  });
+
+  it("relays a session's shell to signed-in dashboard pages only, and audits a command run there", async () => {
+    const r = await sc(['open', '--print']);
+    const url = new URL(r.stdout.trim());
+    const cb = await fetch(`${base()}${url.pathname}${url.search}`, { redirect: 'manual' });
+    const jar = (cb.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const control = (
+      (await (await fetch(`${base()}/api/snapshot`, { headers: { cookie: jar } })).json()) as Snapshot
+    ).projects[0]!.controlSessionId!;
+    const wsUrl = `${base().replace(/^http/, 'ws')}/api/sessions/${control}/shell/ws`;
+    const origin = `http://127.0.0.1:${port}`;
+    // Refused without the cookie, or from another site's page.
+    const refused = (headers: Record<string, string>) =>
+      new Promise<number>((resolve) => {
+        const ws = new WebSocket(wsUrl, { headers });
+        ws.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+        ws.on('open', () => resolve(101));
+        ws.on('error', () => {});
+      });
+    expect(await refused({ origin })).toBe(401);
+    expect(await refused({ origin: 'http://evil.example', cookie: jar })).toBe(403);
+
+    const ws = new WebSocket(wsUrl, { headers: { origin, cookie: jar } });
+    const got: { type: string; content?: string; is_owner?: boolean }[] = [];
+    ws.on('message', (d) => got.push(JSON.parse(String(d))));
+    await new Promise((resolve, reject) => {
+      ws.on('open', resolve);
+      ws.on('error', reject);
+    });
+    ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 12 }));
+    await until(async () => got.some((m) => m.type === 'size_owner' && m.is_owner));
+    ws.send(JSON.stringify({ type: 'run', command: 'aoe session empty-trash' }));
+    await until(async () => fake.state.shellRan.some((x) => x.id === control));
+    expect(fake.state.shellRan.at(-1)).toMatchObject({ id: control, command: 'aoe session empty-trash' });
+    await until(async () =>
+      got.some((m) => m.type === 'frame' && m.content?.includes('ran: aoe session empty-trash')),
+    );
+    ws.close();
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"action":"command_run".*"text":"aoe session empty-trash".*"where":"terminal"/);
+
+    // A frame over the size limit closes that connection, not the daemon.
+    const big = new WebSocket(wsUrl, { headers: { origin, cookie: jar } });
+    await new Promise((resolve, reject) => {
+      big.on('open', resolve);
+      big.on('error', reject);
+    });
+    const closed = new Promise<number>((resolve) => big.on('close', (code) => resolve(code)));
+    big.on('error', () => {});
+    big.send(Buffer.alloc((1 << 20) + 1));
+    expect(await closed).toBe(1009);
+    expect((await fetch(`${base()}/healthz`)).status).toBe(200);
   });
 
   it('serves the project status in the control-chat format', async () => {

@@ -5,6 +5,7 @@ import {
   CheckCircleIcon,
   ClipboardTextIcon,
   NotePencilIcon,
+  TerminalIcon,
   type Icon,
 } from '@phosphor-icons/react';
 import {
@@ -15,7 +16,7 @@ import {
   type Snapshot,
   type TaskRecord,
 } from '@aoe-supercharge/core/shared';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import { KIND } from '@/components/needs-you';
 import { CommentablePlan, CommentList, useComments } from '@/components/plan-comments';
@@ -24,10 +25,14 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getJson, sendJson } from '@/lib/api';
 import { useNudgeFlash } from '@/lib/nudge';
+import { hasShellRuns, useShellRunVersion } from '@/lib/shell-runs';
 import { useNow } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
-type Tab = 'plans' | 'comments' | 'notes';
+type Tab = 'plans' | 'comments' | 'notes' | 'shell';
+
+// xterm.js loads only when the Shell tab opens.
+const ShellTerminal = lazy(() => import('@/components/chat/shell-terminal'));
 
 /** What needs you in this project, at a glance; pulses when something new arrives. */
 function StatusBrief({
@@ -302,6 +307,7 @@ const TABS: { key: Tab; label: string; icon: Icon }[] = [
   { key: 'notes', label: 'Notes', icon: NotePencilIcon },
   { key: 'plans', label: 'Plans', icon: ClipboardTextIcon },
   { key: 'comments', label: 'Comments', icon: ChatCenteredTextIcon },
+  { key: 'shell', label: 'Shell', icon: TerminalIcon },
 ];
 
 /** The control chat's side panel: what needs you, then the active plans, your comments and notes. */
@@ -317,6 +323,12 @@ export function ControlPanel({
 }) {
   // Every control chat opens on your notes.
   const [tab, setTab] = useState<Tab>('notes');
+  // The control chat's own shell: Run in terminal sends commands there.
+  const controlId = snap.projects.find((p) => p.name === project)?.controlSessionId ?? null;
+  const runs = useShellRunVersion();
+  useEffect(() => {
+    if (controlId && hasShellRuns(controlId)) setTab('shell');
+  }, [runs, controlId]);
   const tasks = useMemo(() => snap.tasks.filter((t) => t.project === project), [snap.tasks, project]);
   const active = tasks.filter((t) => t.stage !== 'done');
   const items = snap.needsYou.filter((i) => i.project === project);
@@ -325,7 +337,7 @@ export function ControlPanel({
       <StatusBrief project={project} items={items} tasks={tasks} />
       <div className="flex items-stretch border-b border-border px-2">
         <div role="tablist" aria-label="Panel" className="flex min-w-0 gap-1">
-          {TABS.map(({ key, label, icon: I }) => (
+          {TABS.filter((t) => t.key !== 'shell' || controlId).map(({ key, label, icon: I }) => (
             <button
               key={key}
               type="button"
@@ -363,9 +375,17 @@ export function ControlPanel({
         role="tabpanel"
         id={`panel-${tab}`}
         aria-labelledby={`panel-tab-${tab}`}
-        tabIndex={0}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3"
+        tabIndex={tab === 'shell' ? -1 : 0}
+        className={cn(
+          'min-h-0 flex-1',
+          tab === 'shell' ? 'flex flex-col' : 'overflow-y-auto overscroll-contain p-3',
+        )}
       >
+        {tab === 'shell' && controlId && (
+          <Suspense fallback={<p className="p-3 text-sm text-muted-foreground">Opening the terminal…</p>}>
+            <ShellTerminal sessionId={controlId} />
+          </Suspense>
+        )}
         {tab === 'plans' &&
           (active.length ? (
             <div className="space-y-2">

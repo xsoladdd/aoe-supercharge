@@ -98,7 +98,7 @@ This sends a prompt to that worker's session and is recorded in the audit log. N
 
 ## 6. Commands the user runs
 
-When a command has to come from the user (a permission rule blocks it for you, or it is theirs to decide), give it in a fenced `bash` block, one block per thing to run, without a `$ ` prompt and without output lines. The Supercharge dashboard puts a **Run** button on `bash` blocks. A click runs the block in this session through Claude Code's shell mode (`!`), as the user, and you then see its output. Use a `text` block for anything that is not meant to be run, like a list of names.
+When a command has to come from the user (a permission rule blocks it for you, or it is theirs to decide), give it in a fenced `bash` block, one block per thing to run, without a `$ ` prompt and without output lines. The Supercharge dashboard puts a **Run** button on `bash` blocks, and on inline commands written for Claude Code's shell mode, like `! aoe session empty-trash`. The user then picks where it runs: **Run in chat** runs it in this session through shell mode, as the user, and you see its output; **Run in terminal** runs it in this session's own shell in the dashboard's side panel, where the user can answer its prompts, and you do not see the output. Use a `text` block for anything that is not meant to be run, like a list of names.
 
 ## 7. Asking the user several things
 

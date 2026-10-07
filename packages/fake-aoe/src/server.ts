@@ -102,6 +102,10 @@ export interface FakeState {
   viewers: Record<string, boolean | 'stuck'>;
   /** Claims made through the live-terminal websocket, in order. */
   claims: { id: string; type: string; owner: boolean }[];
+  /** Fake only: each session's paired shell: what it printed and the line being typed. */
+  shells: Record<string, { lines: string[]; input: string }>;
+  /** Commands entered in a paired shell, in order. */
+  shellRan: { id: string; command: string; at: string }[];
 }
 
 export function newId(): string {
@@ -290,6 +294,14 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     if (bearer !== state.token) return c.json({ error: 'unauthorized' }, 401);
     await next();
   });
+  // The paired shell (src/server/api/sessions/ensure.rs): created once, then it exists.
+  app.post('/api/sessions/:id/terminal', (c) => {
+    const s = state.sessions.find((x) => x.id === c.req.param('id'));
+    if (!s) return c.json({ error: 'not_found' }, 404);
+    if (state.shells[s.id]) return c.json({ status: 'exists' }, 200);
+    state.shells[s.id] = { lines: ['Last login: today on ttys001'], input: '' };
+    return c.json({ status: 'created' }, 201);
+  });
   app.get('/api/sessions', (c) =>
     c.json({
       sessions: state.sessions.filter((s) => inScope(s, c.req.query('state'))).map(toRest),
@@ -407,6 +419,8 @@ export async function startFakeAoe(
     keys: [],
     viewers: {},
     claims: [],
+    shells: {},
+    shellRan: [],
   };
   const transcripts = opts.transcripts ? new FakeTranscripts(opts.transcripts) : null;
   const app = createFakeApp(state, transcripts);
@@ -436,13 +450,15 @@ export async function startFakeAoe(
 function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: FakeTranscripts | null) {
   const wss = new WebSocketServer({ noServer: true });
   server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const m = /^\/sessions\/([^/]+)\/live-ws$/.exec(new URL(req.url ?? '', 'http://x').pathname);
+    const m = /^\/sessions\/([^/]+)\/(terminal\/)?live-ws$/.exec(new URL(req.url ?? '', 'http://x').pathname);
+    const shell = !!m?.[2];
     const s = m ? state.sessions.find((x) => x.id === m[1]) : undefined;
     if (!s || req.headers.authorization !== `Bearer ${state.token}`) {
       socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n');
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
+      if (shell) return fakeShell(ws, s.id, state);
       let owner = false;
       ws.on('message', (data, isBinary) => {
         if (!isBinary) {
@@ -464,5 +480,71 @@ function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: F
         }
       });
     });
+  });
+}
+
+/**
+ * A session's paired shell, reduced to a prompt: `resize` and `claim` make you the owner, binary
+ * frames type (bracketed paste markers dropped), Enter runs the line, which prints `ran: <line>`.
+ * Frames are the whole window, history first, like AoE's.
+ */
+function fakeShell(ws: import('ws').WebSocket, id: string, state: FakeState) {
+  // Each connection types on its own line, so tests in parallel browsers do not garble each other's.
+  const shell = { lines: [...(state.shells[id]?.lines ?? [])], input: '' };
+  let owner = false;
+  let rows = 24;
+  let seq = 0;
+  const frame = () => {
+    const prompt = `$ ${shell.input.split('\n').at(-1)}`;
+    const all = [
+      ...shell.lines,
+      ...shell.input
+        .split('\n')
+        .slice(0, -1)
+        .map((l) => `> ${l}`),
+      prompt,
+    ];
+    while (all.length < rows) all.unshift('');
+    ws.send(
+      JSON.stringify({
+        type: 'frame',
+        seq: ++seq,
+        content: all.join('\n'),
+        rows,
+        history: all.length - rows,
+        cursor: { x: prompt.length, y: rows - 1 },
+        altScreen: false,
+        mouse: false,
+        mouseSgr: false,
+        pane0: null,
+      }),
+    );
+  };
+  ws.on('message', (data, isBinary) => {
+    if (!isBinary) {
+      const msg = JSON.parse(String(data)) as { type?: string; rows?: number };
+      if (msg.type === 'resize' || msg.type === 'claim' || msg.type === 'claim_if_vacant') {
+        if (msg.type === 'resize' && msg.rows) rows = msg.rows;
+        owner = true;
+        ws.send(JSON.stringify({ type: 'size_owner', is_owner: true }));
+        frame();
+      }
+      return;
+    }
+    if (!owner) return;
+    const text = Buffer.from(data as Buffer)
+      .toString('utf8')
+      .replace(/\x1b\[20[01]~/g, '');
+    for (const ch of text) {
+      if (ch === '\r') {
+        const command = shell.input;
+        shell.lines.push(`$ ${command.split('\n').join('\n> ')}`.split('\n').join('\n'));
+        for (const line of command.split('\n')) if (line.trim()) shell.lines.push(`ran: ${line}`);
+        state.shellRan.push({ id, command, at: new Date().toISOString() });
+        shell.input = '';
+      } else if (ch === '\x7f') shell.input = shell.input.slice(0, -1);
+      else shell.input += ch;
+    }
+    frame();
   });
 }

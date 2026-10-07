@@ -169,6 +169,27 @@ export class AoeClient {
     }
   }
 
+  /**
+   * Start the session's paired shell if it is not running: the plain terminal AoE keeps next to each
+   * session in its folder (its web view's Terminal tab). 201 when it was created, 200 when it was
+   * already up (src/server/api/sessions/ensure.rs, AoE 1.17.2).
+   */
+  async ensureTerminal(id: string): Promise<void> {
+    await this.request('POST', `/api/sessions/${encodeURIComponent(id)}/terminal`, z.unknown());
+  }
+
+  /**
+   * Where to connect to the paired shell's live view, with the auth AoE wants. Same protocol as the
+   * agent pane's (see `pressKeys`): JSON frames down, binary input and JSON control messages up.
+   */
+  async terminalSocket(id: string): Promise<{ url: string; headers: Record<string, string> }> {
+    if (!this.origin) await this.discover();
+    return {
+      url: `${this.origin!.replace(/^http/, 'ws')}/sessions/${encodeURIComponent(id)}/terminal/live-ws`,
+      headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
+    };
+  }
+
   /** `live` leaves out archived and trashed sessions; `all` has every session, marked by its `*_at` fields. */
   async listSessions(scope: 'live' | 'all' = 'live'): Promise<AoeSession[]> {
     return (await this.request('GET', `/api/sessions?state=${scope}`, AoeSessionsResponseSchema)).sessions;

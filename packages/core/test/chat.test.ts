@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MODELS_55_SINCE,
   modelFromDisplay,
+  inlineCommand,
   modelMatches,
   prettyModel,
   runnableCommand,
@@ -28,6 +29,18 @@ describe('runnableCommand: which code blocks get a Run button', () => {
     expect(runnableCommand('console', '$ npm test\n> 12 passed\n$ git status\nclean')).toBe(
       'npm test\ngit status',
     );
+  });
+});
+
+describe('inlineCommand: inline code Claude means you to run', () => {
+  it('takes `! command`, with or without the space, and nothing else', () => {
+    expect(inlineCommand('! aoe session empty-trash')).toBe('aoe session empty-trash');
+    expect(inlineCommand('!aoe remove x')).toBe('aoe remove x');
+    expect(inlineCommand('aoe remove x')).toBeNull();
+    expect(inlineCommand('!')).toBeNull();
+    expect(inlineCommand('!= b')).toBeNull();
+    expect(inlineCommand('./scripts/clean.sh')).toBeNull();
+    expect(inlineCommand('! ./scripts/clean.sh')).toBe('./scripts/clean.sh');
   });
 });
 
