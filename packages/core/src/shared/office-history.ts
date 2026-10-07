@@ -50,7 +50,9 @@ export const FRAME_EVERY_MS = 6 * 60 * 60 * 1000;
 
 export type CostLookup = (w: OfficeWorker) => CharState['cost'];
 
-export function charState(w: OfficeWorker, cost: CostLookup = () => null): CharState {
+const ownCost: CostLookup = (w) => (w.cost ? { tokens: w.cost.total.tokens, usd: w.cost.total.usd } : null);
+
+export function charState(w: OfficeWorker, cost: CostLookup = ownCost): CharState {
   const mr = w.task?.mr ?? null;
   return {
     key: w.key,

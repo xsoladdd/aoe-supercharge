@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import type {
   OfficeState,
+  SessionCost,
   Health,
   NeedsYouItem,
   NoteRecord,
@@ -76,6 +77,7 @@ function connectEvents() {
   on<Health>('health', (health) => patchSnapshot({ health }));
   on<UsageReport>('usage', (usage) => patchSnapshot({ usage }));
   on<OfficeState>('office', (office) => patchSnapshot({ office }));
+  on<Record<string, SessionCost>>('costs', (costs) => patchSnapshot({ costs }));
   source.onopen = () => set({ connection: 'live' });
   source.onerror = async () => {
     set({ connection: 'reconnecting' });

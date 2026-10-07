@@ -195,7 +195,7 @@ hosts = ["gitlab.com", "gitlab.example.com"]
 readyRequiresNonDraft = false
 
 [notifications]
-enabled = true                     # also: blocked, readyForReview, aoeWaiting, controlWaiting, error
+enabled = true                     # also: blocked, readyForReview, aoeWaiting, controlWaiting, error, runaway
 waitingDebounceSeconds = 20
 
 [ui]
@@ -205,6 +205,11 @@ officeAnimations = true            # walking, errands and arrivals in the office
 
 [office.history]
 retentionDays = 30                 # days of office history kept
+
+[office.runaway]                   # 0 turns a check off
+sessionTokens = 50000000           # tokens in one conversation
+usdPerHour = 20                    # estimated spend in the last hour
+stallMinutes = 30                  # working and spending, nothing changed
 
 [projects.my-repo]                 # per-project overrides
 baseBranch = "develop"
@@ -235,6 +240,8 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - Every project has a room of its own, behind low glass with its name over the doorway. Working workers sit at their own desk in their project's room; the control chat is the team lead at the head desk.
   - Workers with an MR out wait in the **review lounge**, round the pool table, holding a folder: green when it is ready for review, amber while the pipeline runs or review threads are open, red when the pipeline failed or the MR was closed. A badge under each shows the MR number, the pipeline and the open threads; click it to open the MR. An MR ready for review still shows in Needs you, but no longer queues at your door.
   - Idle workers take a break in the pantry after 15 seconds idle.
+  - A **meter** under everyone shows the tokens of their live Claude Code conversation and what it would cost on the Claude API (an estimate: "≈ $1.20"; on a Claude plan it is not a bill). The header adds today's and the floor's total. Models without a price show tokens only. Prices live in one file, `packages/core/src/shared/model-prices.ts`.
+  - A worker burning tokens is flagged as a **runaway**: over a token limit, spending fast, or working for a while without changing a file or a stage. It gets a red warning, a toast and a desktop notification, and the header counts who needs attention. The limits are under Settings, Office.
   - Each worker has a desk number and an outfit picked from seven dress codes, from business formal to medieval garb.
   - The floor is drawn like a game (PixiJS). Drag to look around, scroll or pinch to zoom, double-click an area to zoom in, or use the chips: Whole office, your door, Pantry, and one per room.
   - When a worker's status changes it walks to its new place, then stands still. A worker that raised an MR first takes a folder to its lead's desk and hands it over. Newcomers walk in through the entrance one at a time. Opening the page, or reconnecting, places everyone without walking.

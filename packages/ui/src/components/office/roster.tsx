@@ -20,6 +20,7 @@ import { useEffect, useRef } from 'react';
 import { Link } from 'wouter';
 import { blocksWork, DRESS_CODE_LABEL, relativeTime, type Prop } from '@aoe-supercharge/core/shared';
 import { Avatar } from '@/components/office/avatar';
+import { CostLine } from '@/components/office/cost';
 import { KIND } from '@/components/needs-you';
 import { LiveStatus, StageBadge } from '@/components/status';
 import type { OfficeModel, OfficeTeam, OfficeWorker } from '@/lib/office';
@@ -191,6 +192,7 @@ function WorkerRow({
         <span className="block truncate text-sm text-muted-foreground">
           {showProject ? `${w.project} · ${w.title}` : w.title}
         </span>
+        <CostLine w={w} className="mt-0.5" />
       </span>
       <span className="col-start-2 row-start-2 flex @2xl:col-start-3 @2xl:row-start-1">
         <Reason w={w} />

@@ -9,6 +9,7 @@ import {
   type Zone,
 } from './office.ts';
 import { outfitFor, type Outfit } from './outfit.ts';
+import type { SessionCost } from './office-cost.ts';
 import type { NeedsYouItem, SessionView, Snapshot, TaskRecord } from './types.ts';
 
 /**
@@ -41,6 +42,8 @@ export interface OfficeWorker {
   href: string;
   /** The Needs-you items that put it at your door. */
   items: NeedsYouItem[];
+  /** Tokens and estimated cost of its live conversation, when known (SPEC §14.5). */
+  cost: SessionCost | null;
 }
 
 export interface OfficeTeam {
@@ -62,7 +65,9 @@ export interface OfficeModel {
   everyone: OfficeWorker[];
 }
 
-export type OfficeInput = Pick<Snapshot, 'sessions' | 'projects' | 'tasks' | 'needsYou'>;
+export type OfficeInput = Pick<Snapshot, 'sessions' | 'projects' | 'tasks' | 'needsYou'> & {
+  costs?: Snapshot['costs'];
+};
 
 /**
  * Where each character was last seen. A hold (see `OfficeSpot.hold`) keeps it there; the caller owns
@@ -104,6 +109,7 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
   };
   const sessions = new Map(input.sessions.map((s) => [s.id, s]));
   const { byTask, bySession } = itemsByOwner(input.needsYou);
+  const costOf = (id: string | null | undefined) => (id && input.costs?.[id]) || null;
   const everyone: OfficeWorker[] = [];
   const teams: OfficeTeam[] = [];
 
@@ -131,6 +137,7 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
         since: spot.queuedSince ?? session?.statusSince ?? null,
         href: chatPath(project.controlSessionId),
         items,
+        cost: costOf(project.controlSessionId),
       };
       everyone.push(lead);
     }
@@ -156,6 +163,7 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
         since: spot.queuedSince ?? session?.statusSince ?? null,
         href: taskPath(name, task.id),
         items,
+        cost: costOf(task.aoeSessionId),
       });
     }
     // Workers the control chat started straight through AoE: no task, so they take the free desks after
@@ -188,6 +196,7 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
         since: spot.queuedSince ?? session.statusSince ?? null,
         href: chatPath(session.id),
         items,
+        cost: costOf(session.id),
       });
     }
     const mine = everyone.filter((w) => w.project === name && w.role === 'worker');
@@ -209,6 +218,11 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
     away: everyone.filter((w) => w.zone === 'away'),
     everyone,
   };
+}
+
+/** Everyone flagged as a runaway (SPEC §14.5): they need your attention. */
+export function runaways(model: OfficeModel): OfficeWorker[] {
+  return model.everyone.filter((w) => w.cost?.runaway.length);
 }
 
 /** The soonest a hold runs out (epoch ms after `now`), or null when nobody is holding. */

@@ -12,6 +12,7 @@ import {
 } from '@phosphor-icons/react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { NoteRecord } from '@aoe-supercharge/core/shared';
+import { CostSummary } from '@/components/office/cost';
 import { OfficeRoster } from '@/components/office/roster';
 import { WhiteboardCard } from '@/components/office/whiteboard-card';
 import { WorkerCard } from '@/components/office/worker-card';
@@ -113,6 +114,8 @@ export interface FloorProps {
   animations?: boolean;
   /** Changes with every whole snapshot (a reconnect): everyone is placed again without walking. */
   epoch?: number;
+  /** `office.runaway.sessionTokens`: a full meter. */
+  tokenLimit?: number;
 }
 
 /**
@@ -132,6 +135,7 @@ export default function OfficeFloor({
   projects,
   animations = true,
   epoch = 0,
+  tokenLimit = 50_000_000,
 }: FloorProps) {
   const host = useRef<HTMLDivElement>(null);
   const [scene, setScene] = useState<OfficeScene | null>(null);
@@ -264,6 +268,7 @@ export default function OfficeFloor({
   useEffect(() => scene?.setTheme(theme), [scene, theme]);
   useEffect(() => scene?.setDoorLabel(door), [scene, door]);
   useEffect(() => scene?.setReducedMotion(reduced), [scene, reduced]);
+  useEffect(() => scene?.setLimits({ sessionTokens: tokenLimit }), [scene, tokenLimit]);
   useEffect(() => scene?.select(sel ? sel.key : null), [scene, sel]);
   useEffect(() => scene?.setCalled(called), [scene, called]);
   useEffect(() => scene?.follow(following), [scene, following]);
@@ -383,6 +388,7 @@ export default function OfficeFloor({
           {office.pantry.length} in the pantry
           {office.away.length ? ` · ${office.away.length} away` : ''}
         </p>
+        <CostSummary office={office} onAttention={(key) => pick(key, 'roster')} />
         <p className="sr-only" role="status" aria-live="polite">
           {announcement}
         </p>

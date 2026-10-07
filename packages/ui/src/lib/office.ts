@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { toast } from 'sonner';
 import {
   buildOffice as buildFloor,
   nextHoldEnd,
+  RUNAWAY_LABEL,
   type HoldMemory,
   type OfficeModel,
   type Snapshot,
@@ -14,7 +16,7 @@ export type { OfficeModel, OfficeTeam, OfficeWorker } from '@aoe-supercharge/cor
 const lastZone: HoldMemory = new Map();
 
 export function buildOffice(snap: Snapshot, now: Date): OfficeModel {
-  return buildFloor(snap, now, lastZone);
+  return buildFloor({ ...snap, costs: snap.costs ?? {} }, now, lastZone);
 }
 
 const MOVED: Record<Zone, string> = {
@@ -54,4 +56,41 @@ export function useOffice(snap: Snapshot): { office: OfficeModel; announcement: 
   }, [office]);
 
   return { office, announcement };
+}
+
+/**
+ * A toast when a worker is newly flagged as a runaway (SPEC §14.5). Who was flagged when the page
+ * opened counts as seen: the header's "needs attention" already says so.
+ */
+export function useRunawayToasts(snap: Snapshot | null, navigate: (to: string) => void) {
+  const seen = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!snap) return;
+    const costs = snap.costs ?? {};
+    const flagged = Object.values(costs).filter((c) => c.runaway.length);
+    const ids = new Set(flagged.map((c) => c.sessionId));
+    const before = seen.current;
+    seen.current = ids;
+    if (!before) return;
+    const model = buildOffice(snap, new Date());
+    for (const c of flagged) {
+      if (before.has(c.sessionId)) continue;
+      const w = model.everyone.find((x) => x.session?.id === c.sessionId);
+      const name = w ? (w.role === 'lead' ? `${w.project}'s control chat` : w.name) : 'A worker';
+      toast.warning(`${name} may be a runaway`, {
+        description: c.runaway.map((r) => RUNAWAY_LABEL[r]).join(', '),
+        action: w
+          ? {
+              label: 'Show',
+              onClick: () =>
+                navigate(
+                  w.id
+                    ? `/office?worker=${encodeURIComponent(w.id)}&project=${encodeURIComponent(w.project)}`
+                    : '/office',
+                ),
+            }
+          : undefined,
+      });
+    }
+  }, [snap, navigate]);
 }

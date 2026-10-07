@@ -103,6 +103,49 @@ test.describe('office', () => {
     await expect(floor).toHaveAttribute('data-camera-focus', 'review');
   });
 
+  test('every worker shows what its conversation cost, as an estimate; a runaway is flagged', async ({
+    signedIn: page,
+  }) => {
+    const setTokenLimit = (n: number) =>
+      page.evaluate(async (limit) => {
+        const { token } = (await (await fetch('/api/csrf')).json()) as { token: string };
+        const res = await fetch('/api/config', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', 'x-csrf-token': token },
+          body: JSON.stringify({ patch: { office: { runaway: { sessionTokens: limit } } } }),
+        });
+        return res.status;
+      }, n);
+    // NW-0003's worker has a conversation: tokens from its transcript, priced as an estimate.
+    await page.goto('/office?view=list');
+    const row = page.locator('li[data-task="NW-0003"]');
+    await expect(row.locator('[data-cost]')).toContainText(/≈ \$\d+\.\d\d · \d+k? tokens/, {
+      timeout: 30_000,
+    });
+    await page.goto('/office');
+    await expect(page.locator('[data-office-floor]')).toHaveAttribute(
+      'data-renderer',
+      /^(webgl|webgpu|canvas)$/,
+    );
+    const header = page.locator('[data-office-cost]');
+    await expect(header).toContainText(/Today ≈ \$\d+\.\d\d · now ≈ \$\d+\.\d\d \(estimate\)/);
+    await expect(header).toHaveAttribute('title', /Estimate/);
+    try {
+      // A limit everyone is over: they are all flagged, with a toast and a count in the header.
+      expect(await setTokenLimit(1)).toBe(200);
+      const attention = page.locator('[data-attention]');
+      await expect(attention).toBeVisible({ timeout: 30_000 });
+      await expect(attention).toContainText(/\d+ needs? attention/);
+      await expect(page.getByText(/may be a runaway/).first()).toBeVisible();
+      await page.goto('/office?view=list');
+      await expect(row.locator('[data-runaway="tokens"]')).toContainText('Over the token limit');
+      await axe(page, 'office list with a runaway');
+    } finally {
+      expect(await setTokenLimit(50_000_000)).toBe(200);
+    }
+    await expect(row.locator('[data-runaway]')).toHaveCount(0, { timeout: 30_000 });
+  });
+
   test('the daemon keeps an office history of who went where', async ({ signedIn: page }) => {
     const from = new Date(Date.now() - 6 * 60 * 60_000).toISOString();
     await expect

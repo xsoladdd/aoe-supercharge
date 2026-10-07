@@ -115,6 +115,7 @@ export function OfficePage({ snap, standalone = false }: { snap: Snapshot; stand
             projects={snap.projects.map((p) => p.name)}
             animations={snap.ui.officeAnimations ?? true}
             epoch={epoch}
+            tokenLimit={snap.office?.runaway?.sessionTokens}
           />
         </Suspense>
       </>

@@ -16,6 +16,8 @@ import { claudeModelsCheck } from '../src/commands/doctor.ts';
 import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '../src/statusline.ts';
 import { renderCaddyfile } from '../src/commands/proxy.ts';
 import { MrWatcher } from '../src/daemon/mr-watcher.ts';
+import { CostWatcher } from '../src/daemon/office.ts';
+import { Store } from '../src/daemon/store.ts';
 import { countUnresolvedThreads, GitLabProvider, parseMrView } from '../src/mr/gitlab.ts';
 import { Notifier } from '../src/notify.ts';
 import { renderLaunchdPlist, renderSystemdUnit } from '../src/service/index.ts';
@@ -164,6 +166,69 @@ describe('MR watcher transitions (daemon actor)', () => {
     const t = w.advance(mrTask('implementing'), mr({ pipeline: 'failed' }));
     expect(t.stage).toBe('implementing');
     expect(t.mr?.pipeline).toBe('failed');
+  });
+});
+
+describe('office cost meters (CostWatcher)', () => {
+  const session = (id: string, status: 'working' | 'idle') => ({
+    id,
+    title: id,
+    status,
+    tool: 'claude',
+    projectPath: `/w/${id}`,
+    parentId: null,
+  });
+  const worker = (id: string, status: 'working' | 'idle') => ({
+    key: `p/${id}`,
+    role: 'worker',
+    project: 'p',
+    name: `Worker ${id}`,
+    session: session(id, status),
+    task: null,
+  });
+
+  it('puts each session on the floor in the snapshot, flags runaways, and notifies once per runaway', async () => {
+    const config = defaultConfig();
+    config.office.runaway = { sessionTokens: 1000, usdPerHour: 0, stallMinutes: 0 };
+    const ctx = { config, logger: { warn() {} } } as never;
+    const store = new Store({ daemon: {}, aoe: {}, config: {} } as never, {
+      waitingDebounceSeconds: () => 0,
+    });
+    const office = { model: { everyone: [worker('a', 'working'), worker('b', 'idle')] } } as never;
+    const at = new Date().toISOString();
+    let big = 500;
+    const transcripts = {
+      usage: async (id: string) => ({
+        entries: [
+          {
+            id: `${id}-1`,
+            at,
+            model: 'claude-opus-5-5',
+            speed: null,
+            usage: {
+              input: id === 'a' ? big : 10,
+              cacheWrite5m: 0,
+              cacheWrite1h: 0,
+              cacheRead: 0,
+              output: 0,
+            },
+          },
+        ],
+        lastEditAt: null,
+      }),
+    };
+    const alerts: string[] = [];
+    const w = new CostWatcher(ctx, store, office, transcripts, async (_t, body) => alerts.push(body));
+    // Nobody over the limit yet; the first look arms the notifications.
+    await w.tick();
+    expect(Object.keys(store.costs).sort()).toEqual(['a', 'b']);
+    expect(store.costs.a!.total).toEqual({ tokens: 500, usd: 0.002 });
+    big = 5000;
+    await w.tick();
+    expect(store.costs.a!.runaway).toEqual(['tokens']);
+    expect(alerts).toEqual(['Worker a: Over the token limit']);
+    await w.tick();
+    expect(alerts).toHaveLength(1);
   });
 });
 

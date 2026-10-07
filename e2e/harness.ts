@@ -5,6 +5,7 @@ import { makeSession, PLAN_MENU, startFakeAoe, type FakeAoe } from '../packages/
 import {
   seedControlChat,
   seedPermissionWait,
+  seedSpend,
   seedPlanApproval,
   seedWorkerChat,
 } from '../packages/fake-aoe/src/transcript.ts';
@@ -380,6 +381,26 @@ export async function startDemo(opts: {
   }
   const ratelimit = fake.state.sessions.find((s) => s.id === tasks.ratelimit!.aoeSessionId);
   if (ratelimit) seedPermissionWait(fake.transcripts!.for(ratelimit.id, ratelimit.project_path));
+
+  // The office's cost meters (demo only, made-up numbers): a few hours of work each, and one worker
+  // spending fast enough to be flagged as a runaway (over $20 in the last hour).
+  const light = { input_tokens: 1500, cache_read_input_tokens: 60_000, output_tokens: 900 };
+  const heavy = {
+    input_tokens: 2000,
+    cache_creation_input_tokens: 50_000,
+    cache_read_input_tokens: 900_000,
+    output_tokens: 8000,
+  };
+  for (const [k, replies, usage] of [
+    ['om-login', 60, light],
+    ['om-push', 25, light],
+    ['om-darkmode', 120, light],
+    ['om-crash', 40, light],
+    ['om-offline', 45, heavy],
+  ] as const) {
+    const s = tasks[k] && fake.state.sessions.find((x) => x.id === tasks[k]!.aoeSessionId);
+    if (s) seedSpend(fake.transcripts!.for(s.id, s.project_path), replies, usage);
+  }
 
   // What a Supercharge session's status line would have recorded: 5-hour and weekly usage.
   const stateDir = join(opts.dir, '.local/state/supercharge');

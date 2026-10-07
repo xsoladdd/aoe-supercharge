@@ -22,6 +22,8 @@ export class FakeTranscript {
   /** What replies record as their model and effort; /model and /effort change them. */
   model = 'claude-opus-5-5';
   effort = 'high';
+  /** What each reply records as its token usage. */
+  usage: Record<string, number> = { input_tokens: 1200, cache_read_input_tokens: 40_000, output_tokens: 300 };
   /** Tool calls without a result yet, oldest first. */
   readonly pending: string[] = [];
 
@@ -114,7 +116,7 @@ export class FakeTranscript {
           role: 'assistant',
           model: this.model,
           content: [content],
-          usage: { input_tokens: 1200, cache_read_input_tokens: 40_000, output_tokens: 300 },
+          usage: { ...this.usage },
         },
         effort: this.effort,
       });
@@ -160,6 +162,17 @@ export class FakeTranscript {
 const text = (t: string): Block => ({ type: 'text', text: t });
 
 /** A control chat that planned a launch and started workers: tables, code, folded tool calls. */
+/**
+ * A run of replies with this usage each, for the office's cost meter (made-up numbers). Each reply is
+ * one message, so the meter counts each once.
+ */
+export function seedSpend(t: FakeTranscript, replies: number, usage: Record<string, number>) {
+  const before = t.usage;
+  t.usage = usage;
+  for (let i = 0; i < replies; i++) t.assistant({ type: 'text', text: `Step ${i + 1} done.` });
+  t.usage = before;
+}
+
 export function seedControlChat(t: FakeTranscript, repo: string) {
   t.title('Northwind launch plan');
   t.user('Plan the launch work for the Northwind site and start a worker for each piece.');

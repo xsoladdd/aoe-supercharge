@@ -116,7 +116,7 @@ away}.{label, timeZone, latitude, longitude}` · `office.weather.enabled` · `of
 | 2 | Rooms: glass partitions with doorways, nameplates, edge walls in A\*, review/room layout capacity tests | 1 | 0.5.0 | Done |
 | 3 | Finish errand (walk to the lead, hand over a folder, then on), spawn queue at the entrance, animations toggle | 2 | 0.5.0 | Done |
 | 4 | Review lounge (pool table), folders, MR badges (click opens the MR), header count | 3 | 0.5.0 | Done |
-| 5 | Token/cost meter on desks, characters and header; runaway detection, warning, notification | 4 | 0.5.0 | |
+| 5 | Token/cost meter on desks, characters and header; runaway detection, warning, notification | 4 | 0.5.0 | Done |
 | 6 | Idle "go home" prompt (Archive / Keep / Snooze 30m), auto-archive, Archived list with Restore | 5 | 0.5.0 | |
 | 7 | Activity lighting (day, dim, night), clocks with time difference, Stockholm weather, window ambience | 6 | 0.5.0 | |
 | 8 | History mode (scrubber, play 1x/10x/60x, filters, Back to Live), "Since I was away" | 7 | 0.5.0 | |
@@ -155,10 +155,20 @@ updated, demo data extended so it can be seen without real agents.
 - The demo's third project (`orion-mobile`, made up) is only in `npm run demo` (`startDemo({ rich })`),
   so the E2E suite's counts do not move.
 
+- **Prices** were checked against Anthropic's pricing page (platform.claude.com/docs/en/about-claude/pricing)
+  on 2026-10-07: every row in `model-prices.ts`, cache multipliers (1.25x, 2x, per-model reads) and
+  fast mode. Not modelled: data residency (`inference_geo: "us"`, 1.1x), the Batch discount, and
+  partner platforms' pricing; the meter assumes the Claude API, global routing.
+- **Tokens** count every kind (input, cache writes, cache reads, output). Cache reads dominate a long
+  conversation, so the default token limit is high (50M); the hourly spend limit ($20) is the more
+  useful check. "Progress" for the stall check is a file-changing tool call or a stage change.
+- The meter follows the session's live conversation: after /clear it starts again, and "today" only
+  counts the conversations on the floor now.
+- A desk shows its worker's meter at the worker's feet; there is no separate gauge drawn on the desk.
+
 ## Open questions
 
-- Prices for the models in use (phase 5): the table needs checking against Anthropic's pricing page
-  whenever models change. Fast mode (`usage.speed`) is priced differently.
+- Prices need checking again whenever models change (`PRICES_CHECKED` in `model-prices.ts`).
 - Open-Meteo's terms for its free API (non-commercial use, as I recall; to verify in phase 7). If so,
   using it on a work laptop may count as commercial use: **needs owner review**. `office.weather.enabled`
   turns it off.

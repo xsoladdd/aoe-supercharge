@@ -208,6 +208,7 @@ export const ConfigSchema = z.strictObject({
       aoeWaiting: z.boolean().default(true).describe('A worker waits for approval or input in AoE.'),
       controlWaiting: z.boolean().default(true).describe('A control chat waits for you.'),
       error: z.boolean().default(true).describe('A session errors.'),
+      runaway: z.boolean().default(true).describe('A worker is flagged as a runaway in the office.'),
       waitingDebounceSeconds: z
         .number()
         .int()
@@ -256,6 +257,36 @@ export const ConfigSchema = z.strictObject({
             .max(365)
             .default(30)
             .describe('Days of office history to keep. Older days are deleted.'),
+        })
+        .prefault({}),
+      runaway: z
+        .strictObject({
+          sessionTokens: z
+            .number()
+            .int()
+            .min(0)
+            .max(1_000_000_000)
+            .default(50_000_000)
+            .describe(
+              'Flag a worker whose conversation passes this many tokens (every kind, cache reads included). 0 is off.',
+            ),
+          usdPerHour: z
+            .number()
+            .min(0)
+            .max(10_000)
+            .default(20)
+            .describe(
+              'Flag a worker whose estimated spend in the last hour passes this, in US dollars. 0 is off.',
+            ),
+          stallMinutes: z
+            .number()
+            .int()
+            .min(0)
+            .max(1440)
+            .default(30)
+            .describe(
+              'Flag a working worker that keeps spending tokens with no progress (no file changed, no stage moved) for this long. 0 is off.',
+            ),
         })
         .prefault({}),
     })

@@ -11,7 +11,14 @@ import {
 import { useId, useState } from 'react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
-import { DRESS_CODE_LABEL, relativeTime, ZONE_LABEL } from '@aoe-supercharge/core/shared';
+import {
+  DRESS_CODE_LABEL,
+  formatTokens,
+  formatUsd,
+  relativeTime,
+  ZONE_LABEL,
+} from '@aoe-supercharge/core/shared';
+import { CostLine, ESTIMATE_NOTE } from '@/components/office/cost';
 import { PromptCard, TaskAsks } from '@/components/answer';
 import { Avatar } from '@/components/office/avatar';
 import { Reason } from '@/components/office/roster';
@@ -193,6 +200,25 @@ export function WorkerCard({
             <>
               <dt className="text-muted-foreground">Team</dt>
               <dd className="truncate">{w.project}</dd>
+            </>
+          )}
+          {w.cost && w.cost.total.tokens > 0 && (
+            <>
+              <dt className="text-muted-foreground">Spent</dt>
+              <dd>
+                <CostLine w={w} />
+                <span className="block text-[0.8125rem] text-muted-foreground" title={ESTIMATE_NOTE}>
+                  Today{' '}
+                  {w.cost.today.usd === null
+                    ? `${formatTokens(w.cost.today.tokens)} tokens`
+                    : formatUsd(w.cost.today.usd)}
+                  {' · '}last hour{' '}
+                  {w.cost.lastHour.usd === null
+                    ? `${formatTokens(w.cost.lastHour.tokens)} tokens`
+                    : formatUsd(w.cost.lastHour.usd)}
+                  {w.cost.model ? ` · ${w.cost.model}` : ''} (estimate)
+                </span>
+              </dd>
             </>
           )}
         </dl>

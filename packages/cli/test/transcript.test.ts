@@ -27,6 +27,85 @@ const assistant = (id: string, block: Record<string, unknown>, extra: Record<str
 const tools = (blocks: ChatBlock[]) =>
   blocks.filter((b): b is Extract<ChatBlock, { kind: 'tool' }> => b.kind === 'tool');
 
+describe('TranscriptParser: token usage for the office meter', () => {
+  const reply = (id: string, usage: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    line({
+      type: 'assistant',
+      uuid: `a-${Math.random()}`,
+      timestamp: '2026-10-01T10:00:01.000Z',
+      message: {
+        id,
+        role: 'assistant',
+        model: 'claude-opus-5-5',
+        content: [{ type: 'text', text: 'x' }],
+        usage,
+      },
+      ...extra,
+    });
+
+  it('counts each reply once, splits cache writes by TTL, keeps the speed, and skips sidechains', () => {
+    const p = new TranscriptParser();
+    const u = {
+      input_tokens: 10,
+      cache_creation_input_tokens: 300,
+      cache_creation: { ephemeral_5m_input_tokens: 100, ephemeral_1h_input_tokens: 200 },
+      cache_read_input_tokens: 1000,
+      output_tokens: 50,
+      speed: 'fast',
+    };
+    // Claude Code writes one record per content block, each repeating the reply's usage.
+    p.push(reply('msg_1', u));
+    p.push(reply('msg_1', u));
+    p.push(reply('msg_2', { input_tokens: 5, output_tokens: 7 }));
+    p.push(reply('msg_side', { input_tokens: 999, output_tokens: 999 }, { isSidechain: true }));
+    expect([...p.usage.keys()]).toEqual(['msg_1', 'msg_2']);
+    expect(p.usage.get('msg_1')).toMatchObject({
+      model: 'claude-opus-5-5',
+      speed: 'fast',
+      usage: { input: 10, cacheWrite5m: 100, cacheWrite1h: 200, cacheRead: 1000, output: 50 },
+    });
+    expect(p.usage.get('msg_2')!.usage).toEqual({
+      input: 5,
+      cacheWrite5m: 0,
+      cacheWrite1h: 0,
+      cacheRead: 0,
+      output: 7,
+    });
+  });
+
+  it('notes when Claude last changed a file', () => {
+    const p = new TranscriptParser();
+    p.push(
+      line({
+        type: 'assistant',
+        uuid: 'a1',
+        timestamp: '2026-10-01T10:05:00.000Z',
+        message: {
+          id: 'm1',
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 't1', name: 'Read', input: {} }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      }),
+    );
+    expect(p.lastEditAt).toBeNull();
+    p.push(
+      line({
+        type: 'assistant',
+        uuid: 'a2',
+        timestamp: '2026-10-01T10:07:00.000Z',
+        message: {
+          id: 'm2',
+          role: 'assistant',
+          content: [{ type: 'tool_use', id: 't2', name: 'Edit', input: {} }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        },
+      }),
+    );
+    expect(p.lastEditAt).toBe('2026-10-01T10:07:00.000Z');
+  });
+});
+
 describe('TranscriptParser: Claude Code JSONL → chat messages', () => {
   it('keeps typed prompts and drops command echoes, meta, sidechains and non-human turns', () => {
     const p = new TranscriptParser();

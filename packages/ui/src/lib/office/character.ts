@@ -13,6 +13,12 @@ import type { Palette } from './palette';
 export type Stance = 'stand' | 'sit';
 export type Hands = 'down' | 'typing' | 'mug' | 'paper' | 'magnifier' | 'letter';
 
+/** The cost meter under a worker: how full (0 to 1), its label ("≈ $1.20", "2.3M tokens"). */
+export interface Meter {
+  fill: number;
+  label: string;
+}
+
 /** The MR badge under a worker in the review lounge: its number, pipeline and open threads. */
 export interface Badge {
   iid: number;
@@ -569,6 +575,11 @@ export class Character {
   private badge: Badge | null = null;
   private badgeW = 0;
   private badgeAt = { x: 0, y: 0 };
+  private meterBox = new Container();
+  private meterKey = '';
+  private meter: Meter | null = null;
+  private warnBox = new Graphics();
+  private warned = false;
   private plateText: Text;
   private plateBg = new Graphics();
   private view: 'front' | 'back' = 'front';
@@ -606,8 +617,10 @@ export class Character {
     // Scale from the bubble's tail tip and the plate's top edge, so they grow away from the body.
     this.bubble.pivot.y = 16;
     this.plate.pivot.y = -8;
-    this.overlay.addChild(this.bubble, this.plate, this.badgeBox);
+    this.overlay.addChild(this.bubble, this.plate, this.badgeBox, this.meterBox, this.warnBox);
     this.badgeBox.visible = false;
+    this.meterBox.visible = false;
+    this.warnBox.visible = false;
     this.plate.visible = false;
     this.redraw();
   }
@@ -617,6 +630,12 @@ export class Character {
     const badge = this.badge;
     this.badgeKey = '';
     this.setBadge(badge);
+    const meter = this.meter;
+    this.meterKey = '';
+    this.setMeter(meter);
+    const warned = this.warned;
+    this.warned = !warned;
+    this.setWarning(warned);
     this.plateText.style.fill = p.nameplateText;
     this.redraw();
     this.drawBubble();
@@ -707,6 +726,57 @@ export class Character {
     this.bubble.scale.set(this.pop * s);
     this.plate.scale.set(s);
     this.badgeBox.scale.set(s);
+    this.meterBox.scale.set(s);
+    this.warnBox.scale.set(s);
+  }
+
+  /**
+   * The cost meter (SPEC §14.5): a bar that fills towards the token limit, green to amber to red,
+   * with the estimate beside it. Null hides it.
+   */
+  setMeter(m: Meter | null) {
+    const key = m ? `${m.fill.toFixed(3)}|${m.label}` : '';
+    if (key === this.meterKey) return;
+    this.meterKey = key;
+    this.meter = m;
+    for (const c of this.meterBox.removeChildren()) c.destroy({ children: true });
+    this.meterBox.visible = !!m;
+    if (!m) return;
+    const p = this.p;
+    const t = new Text({
+      text: m.label,
+      style: { fontFamily: FONT, fontSize: 8.5, fontWeight: '600', fill: p.nameplateText },
+      resolution: 4,
+    });
+    const barW = 26;
+    const w = barW + 6 + t.width + 10;
+    const color = m.fill >= 0.9 ? p.status.red : m.fill >= 0.6 ? p.status.yellow : p.status.green;
+    const g = new Graphics()
+      .roundRect(-w / 2, -6.5, w, 13, 6.5)
+      .fill({ color: p.nameplate, alpha: 0.85 })
+      .roundRect(-w / 2 + 5, -2, barW, 4, 2)
+      .fill({ color: 0xffffff, alpha: 0.18 });
+    if (m.fill > 0) g.roundRect(-w / 2 + 5, -2, Math.max(2, barW * m.fill), 4, 2).fill(color);
+    t.position.set(-w / 2 + 5 + barW + 5, -5.5);
+    this.meterBox.addChild(g, t);
+  }
+
+  /** The runaway warning: a red triangle by the head, always shown while flagged. */
+  setWarning(on: boolean) {
+    if (on === this.warned) return;
+    this.warned = on;
+    this.warnBox.clear();
+    this.warnBox.visible = on;
+    if (!on) return;
+    const c = this.p.status.red;
+    this.warnBox
+      .poly([0, -9, 9, 7, -9, 7])
+      .fill(c)
+      .stroke({ width: 1.6, color: 0xffffff, alpha: 0.9 })
+      .rect(-1, -3.5, 2, 6)
+      .fill(0xffffff)
+      .circle(0, 4.6, 1.1)
+      .fill(0xffffff);
   }
 
   /** The MR badge (review lounge only); null hides it. */
@@ -799,8 +869,11 @@ export class Character {
     const lift = this.stance === 'sit' ? 3 : 0;
     this.bubble.position.set(x, y - (51 - lift) * SCALE);
     this.plate.position.set(x, y + 5);
-    this.badgeAt = { x, y: y + 5 + 26 * this.overlayScale };
+    const s = this.overlayScale;
+    this.badgeAt = { x, y: y + 5 + 26 * s };
     this.badgeBox.position.set(this.badgeAt.x, this.badgeAt.y);
+    this.meterBox.position.set(x, y + 5 + (this.badgeBox.visible ? 44 : 26) * s);
+    this.warnBox.position.set(x - 22 * s, y - (40 - lift) * SCALE);
   }
 
   private drawPlate() {

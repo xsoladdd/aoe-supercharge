@@ -24,6 +24,7 @@ import { sendJson } from '@/lib/api';
 import { HeaderSlotContext } from '@/lib/header-slot';
 import { useNeedsYouNudge } from '@/lib/nudge';
 import { OFFICE_WINDOW, useOfficeWindowLinks, useOfficeWindowLocation } from '@/lib/office-window';
+import { useRunawayToasts } from '@/lib/office';
 import { SelectionProvider, useAppContextMenu } from '@/lib/selection';
 import { useSearchParam } from '@/lib/nav';
 import { startLive, useLive, type Connection } from '@/lib/live';
@@ -216,6 +217,7 @@ export function App() {
   // The dashboard window nudges; an office window beside it would only say it twice.
   useNeedsYouNudge(isOfficeWindow ? undefined : snap?.needsYou, snap?.ui.sound ?? true);
   useOfficeWindowLinks(navigate);
+  useRunawayToasts(isOfficeWindow ? null : snap, navigate);
   useAppContextMenu();
   // Links from before the chat page (`?session=<id>`) still land on the chat.
   useEffect(() => {

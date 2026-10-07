@@ -5,6 +5,9 @@ import {
   EntranceQueue,
   findPath,
   fnv1a,
+  formatTokens,
+  formatUsd,
+  meterFill,
   HANDOVER_MS,
   officeLayout,
   planMoves,
@@ -16,7 +19,7 @@ import {
 import type { OfficeModel, OfficeWorker } from '@/lib/office';
 import { BOARD_H, buildStatic, FONT, type StaticOffice } from './art';
 import { Camera, MAX_ZOOM } from './camera';
-import { Character, type Badge, type Hands, type Stance } from './character';
+import { Character, type Badge, type Hands, type Meter, type Stance } from './character';
 import { depth, iso, TILE_H, TILE_W, toGrid, WALL_H, wallA, type Pt } from './iso';
 import { makePalette, type Palette } from './palette';
 
@@ -260,6 +263,24 @@ export class OfficeScene {
     this.apply();
   }
 
+  /** Token limit for the meters' fill (`office.runaway.sessionTokens`). */
+  private limits: { sessionTokens: number } = { sessionTokens: 0 };
+
+  setLimits(limits: { sessionTokens: number }) {
+    if (limits.sessionTokens === this.limits.sessionTokens) return;
+    this.limits = limits;
+    this.apply();
+  }
+
+  private meterFor(w: OfficeWorker): Meter | null {
+    const c = w.cost;
+    if (!c || !c.total.tokens) return null;
+    return {
+      fill: meterFill(c, this.limits),
+      label: c.total.usd === null ? `${formatTokens(c.total.tokens)} tokens` : formatUsd(c.total.usd),
+    };
+  }
+
   private apply() {
     const model = this.model;
     if (!model || this.destroyed) return;
@@ -287,6 +308,8 @@ export class OfficeScene {
       w.leaving = false;
       w.ch.setName(plateName(worker));
       w.ch.setBadge(badgeFor(worker));
+      w.ch.setMeter(this.meterFor(worker));
+      w.ch.setWarning(!!worker.cost?.runaway.length);
       const prop = worker.zone === worker.spot.zone || worker.zone === 'door' ? worker.spot.prop : null;
       const shown = worker.zone === 'away' ? null : prop;
       if (w.errand) {

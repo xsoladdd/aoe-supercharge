@@ -10,8 +10,14 @@ import {
   type HistoryRecord,
   type HoldMemory,
   type OfficeModel,
+  RUNAWAY_LABEL,
+  runawayReasons,
+  summarizeCost,
+  type SessionCost,
 } from '@aoe-supercharge/core/shared';
 import type { Ctx } from '../context.ts';
+import { notify } from '../notify.ts';
+import type { TranscriptStore } from '../transcript.ts';
 import type { Store } from './store.ts';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -64,7 +70,10 @@ export class OfficeWatcher {
 
   async reloadMarks() {
     try {
-      this.store.setOffice({ marks: await readOfficeMarks(this.ctx.paths) });
+      this.store.setOffice({
+        marks: await readOfficeMarks(this.ctx.paths),
+        runaway: this.ctx.config.office.runaway,
+      });
     } catch (err) {
       this.ctx.logger.warn('office state unreadable', { err: (err as Error).message });
     }
@@ -135,5 +144,90 @@ export class OfficeWatcher {
     if (next === null) return;
     this.holdTimer = setTimeout(() => this.queue(false), Math.max(250, next - now + 50));
     this.holdTimer.unref();
+  }
+}
+
+/** How often the meters read what is new in the transcripts. */
+const COST_EVERY_MS = 15_000;
+
+/**
+ * The office's cost meters (SPEC §14.5): every 15 seconds it reads what is new in the live Claude
+ * conversation of each session on the floor (incrementally, as the chat view does), estimates the
+ * cost, flags runaways, and notifies once when someone becomes one.
+ */
+export class CostWatcher {
+  private timer: NodeJS.Timeout | null = null;
+  private flagged = new Set<string>();
+  private armed = false;
+
+  constructor(
+    private ctx: Ctx,
+    private store: Store,
+    private office: OfficeWatcher,
+    private transcripts: Pick<TranscriptStore, 'usage'>,
+    private alert: (title: string, body: string) => Promise<unknown> = notify,
+    private now: () => Date = () => new Date(),
+  ) {}
+
+  start() {
+    const loop = async () => {
+      await this.tick().catch((err: unknown) =>
+        this.ctx.logger.warn('office costs failed', { err: (err as Error).message }),
+      );
+      this.timer = setTimeout(() => void loop(), COST_EVERY_MS);
+      this.timer.unref();
+    };
+    this.timer = setTimeout(() => void loop(), 2_000);
+    this.timer.unref();
+  }
+
+  stop() {
+    if (this.timer) clearTimeout(this.timer);
+  }
+
+  /** Reads the costs once. Exposed for tests. */
+  async tick(): Promise<Record<string, SessionCost>> {
+    const model = this.office.model;
+    if (!model) return this.store.costs;
+    const now = this.now();
+    const limits = this.ctx.config.office.runaway;
+    const costs: Record<string, SessionCost> = {};
+    const names = new Map<string, string>();
+    for (const w of model.everyone) {
+      const s = w.session;
+      if (!s || s.tool !== 'claude') continue;
+      const { entries, lastEditAt } = await this.transcripts
+        .usage(s.id, s.projectPath)
+        .catch(() => ({ entries: [], lastEditAt: null }));
+      if (!entries.length) continue;
+      const moved = w.task?.history.at(-1)?.at ?? null;
+      const progressAt =
+        [lastEditAt, moved]
+          .filter((x): x is string => !!x)
+          .sort()
+          .at(-1) ?? null;
+      const cost = summarizeCost(s.id, entries, now, progressAt);
+      cost.runaway = runawayReasons(cost, s.status === 'working', limits, now);
+      costs[s.id] = cost;
+      names.set(s.id, w.role === 'lead' ? `${w.project}'s control chat` : w.name);
+    }
+    this.store.setCosts(costs);
+    // Notify once per runaway; who was flagged when the daemon started counts as seen.
+    const now2 = new Set(
+      Object.values(costs)
+        .filter((c) => c.runaway.length)
+        .map((c) => c.sessionId),
+    );
+    const n = this.ctx.config.notifications;
+    if (this.armed && n.enabled && n.runaway)
+      for (const id of now2)
+        if (!this.flagged.has(id))
+          void this.alert(
+            'Possible runaway worker',
+            `${names.get(id)}: ${costs[id]!.runaway.map((r) => RUNAWAY_LABEL[r]).join(', ')}`,
+          );
+    this.flagged = now2;
+    this.armed = true;
+    return costs;
   }
 }

@@ -1,6 +1,7 @@
 import type { ControlAsk } from './control-asks.ts';
 import type { SessionPrompt } from './prompt.ts';
 import type { Stage } from './stages.ts';
+import type { RunawayLimits, SessionCost } from './office-cost.ts';
 import type { UsageReport } from './usage.ts';
 
 export type Actor = 'worker' | 'daemon' | 'user' | 'control';
@@ -238,9 +239,11 @@ export interface OfficeMark {
   snoozedUntil: string | null;
 }
 
-/** What the office needs beyond the ledger and AoE: its marks. */
+/** What the office needs beyond the ledger and AoE: its marks, and the settings it draws with. */
 export interface OfficeState {
   marks: Record<string, OfficeMark>;
+  /** `office.runaway` from the config, for the meters' scale. */
+  runaway?: RunawayLimits;
 }
 
 export interface Snapshot {
@@ -256,6 +259,11 @@ export interface Snapshot {
   /** Your 5-hour and weekly usage and whether another worker may start (null until the daemon has read it). */
   usage: UsageReport | null;
   office: OfficeState;
+  /**
+   * Tokens and estimated cost of each AoE session's live conversation, for the office's meters
+   * (SPEC §14.5): only sessions on the office floor, by session id.
+   */
+  costs: Record<string, SessionCost>;
   ui: {
     theme: 'dark' | 'light' | 'system';
     density: 'comfortable' | 'compact';
@@ -277,6 +285,7 @@ export type SnapshotEvent =
   | { type: 'notes'; data: NoteRecord[] }
   | { type: 'usage'; data: UsageReport }
   | { type: 'office'; data: OfficeState }
+  | { type: 'costs'; data: Record<string, SessionCost> }
   | { type: 'health'; data: Health };
 
 export interface ProjectStatus {

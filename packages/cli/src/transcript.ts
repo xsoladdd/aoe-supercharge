@@ -7,6 +7,7 @@ import {
   type ChatBlock,
   type ChatMessage,
   type ChatResponse,
+  type UsageEntry,
 } from '@aoe-supercharge/core/shared';
 import type { AoeCli } from './aoe/cli.ts';
 
@@ -24,6 +25,8 @@ const MAX_MESSAGES = 300;
 // Terminal colour codes, which Claude Code leaves in command output.
 const ANSI = /\x1b\[[0-9;]*m/g;
 const FULL_INPUT = new Set(['ExitPlanMode', 'AskUserQuestion']);
+/** Tool calls that change files: progress, for the office's runaway check. */
+const EDITS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 
 type ToolBlock = Extract<ChatBlock, { kind: 'tool' }>;
 type ShellBlock = Extract<ChatBlock, { kind: 'shell' }>;
@@ -42,6 +45,13 @@ export class TranscriptParser {
   contextTokens: number | null = null;
   /** The Claude Code version that wrote the latest message (each record carries it). */
   claudeVersion: string | null = null;
+  /**
+   * Token usage per reply (SPEC §14.5), once per `message.id`: the records of one reply repeat the
+   * same usage. Sidechains (subagents) are left out with the rest of their records.
+   */
+  usage = new Map<string, UsageEntry>();
+  /** When Claude last changed a file (an Edit or Write call): progress, for the runaway check. */
+  lastEditAt: string | null = null;
   private assistantById = new Map<string, ChatMessage>();
   private toolById = new Map<string, ToolBlock>();
   /** A shell-mode command still waiting for its output. */
@@ -86,6 +96,33 @@ export class TranscriptParser {
           n('cache_read_input_tokens') +
           n('output_tokens');
         if (total > 0) this.contextTokens = total;
+        const id = (message as { id?: unknown }).id;
+        if (total > 0 && typeof id === 'string') {
+          // Split cache writes by TTL when Claude Code records it; otherwise count them as 5-minute writes.
+          const cc = u.cache_creation as Record<string, unknown> | undefined;
+          const w1h = typeof cc?.ephemeral_1h_input_tokens === 'number' ? cc.ephemeral_1h_input_tokens : 0;
+          const writes = n('cache_creation_input_tokens');
+          this.usage.set(id, {
+            id,
+            at: typeof rec.timestamp === 'string' ? rec.timestamp : new Date(0).toISOString(),
+            model:
+              typeof message?.model === 'string' && !message.model.startsWith('<')
+                ? message.model
+                : this.model,
+            speed: typeof u.speed === 'string' ? u.speed : null,
+            usage: {
+              input: n('input_tokens'),
+              cacheWrite5m: Math.max(0, writes - w1h),
+              cacheWrite1h: Math.min(writes, w1h),
+              cacheRead: n('cache_read_input_tokens'),
+              output: n('output_tokens'),
+            },
+          });
+        }
+        const content = message?.content;
+        if (Array.isArray(content) && typeof rec.timestamp === 'string')
+          for (const b of content as Record<string, unknown>[])
+            if (b.type === 'tool_use' && EDITS.has(String(b.name))) this.lastEditAt = rec.timestamp;
       }
       if (typeof rec.effort === 'string') this.effort = rec.effort;
       return;
@@ -292,6 +329,21 @@ export class TranscriptStore {
         return f;
     }
     return null;
+  }
+
+  /**
+   * The token usage of the session's live conversation, reply by reply, and when it last changed a
+   * file. Reads what is new in the transcript first (the same incremental read as the chat view).
+   */
+  async usage(
+    aoeId: string,
+    cwd: string | null,
+  ): Promise<{ entries: UsageEntry[]; lastEditAt: string | null }> {
+    const chat = await this.read(aoeId, cwd);
+    const c = this.cache.get(aoeId);
+    if (!c || chat.version === 'none' || chat.version.startsWith('nofile:'))
+      return { entries: [], lastEditAt: null };
+    return { entries: [...c.parser.usage.values()], lastEditAt: c.parser.lastEditAt };
   }
 
   /** The tool call Claude is waiting on: the last call of the latest reply, if it has no result yet. */

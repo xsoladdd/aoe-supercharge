@@ -19,6 +19,14 @@ history.
   pipeline and open threads; click it to open the MR. An MR that is ready or closed still shows in
   Needs you and still notifies, but no longer queues at your door. The header counts who is in review,
   and the list has a Review lounge section with the same badges.
+- **What it costs.** A meter under everyone in the office shows their conversation's tokens and an
+  estimate of what it would cost on the Claude API ("≈ $1.20"), read from Claude Code's transcripts.
+  The header adds today and now. It is an estimate: on a Claude plan it is not a bill. Prices are in
+  one file, checked against Anthropic's pricing page on 2026-10-07; models without a price show tokens
+  only.
+- **Runaway workers are flagged.** Over a token limit, spending fast, or working half an hour without
+  changing anything: a red warning on the floor, a toast, a desktop notification, and a "needs
+  attention" count in the header. Set the limits in Settings, Office (`office.runaway`).
 - **The office keeps a history.** The daemon writes down every time someone in the office moves, or
   their reason changes, in a file per day under `~/.local/state/supercharge/history/`. It keeps 30 days
   (`office.history.retentionDays`). `GET /api/office/history` reads it back. History starts with this
