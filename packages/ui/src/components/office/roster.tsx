@@ -14,6 +14,7 @@ import {
   StopIcon,
   WarningOctagonIcon,
   XCircleIcon,
+  GitBranchIcon,
   type Icon,
 } from '@phosphor-icons/react';
 import { useEffect, useRef } from 'react';
@@ -113,6 +114,7 @@ export function pipelineKind(p: string | null): keyof typeof PIPELINE {
  */
 export function MrBadge({ w }: { w: OfficeWorker }) {
   const mr = w.task?.mr;
+  if (!mr && w.task?.stage === 'ready_for_review') return <BranchBadge branch={w.task.branch} />;
   if (!mr) return null;
   const p = PIPELINE[pipelineKind(mr.pipeline)]!;
   const threads = mr.unresolvedThreads;
@@ -134,6 +136,24 @@ export function MrBadge({ w }: { w: OfficeWorker }) {
         {threads}
       </span>
     </a>
+  );
+}
+
+/** A branch ready to merge without an MR (SPEC §11.3): its name, in place of the MR badge. */
+function BranchBadge({ branch }: { branch: string }) {
+  const label = `Branch ${branch}, ready to merge`;
+  return (
+    <span
+      aria-label={label}
+      title={label}
+      data-branch-badge={branch}
+      className="inline-flex h-7 max-w-48 shrink-0 items-center gap-1.5 rounded-full border border-border-strong px-2.5 text-[0.8125rem] font-semibold"
+    >
+      <GitBranchIcon weight="bold" className="size-4 shrink-0 text-st-green" aria-hidden />
+      <span translate="no" className="truncate font-mono">
+        {branch}
+      </span>
+    </span>
   );
 }
 

@@ -15,6 +15,7 @@ import { parseUpdateCheck, releaseAsset } from '../src/commands/aoe-upgrade.ts';
 import { claudeModelsCheck } from '../src/commands/doctor.ts';
 import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '../src/statusline.ts';
 import { renderCaddyfile } from '../src/commands/proxy.ts';
+import { landedOn, markLanded } from '../src/daemon/branch-watcher.ts';
 import { MrWatcher } from '../src/daemon/mr-watcher.ts';
 import { CostWatcher, OfficeWatcher, WeatherWatcher } from '../src/daemon/office.ts';
 import { at, project, session as view, T0, task as taskRecord } from '../../core/test/office-fixtures.ts';
@@ -24,6 +25,7 @@ import { Notifier } from '../src/notify.ts';
 import { renderLaunchdPlist, renderSystemdUnit } from '../src/service/index.ts';
 import { removeManagedBlock, upsertManagedBlock } from '../src/skills.ts';
 import { parseRemote } from '../src/util/git.ts';
+import { run } from '../src/util/exec.ts';
 import { redact } from '../src/util/logger.ts';
 import { modelArgs, workerModel } from '../src/workflow.ts';
 
@@ -167,6 +169,70 @@ describe('MR watcher transitions (daemon actor)', () => {
     const t = w.advance(mrTask('implementing'), mr({ pipeline: 'failed' }));
     expect(t.stage).toBe('implementing');
     expect(t.mr?.pipeline).toBe('failed');
+  });
+});
+
+describe('branch landing without an MR (SPEC §11.3)', () => {
+  async function repo() {
+    const dir = await mkdtemp(join(tmpdir(), 'sc-land-'));
+    const g = async (...args: string[]) => {
+      const r = await run('git', args, { cwd: dir, timeoutMs: 10_000 });
+      if (r.code !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+      return r.stdout.trim();
+    };
+    await g('init', '-q', '-b', 'main');
+    await g('config', 'user.email', 't@example.com');
+    await g('config', 'user.name', 'T');
+    await g('config', 'commit.gpgsign', 'false');
+    const commit = async (file: string, text: string) => {
+      await writeFile(join(dir, file), text);
+      await g('add', file);
+      await g('commit', '-q', '-m', file);
+    };
+    await commit('a.txt', 'a\n');
+    await g('checkout', '-q', '-b', 'sc/nw-0001-t');
+    await commit('b.txt', 'b\n');
+    await commit('c.txt', 'c\n');
+    await g('checkout', '-q', 'main');
+    await commit('m.txt', 'main moved on\n');
+    return { dir, g };
+  }
+  const ready = (p: Partial<TaskRecord> = {}) => ({ ...mrTask('ready_for_review'), ...p });
+
+  it('not merged yet: stays put', async () => {
+    const { dir } = await repo();
+    expect(await landedOn(dir, ready())).toBeNull();
+    await rm(dir, { recursive: true, force: true });
+  });
+  it('fast-forwarded or merged onto main: landed', async () => {
+    const { dir, g } = await repo();
+    await g('merge', '-q', '--no-edit', 'sc/nw-0001-t');
+    expect(await landedOn(dir, ready())).toBe('main');
+    await rm(dir, { recursive: true, force: true });
+  });
+  it('cherry-picked (same patches, new shas): landed; only part of it: not yet', async () => {
+    const { dir, g } = await repo();
+    await g('cherry-pick', 'sc/nw-0001-t~1');
+    expect(await landedOn(dir, ready())).toBeNull();
+    await g('cherry-pick', 'sc/nw-0001-t');
+    expect(await landedOn(dir, ready())).toBe('main');
+    await rm(dir, { recursive: true, force: true });
+  });
+  it('falls back to the recorded head once the branch is deleted', async () => {
+    const { dir, g } = await repo();
+    const head = await g('rev-parse', 'sc/nw-0001-t');
+    await g('merge', '-q', '--no-edit', 'sc/nw-0001-t');
+    await g('branch', '-q', '-D', 'sc/nw-0001-t');
+    expect(await landedOn(dir, ready())).toBeNull();
+    expect(await landedOn(dir, ready({ readyHead: head }))).toBe('main');
+    await rm(dir, { recursive: true, force: true });
+  });
+  it('markLanded moves only a branch-ready task to done, as the daemon', () => {
+    const t = markLanded(ready(), 'main');
+    expect(t.stage).toBe('done');
+    expect(t.history.at(-1)).toMatchObject({ by: 'daemon', note: 'Branch landed on main' });
+    expect(markLanded(ready({ mr: mr({}) }), 'main').stage).toBe('ready_for_review');
+    expect(markLanded(mrTask('implementing'), 'main').stage).toBe('implementing');
   });
 });
 

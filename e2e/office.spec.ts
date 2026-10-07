@@ -91,6 +91,11 @@ test.describe('office', () => {
     );
     await expect(badge).toHaveAttribute('target', '_blank');
     await expect(badge).toHaveAttribute('rel', /noopener/);
+    // AA-0003 has no MR (apollo-api merges branches directly): its branch is ready to merge.
+    const branchRow = lounge.locator('li[data-task="AA-0003"]');
+    await expect(branchRow).toHaveAttribute('data-zone', 'review', { timeout: 20_000 });
+    await expect(branchRow.getByText('Branch ready to merge')).toBeVisible();
+    await expect(branchRow.locator('[data-branch-badge^="sc/aa-0003-"]')).toBeVisible();
     await axe(page, 'office list with the review lounge');
     // The floor's header counts the lounge, and its chip flies there.
     await page.goto('/office');

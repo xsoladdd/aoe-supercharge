@@ -52,3 +52,30 @@ export function parseRemote(url: string | null): RemoteRef | null {
     return null;
   }
 }
+
+// ── branch landing (no-MR flow) ──────────────────────────────────────────────
+
+/** Commit sha of a ref, or null if it doesn't exist. */
+export const revParse = (cwd: string, ref: string) =>
+  git(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`]);
+
+/** Number of commits on `head` that are not on `base`, or null if either ref is missing. */
+export async function commitsAhead(cwd: string, base: string, head: string): Promise<number | null> {
+  const n = await git(cwd, ['rev-list', '--count', `${base}..${head}`]);
+  return n === null ? null : Number(n);
+}
+
+/**
+ * Has `head` landed on `base`? True when `head` is an ancestor of `base` (fast-forward or merge),
+ * or when every commit of `head` not on `base` has an equivalent patch there (cherry-picked or
+ * rebased, the patch-id match `git cherry` and `git range-diff` use).
+ */
+export async function hasLanded(cwd: string, base: string, head: string): Promise<boolean> {
+  const r = await run('git', ['merge-base', '--is-ancestor', head, base], { cwd, timeoutMs: 10_000 });
+  if (r.code === 0) return true;
+  if (r.code !== 1) return false;
+  const cherry = await git(cwd, ['cherry', base, head]);
+  if (cherry === null) return false;
+  const lines = cherry.split('\n').filter(Boolean);
+  return lines.length > 0 && lines.every((l) => l.startsWith('-'));
+}

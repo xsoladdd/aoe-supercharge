@@ -1495,4 +1495,64 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(st.readyForReview[0]).toMatchObject({ taskId: 'NO-0001' });
     expect(st.control.status).not.toBe('missing');
   });
+
+  it('without MRs, a worker reports its branch ready to merge; the daemon marks it done once it lands on main', async () => {
+    expect((await sc(['config', 'set', 'projects.northwind.mr', 'none'])).code).toBe(0);
+    const r = await sc(['task', 'new', 'Branch only', '--force', '--json']);
+    expect(r.code, r.stderr).toBe(0);
+    const w = JSON.parse(r.stdout) as { id: string; worktree: string; aoeSessionId: string; branch: string };
+    const as = (args: string[], input?: string) =>
+      sc(args, { cwd: w.worktree, extraEnv: { AOE_INSTANCE_ID: w.aoeSessionId }, input });
+    expect(JSON.parse((await as(['whoami', '--json'])).stdout).merge).toBe('branch');
+    expect((await as(['plan', '-'], '# Plan\n')).code).toBe(0);
+    expect((await as(['stage', 'implementing'])).code).toBe(0);
+    expect((await as(['stage', 'verifying'])).code).toBe(0);
+
+    // Nothing committed yet: nothing to merge. --mr belongs to mr_raised.
+    const empty = await as(['stage', 'ready_for_review']);
+    expect(empty.code).toBe(3);
+    expect(empty.stderr).toMatch(/nothing to merge/);
+    const withMr = await as([
+      'stage',
+      'ready_for_review',
+      '--mr',
+      'https://gitlab.example.com/acme/northwind/-/merge_requests/9',
+    ]);
+    expect(withMr.code).toBe(2);
+
+    await writeFile(join(w.worktree, 'feature.txt'), 'feature\n');
+    execFileSync('git', ['add', 'feature.txt'], { cwd: w.worktree, env });
+    execFileSync('git', ['commit', '-q', '-m', 'feature'], { cwd: w.worktree, env });
+    const ok = await as(['stage', 'ready_for_review']);
+    expect(ok.code, ok.stderr).toBe(0);
+    expect(ok.stdout).toMatch(/waits to be merged into main/);
+    const t = await readTask(w.id);
+    expect(t.mr).toBeNull();
+    expect(t.readyHead).toMatch(/^[0-9a-f]{40}$/);
+
+    // Through the daemon, once it has reloaded the ledger.
+    const ready = await until(async () => {
+      const st = JSON.parse((await sc(['status', '--project', 'northwind', '--json'])).stdout);
+      return st.readyForReview.find((x: { taskId: string }) => x.taskId === w.id);
+    });
+    expect(ready).toMatchObject({
+      mrUrl: null,
+      branch: w.branch,
+    });
+    const item = await until(async () => {
+      const s = (await (
+        await fetch(`${base()}/api/snapshot`, { headers: { authorization: `Bearer ${bearer}` } })
+      ).json()) as Snapshot;
+      return s.needsYou.find((n) => n.kind === 'mr_ready' && n.taskId === w.id);
+    });
+    expect(item.detail).toBe(`Branch ready to merge: ${w.branch}`);
+
+    // The control chat fast-forwards main: the daemon notices and closes the task.
+    execFileSync('git', ['merge', '-q', '--ff-only', w.branch], { cwd: repo, env });
+    const done = await until(async () => {
+      const x = await readTask(w.id);
+      return x.stage === 'done' ? x : null;
+    }, 30_000);
+    expect(done.history.at(-1)).toMatchObject({ by: 'daemon', note: 'Branch landed on main' });
+  }, 60_000);
 });

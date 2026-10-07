@@ -585,6 +585,7 @@ export function buildProgram(): Command {
       out(`project  ${who.project ?? 'none'}`);
       if (who.task) out(`task     ${who.task.id} ${who.task.title} (${STAGE_LABEL[who.task.stage]})`);
       out(`branch   ${who.branch ?? 'none'}`);
+      out(`merge    ${who.merge === 'branch' ? 'branch (no merge requests)' : 'merge request'}`);
     });
 
   program
@@ -607,6 +608,10 @@ export function buildProgram(): Command {
       if (t.stage === 'mr_raised')
         out(
           `  Supercharge watches ${t.mr?.url} from here; it moves the task to Ready for review when it is.`,
+        );
+      if (t.stage === 'ready_for_review' && !t.mr)
+        out(
+          `  ${t.branch} waits to be merged into ${t.baseBranch}; Supercharge marks the task done once it lands there.`,
         );
     });
 
@@ -721,7 +726,12 @@ async function statusProject(x: Ctx, name: string, asJson: boolean) {
   );
   for (const b of st.blocked)
     out(`  ${sym.warn} ${b.taskId} blocked ${relativeTime(b.since)}: ${b.question}`);
-  for (const rdy of st.readyForReview) out(`  ${sym.ok} ${rdy.taskId} ready for review ${rdy.mrUrl ?? ''}`);
+  for (const rdy of st.readyForReview)
+    out(
+      rdy.mrUrl
+        ? `  ${sym.ok} ${rdy.taskId} ready for review ${rdy.mrUrl}`
+        : `  ${sym.ok} ${rdy.taskId} branch ready to merge: ${rdy.branch}`,
+    );
   for (const f of st.failingPipelines) out(`  ${sym.fail} ${f.taskId} pipeline failed ${f.mrUrl ?? ''}`);
 }
 

@@ -369,6 +369,12 @@ export const ConfigSchema = z.strictObject({
       z.strictObject({
         gitlabHost: z.string().regex(HOSTNAME).optional(),
         baseBranch: z.string().min(1).optional(),
+        mr: z
+          .enum(['none'])
+          .optional()
+          .describe(
+            'Set to "none" when this project merges branches without merge requests: workers report a pushed branch ready to merge, and Supercharge marks it done once it lands.',
+          ),
         branchPrefix: z
           .string()
           .regex(/^[A-Za-z0-9._/-]*$/)

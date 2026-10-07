@@ -15,7 +15,7 @@ const C = ['user', 'control', 'daemon'] as const;
 const EXPECTED: Record<Exclude<Stage, 'blocked'>, Partial<Record<Stage, readonly Actor[]>>> = {
   planning: { implementing: W, blocked: W, done: C },
   implementing: { verifying: W, blocked: W, done: C },
-  verifying: { implementing: W, mr_raised: W, blocked: W, done: C },
+  verifying: { implementing: W, mr_raised: W, ready_for_review: W, blocked: W, done: C },
   mr_raised: { watching_mr: D, implementing: W, blocked: W, done: C },
   watching_mr: { ready_for_review: D, implementing: W, blocked: W, done: C },
   ready_for_review: { watching_mr: D, implementing: W, blocked: W, done: C },
@@ -28,7 +28,9 @@ describe('stage machine: exhaustive (from × to × actor)', () => {
       for (const actor of ACTORS) {
         const allowed = EXPECTED[from][to]?.includes(actor) ?? false;
         it(`${from} → ${to} by ${actor}: ${allowed ? 'allowed' : 'rejected'}`, () => {
-          const r = transition({ stage: from, blockedFrom: null }, to, actor, OK_CTX);
+          // Without an MR, a worker may report its branch ready (ready_for_review).
+          const ctx = { ...OK_CTX, hasMr: to !== 'ready_for_review' };
+          const r = transition({ stage: from, blockedFrom: null }, to, actor, ctx);
           expect(r.ok).toBe(allowed);
         });
       }
@@ -39,7 +41,9 @@ describe('stage machine: exhaustive (from × to × actor)', () => {
 describe('blocked', () => {
   it('returns to blockedFrom and anything reachable from it', () => {
     const t = { stage: 'blocked' as const, blockedFrom: 'verifying' as const };
-    expect(allowedNext(t, 'worker').sort()).toEqual(['implementing', 'mr_raised', 'verifying'].sort());
+    expect(allowedNext(t, 'worker').sort()).toEqual(
+      ['implementing', 'mr_raised', 'ready_for_review', 'verifying'].sort(),
+    );
     expect(transition(t, 'verifying', 'worker', OK_CTX).ok).toBe(true);
     expect(transition(t, 'mr_raised', 'worker', OK_CTX).ok).toBe(true);
     expect(transition(t, 'done', 'user', OK_CTX).ok).toBe(true);
@@ -80,6 +84,14 @@ describe('guards and messages', () => {
       expect(r.daemonOnly).toBe(true);
       expect(r.reason).toMatch(/automatically/);
     }
+  });
+  it('verifying → ready_for_review: a worker may report its branch ready only without an MR', () => {
+    const verifying = { stage: 'verifying' as const, blockedFrom: null };
+    expect(transition(verifying, 'ready_for_review', 'worker', { ...OK_CTX, hasMr: false }).ok).toBe(true);
+    const r = transition(verifying, 'ready_for_review', 'worker', OK_CTX);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.daemonOnly).toBe(true);
+    expect(transition(verifying, 'ready_for_review', 'daemon', { ...OK_CTX, hasMr: false }).ok).toBe(false);
   });
   it('rejects skipping stages and lists what is allowed', () => {
     const r = transition({ stage: 'planning', blockedFrom: null }, 'verifying', 'worker', OK_CTX);

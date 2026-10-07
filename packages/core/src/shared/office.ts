@@ -139,7 +139,7 @@ export const FOLDER_PROP: Record<Folder, Exclude<Prop, null>> = {
 
 /**
  * The folder a worker in the review lounge carries: red when the pipeline failed or the MR was
- * closed, green when it is ready for review (or merged), amber while it waits on the pipeline or on
+ * closed, green when it is ready for review (or merged, or a branch is ready to merge without an MR), amber while it waits on the pipeline or on
  * open review threads.
  */
 export function folderFor(task: Pick<TaskRecord, 'stage' | 'mr'>): { folder: Folder; reason: string } {
@@ -147,6 +147,7 @@ export function folderFor(task: Pick<TaskRecord, 'stage' | 'mr'>): { folder: Fol
   if (mr?.state === 'closed') return { folder: 'red', reason: 'MR was closed' };
   if (mr?.pipeline === 'failed' || mr?.pipeline === 'canceled')
     return { folder: 'red', reason: 'Pipeline failed' };
+  if (task.stage === 'ready_for_review' && !mr) return { folder: 'green', reason: 'Branch ready to merge' };
   if (task.stage === 'ready_for_review' || mr?.state === 'merged')
     return { folder: 'green', reason: mr?.state === 'merged' ? 'MR merged' : 'MR ready for review' };
   if (mr?.unresolvedThreads)

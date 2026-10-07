@@ -11,6 +11,7 @@ import { createApp } from './app.ts';
 import { attachShellSockets } from './shell.ts';
 import { PromptReader } from '../prompt.ts';
 import { transcriptStore } from '../transcript.ts';
+import { BranchWatcher } from './branch-watcher.ts';
 import { MrWatcher } from './mr-watcher.ts';
 import { CostWatcher, OfficeWatcher, WeatherWatcher } from './office.ts';
 import { Store } from './store.ts';
@@ -123,6 +124,7 @@ async function runWorker(): Promise<void> {
   const ledgerWatcher = new LedgerWatcher(ctx, store);
   const notesWatcher = new NotesWatcher(ctx, store);
   const mrWatcher = new MrWatcher(ctx, store, () => mrProvider(ctx.config, ctx.env));
+  const branchWatcher = new BranchWatcher(ctx, store);
   const officeWatcher = new OfficeWatcher(ctx, store);
   const costWatcher = new CostWatcher(ctx, store, officeWatcher, transcripts);
   const weatherWatcher = new WeatherWatcher(ctx, store);
@@ -144,6 +146,7 @@ async function runWorker(): Promise<void> {
     ledgerWatcher.stop();
     notesWatcher.stop();
     mrWatcher.stop();
+    branchWatcher.stop();
     configWatcher.stop();
     officeWatcher.stop();
     costWatcher.stop();
@@ -181,6 +184,7 @@ async function runWorker(): Promise<void> {
     aoeWatcher.start();
   }
   mrWatcher.start();
+  branchWatcher.start();
   await officeWatcher.start();
   costWatcher.start();
   weatherWatcher.reload();

@@ -43,7 +43,13 @@ export function buildProjectStatus(
       .sort((a, b) => a.since.localeCompare(b.since)),
     readyForReview: own
       .filter((t) => t.stage === 'ready_for_review')
-      .map((t) => ({ taskId: t.id, name: t.name ?? null, title: t.title, mrUrl: t.mr?.url ?? null })),
+      .map((t) => ({
+        taskId: t.id,
+        name: t.name ?? null,
+        title: t.title,
+        mrUrl: t.mr?.url ?? null,
+        branch: t.branch,
+      })),
     failingPipelines: own
       .filter((t) => t.mr?.pipeline === 'failed' && t.stage !== 'done')
       .map((t) => ({ taskId: t.id, name: t.name ?? null, title: t.title, mrUrl: t.mr?.url ?? null })),

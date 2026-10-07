@@ -43,7 +43,15 @@ import { transcriptStore, type TranscriptStore } from './transcript.ts';
 import { CliError, EXIT } from './util/errors.ts';
 import { daemonHealth } from './util/daemon-client.ts';
 import { run } from './util/exec.ts';
-import { currentBranch, defaultBranch, mainCheckout, parseRemote, remoteUrl } from './util/git.ts';
+import {
+  commitsAhead,
+  currentBranch,
+  defaultBranch,
+  mainCheckout,
+  parseRemote,
+  remoteUrl,
+  revParse,
+} from './util/git.ts';
 
 export function mrProvider(config: Config, env: NodeJS.ProcessEnv): MrProvider {
   return new GitLabProvider(config.mr.gitlab.glabBinary, config.mr.gitlab.hosts, env);
@@ -64,6 +72,8 @@ function assertSafeArg(value: string, what: string) {
 export interface WhoAmI {
   role: 'control' | 'worker' | 'none';
   project: string | null;
+  /** How finished work reaches the base branch: a merge request, or the branch itself (`projects.<name>.mr = "none"`). */
+  merge: MergeMode;
   sessionId: string | null;
   branch: string | null;
   task:
@@ -74,6 +84,12 @@ export interface WhoAmI {
     | null;
   /** Actor used for stage changes: the worker itself, or a human running the CLI in the worktree. */
   actor: Actor;
+}
+
+export type MergeMode = 'mr' | 'branch';
+
+export function mergeMode(config: Ctx['config'], project: string | null): MergeMode {
+  return project && config.projects[project]?.mr === 'none' ? 'branch' : 'mr';
 }
 
 export async function whoami(
@@ -87,6 +103,7 @@ export async function whoami(
   const none = {
     role: 'none' as const,
     project: project?.name ?? null,
+    merge: mergeMode(ctx.config, project?.name ?? null),
     sessionId,
     branch,
     task: null,
@@ -110,6 +127,7 @@ export async function whoami(
   return {
     role: 'worker',
     project: project.name,
+    merge: mergeMode(ctx.config, project.name),
     sessionId,
     branch,
     task: {
@@ -612,17 +630,45 @@ export async function stageTask(
     }
   }
 
+  const branchReady = opts.stage === 'ready_for_review' && !task.mr;
+  if (opts.stage === 'ready_for_review' && opts.mrUrl)
+    throw new CliError(
+      '--mr goes with mr_raised, not ready_for_review.',
+      EXIT.usage,
+      'With a merge request: supercharge stage mr_raised --mr <url>. Without one: supercharge stage ready_for_review',
+    );
+
   const res = transition(task, opts.stage, who.actor, {
     planApproved: task.plan?.status === 'approved',
-    hasMr: !!mr,
+    hasMr: opts.stage === 'ready_for_review' ? !!task.mr : !!mr,
     question: task.openQuestion?.text ?? null,
     force: opts.force,
   });
   if (!res.ok) throw rejection(task, opts.stage, res.reason, res.allowed);
 
+  let readyHead: string | null = null;
+  if (branchReady) {
+    const repo = who.projectRecord.repoPath;
+    readyHead = await revParse(repo, task.branch);
+    const base = (await revParse(repo, task.baseBranch))
+      ? task.baseBranch
+      : (await revParse(repo, `origin/${task.baseBranch}`))
+        ? `origin/${task.baseBranch}`
+        : null;
+    if (readyHead && base && (await commitsAhead(repo, base, readyHead)) === 0 && !opts.force)
+      throw new CliError(
+        `${task.branch} has no commits that aren't on ${task.baseBranch} yet: nothing to merge.`,
+        EXIT.invalidTransition,
+        'Commit your work on this branch and push it, then run supercharge stage ready_for_review again.',
+      );
+  }
+
   return ctx.ledger.updateTask(task.project, task.id, (t) => {
     const next = applyStage(t, opts.stage, who.actor, opts.note?.trim() || (opts.force ? 'Forced' : null));
-    return opts.stage === 'mr_raised' ? { ...next, mr } : next;
+    if (opts.stage === 'mr_raised') return { ...next, mr };
+    if (branchReady) return { ...next, readyHead };
+    if (opts.stage === 'implementing' && t.readyHead) return { ...next, readyHead: null };
+    return next;
   });
 }
 

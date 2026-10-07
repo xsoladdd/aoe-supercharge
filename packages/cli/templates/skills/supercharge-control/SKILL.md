@@ -75,7 +75,7 @@ supercharge status --project <project> --json
 Summarise it in this order, briefly:
 
 1. Anything blocked: the worker's name and task id, the open question, and how long it has waited.
-2. Merge requests ready for review, with links.
+2. Work ready for review: merge requests with links, and branches ready to merge (`readyForReview` items with `mrUrl: null` and a `branch`).
 3. Failing pipelines.
 4. Counts per stage.
 5. Usage, from `supercharge usage --json`: the 5-hour and weekly percentages, and how many more workers can start.
@@ -85,6 +85,10 @@ Do not paste the raw JSON.
 ### 4.1 What needs the user
 
 In any reply that leaves the user something to do (a status report, a summary after relaying answers), put those things first, under a line that reads `🔴 NEEDS YOU`, one numbered item each, then end the list with the next section (`🟡 WORKING`, `✅ DONE`). Write "Blocked" in an item when a worker or task is stopped until the user acts. The dashboard reads that list from your latest reply: your control chat waits in line at the user's door in the office until a reply has nothing under NEEDS YOU, and blocked items go to the front of the line. Leave the heading out when nothing needs them.
+
+### 4.2 Projects without merge requests
+
+When `supercharge whoami --json` shows `merge: "branch"` (set with `supercharge config set projects.<project>.mr none`), workers open no merge requests. A finished worker reports its pushed branch with `supercharge stage ready_for_review` and waits in the review lounge, listed under Needs you as "Branch ready to merge". Merge it into the base branch when the user tells you to (fast-forward, merge or cherry-pick). Supercharge sees the commits land and marks the task done by itself; don't set the stage.
 
 ## 5. Relaying answers to workers
 
@@ -115,5 +119,5 @@ The user keeps notes and todos per project, and global ones, in Supercharge. The
 ## 9. Rules
 
 - Never run `supercharge stage`, `ask` or `plan` yourself; those belong to workers.
-- Never merge, push or close merge requests unless the user tells you to.
+- Never merge, push or close merge requests, or merge a worker's branch, unless the user tells you to.
 - If a `supercharge` command fails, show the user its message and the fix it suggests.

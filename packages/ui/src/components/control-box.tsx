@@ -164,13 +164,14 @@ export function ControlBox({ view, remoteControl }: { view: ProjectView; remoteC
                   <li key={t.id}>
                     <Link href={`/p/${project.name}/t/${t.id}`} className="hover:underline">
                       {t.name && <span className="font-medium">{t.name} </span>}
-                      <span className="font-mono text-[0.875rem]">{t.id}</span> {t.mr ? `!${t.mr.iid}` : ''}
+                      <span className="font-mono text-[0.875rem]">{t.id}</span>{' '}
+                      {t.mr ? `!${t.mr.iid}` : 'branch ready to merge'}
                     </Link>
                   </li>
                 ))}
               </ul>
             ) : (
-              <div className="mt-0.5">No MRs ready yet</div>
+              <div className="mt-0.5">Nothing ready yet</div>
             )}
           </div>
         </div>

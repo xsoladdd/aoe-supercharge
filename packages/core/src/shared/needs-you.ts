@@ -70,7 +70,7 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         taskId: t.id,
         sessionId: t.aoeSessionId,
         title: `${workerLabel(t)} ${t.title}`,
-        detail: t.mr ? `Ready for review: !${t.mr.iid}` : 'Ready for review',
+        detail: t.mr ? `Ready for review: !${t.mr.iid}` : `Branch ready to merge: ${t.branch}`,
         since: at,
       });
     }

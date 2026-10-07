@@ -46,6 +46,7 @@ export interface TransitionInput {
 
 export interface TransitionContext {
   planApproved: boolean;
+  /** mr_raised: an MR was given or found. ready_for_review: the task already has an MR. */
   hasMr: boolean;
   question?: string | null;
   force?: boolean;
@@ -66,6 +67,8 @@ const EDGES: Record<Exclude<Stage, 'blocked' | 'done'>, Edge[]> = {
   verifying: [
     { to: 'implementing', actors: HUMANS },
     { to: 'mr_raised', actors: HUMANS },
+    // Branch ready to merge, no MR (guarded below: only without an MR).
+    { to: 'ready_for_review', actors: HUMANS },
   ],
   mr_raised: [
     { to: 'watching_mr', actors: ['daemon'] },
@@ -103,7 +106,7 @@ export function allowedNext(task: TransitionInput, actor: Actor): Stage[] {
   return [...new Set(out)];
 }
 
-/** Stages only the MR watcher sets. */
+/** Stages only the MR watcher sets (ready_for_review: only when the task has an MR). */
 const DAEMON_STAGES: readonly Stage[] = ['watching_mr', 'ready_for_review'];
 
 const DAEMON_ONLY_HINT =
@@ -125,7 +128,8 @@ export function transition(
   if (task.stage === to) return { ok: false, reason: `Already in ${STAGE_LABEL[to]}.`, allowed };
   if (task.stage === 'done')
     return { ok: false, reason: 'This task is done. Use --force to reopen it.', allowed: [] };
-  if (DAEMON_STAGES.includes(to) && actor !== 'daemon' && !edge?.actors.includes(actor)) {
+  const mrOnlyReady = to === 'ready_for_review' && ctx.hasMr;
+  if (DAEMON_STAGES.includes(to) && actor !== 'daemon' && (!edge?.actors.includes(actor) || mrOnlyReady)) {
     return { ok: false, reason: `${STAGE_LABEL[to]} ${DAEMON_ONLY_HINT}.`, allowed, daemonOnly: true };
   }
   if (!edge) {
@@ -176,6 +180,8 @@ export function nextStageHint(stage: Stage): string {
       return 'supercharge stage verifying';
     case 'mr_raised':
       return 'supercharge stage mr_raised --mr <url>';
+    case 'ready_for_review':
+      return 'supercharge stage ready_for_review  (branch pushed and ready to merge, no MR)';
     case 'blocked':
       return 'supercharge ask "<question>"';
     case 'done':

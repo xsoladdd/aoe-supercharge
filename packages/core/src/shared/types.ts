@@ -89,6 +89,11 @@ export interface TaskRecord {
   openQuestion: OpenQuestion | null;
   plan: PlanRef | null;
   mr: MrState | null;
+  /**
+   * Branch head when the worker reported it ready to merge without an MR (SPEC §11.3); the landing
+   * check falls back to it when the branch is gone. Null or absent otherwise.
+   */
+  readyHead?: string | null;
   /** The model and effort the worker was started with (null: Claude Code's default). Older tasks lack them. */
   model?: string | null;
   effort?: string | null;
@@ -312,7 +317,14 @@ export interface ProjectStatus {
   control: { sessionId: string | null; status: LiveStatus | 'missing'; remoteControl: boolean };
   counts: Record<Stage, number>;
   blocked: { taskId: string; name: string | null; title: string; question: string; since: string }[];
-  readyForReview: { taskId: string; name: string | null; title: string; mrUrl: string | null }[];
+  readyForReview: {
+    taskId: string;
+    name: string | null;
+    title: string;
+    mrUrl: string | null;
+    /** The branch to merge when there is no MR. */
+    branch: string;
+  }[];
   failingPipelines: { taskId: string; name: string | null; title: string; mrUrl: string | null }[];
   tasks: {
     id: string;

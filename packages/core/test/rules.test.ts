@@ -159,6 +159,8 @@ describe('computeNeedsYou', () => {
     });
     expect(items.map((i) => i.kind)).toEqual(['question', 'control_waiting', 'approval', 'mr_ready']);
     expect(items.find((i) => i.kind === 'approval')?.taskId).toBe('NW-0001');
+    // No MR: the branch is what waits to be merged (SPEC §11.3).
+    expect(items.find((i) => i.kind === 'mr_ready')?.detail).toMatch(/^Branch ready to merge: /);
   });
   it('a dismissed "Control chat replied" stays away until the control chat replies again', () => {
     const args = { now, aoeReachable: true, waitingDebounceSeconds: 20, projects: [], tasks: [] };
