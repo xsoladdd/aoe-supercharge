@@ -152,6 +152,7 @@ function WorkerRow({
   return (
     <li
       data-task={w.id ?? undefined}
+      data-session={w.id ? undefined : (w.session?.id ?? undefined)}
       data-project={w.project}
       data-role={w.role}
       data-zone={w.zone}

@@ -26,7 +26,8 @@ test.describe('office', () => {
       tasks: { id: string; project: string; stage: string }[];
     };
     const open = snap.tasks.filter((t) => t.stage !== 'done');
-    const rows = page.locator('li[data-role="worker"]');
+    // Task workers; others may come and go with the control-started sessions of other engines' tests.
+    const rows = page.locator('li[data-role="worker"][data-task]');
     await expect(rows).toHaveCount(open.length);
     for (const t of open)
       await expect(page.locator(`li[data-task="${t.id}"][data-project="${t.project}"]`)).toHaveCount(1);
@@ -87,6 +88,34 @@ test.describe('office', () => {
       await expect(row).toHaveAttribute('data-zone', 'desk', { timeout: 15_000 });
     } finally {
       await setStatus(id, 'Running');
+    }
+  });
+
+  test('a session the control chat started through AoE works at a desk in its team', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    const control = await sessionId('northwind-web control');
+    const title = `aoe-tester ${browserName}`;
+    const { id } = (await fake('/__fake/sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        project_path: `/tmp/northwind-tester-${browserName}`,
+        parent_session_id: control,
+        status: 'Running',
+      }),
+    })) as { id: string };
+    try {
+      await page.goto('/office?view=list');
+      const row = page.locator(`li[data-session="${id}"]`);
+      await expect(row).toHaveAttribute('data-zone', 'desk', { timeout: 15_000 });
+      await expect(row).toHaveAttribute('data-project', 'northwind-web');
+      await expect(row.getByText(title)).toBeVisible();
+      await setStatus(id, 'Stopped');
+      await expect(row).toHaveAttribute('data-zone', 'away', { timeout: 15_000 });
+    } finally {
+      await fake(`/__fake/sessions/${id}`, { method: 'DELETE' });
     }
   });
 

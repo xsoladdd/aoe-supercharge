@@ -173,6 +173,30 @@ export function officeSpot(
   return spot('desk', 'waiting', null, status === 'waiting' ? 'Waiting' : 'Checking in', true);
 }
 
+/**
+ * A worker its control chat started straight through AoE (`aoe add -P`), with no task: placed by its
+ * session alone, since it has no stage or merge request.
+ */
+export function sessionSpot(
+  session: Pick<SessionView, 'status' | 'statusSince' | 'archived'>,
+  items: NeedsYouItem[],
+  now: Date = new Date(),
+): OfficeSpot {
+  const door = atDoor(items);
+  if (door) return door;
+  if (session.archived) return spot('away', 'away', null, 'Archived');
+  if (session.status === 'working') return spot('desk', 'typing', null, 'Working');
+  if (session.status === 'stopped') return spot('away', 'away', null, 'Stopped');
+  if (session.status === 'idle') {
+    const idleFor = session.statusSince ? now.getTime() - Date.parse(session.statusSince) : Infinity;
+    const s = spot('pantry', 'coffee', 'mug', 'Idle');
+    if (idleFor < PANTRY_DWELL_MS)
+      return { ...s, hold: true, holdUntil: now.getTime() + PANTRY_DWELL_MS - idleFor };
+    return s;
+  }
+  return spot('desk', 'waiting', null, session.status === 'waiting' ? 'Waiting' : 'Checking in', true);
+}
+
 function pantry(task: Pick<TaskRecord, 'stage' | 'openQuestion' | 'mr'>): OfficeSpot {
   if (task.stage === 'mr_raised' || task.stage === 'watching_mr') {
     const pipeline = task.mr?.pipeline ?? null;

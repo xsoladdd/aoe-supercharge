@@ -185,6 +185,19 @@ describe('computeNeedsYou', () => {
       ],
     });
     expect(again[0]!.id).toBe(items[1]!.id);
+    // A session the control chat started belongs to its project.
+    const project = { name: 'charma', controlSessionId: 'ctrl' } as Parameters<
+      typeof computeNeedsYou
+    >[0]['projects'][number];
+    const waiting = computeNeedsYou({
+      ...args,
+      projects: [project],
+      sessions: [
+        session({ id: 'ctrl' }),
+        session({ id: 'w', parentId: 'ctrl', status: 'waiting', statusSince: '2026-10-05T11:00:00Z' }),
+      ],
+    });
+    expect(waiting.map((i) => [i.kind, i.project, i.taskId])).toEqual([['approval', 'charma', null]]);
     // Only a control chat's replies count.
     expect(computeNeedsYou({ ...args, sessions: [session({ id: 'w', asks })] })).toEqual([]);
   });

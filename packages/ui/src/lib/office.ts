@@ -4,6 +4,8 @@ import {
   leadSpot,
   officeSpot,
   outfitFor,
+  pickDesk,
+  sessionSpot,
   workerName,
   type NeedsYouItem,
   type OfficeSpot,
@@ -13,15 +15,19 @@ import {
   type TaskRecord,
   type Zone,
 } from '@aoe-supercharge/core/shared';
+import { spawnedBy } from '@/lib/derive';
 import { chatHref } from '@/lib/nav';
 
 /** One character in the office: a worker, or a project's control chat as its team lead. */
 export interface OfficeWorker {
-  /** Unique across projects: `<project>/<task id>`, or `<project>/lead`. */
+  /**
+   * Unique across projects: `<project>/<task id>`, `<project>/lead`, or `<project>/s/<session id>` for a
+   * worker the control chat started without a task.
+   */
   key: string;
   role: 'worker' | 'lead';
   project: string;
-  /** The task id ("NW-0007"); null for a lead. */
+  /** The task id ("NW-0007"); null for a lead, and for a worker with no task. */
   id: string | null;
   name: string;
   title: string;
@@ -35,6 +41,8 @@ export interface OfficeWorker {
   /** When it got to where it is, for "12m" labels. */
   since: string | null;
   href: string;
+  /** The Needs-you items that put it at your door. */
+  items: NeedsYouItem[];
 }
 
 export interface OfficeTeam {
@@ -86,7 +94,8 @@ export function buildOffice(snap: Snapshot, now: Date): OfficeModel {
     let lead: OfficeWorker | null = null;
     if (project.controlSessionId) {
       const session = sessions.get(project.controlSessionId) ?? null;
-      const spot = leadSpot(session, bySession.get(project.controlSessionId) ?? []);
+      const items = bySession.get(project.controlSessionId) ?? [];
+      const spot = leadSpot(session, items);
       const key = `${name}/lead`;
       lead = {
         key,
@@ -103,6 +112,7 @@ export function buildOffice(snap: Snapshot, now: Date): OfficeModel {
         zone: resolve(key, spot),
         since: spot.queuedSince ?? session?.statusSince ?? null,
         href: chatHref(project.controlSessionId),
+        items,
       };
       everyone.push(lead);
     }
@@ -110,7 +120,8 @@ export function buildOffice(snap: Snapshot, now: Date): OfficeModel {
     for (const task of tasks) {
       const session = sessions.get(task.aoeSessionId) ?? null;
       const key = `${name}/${task.id}`;
-      const spot = officeSpot(task, session, byTask.get(key) ?? [], now);
+      const items = byTask.get(key) ?? [];
+      const spot = officeSpot(task, session, items, now);
       everyone.push({
         key,
         role: 'worker',
@@ -126,6 +137,37 @@ export function buildOffice(snap: Snapshot, now: Date): OfficeModel {
         zone: resolve(key, spot),
         since: spot.queuedSince ?? session?.statusSince ?? null,
         href: `/p/${encodeURIComponent(name)}/t/${encodeURIComponent(task.id)}`,
+        items,
+      });
+    }
+    // Workers the control chat started straight through AoE: no task, so they take the free desks after
+    // the tasks', oldest first, and go where their session says.
+    const taken = new Set(tasks.map((t) => t.desk).filter((d): d is number => typeof d === 'number'));
+    const spawned = spawnedBy(snap, project.controlSessionId).sort(
+      (a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id),
+    );
+    for (const session of spawned) {
+      const key = `${name}/s/${session.id}`;
+      const items = bySession.get(session.id) ?? [];
+      const spot = sessionSpot(session, items, now);
+      const desk = pickDesk(taken);
+      taken.add(desk);
+      everyone.push({
+        key,
+        role: 'worker',
+        project: name,
+        id: null,
+        name: session.title,
+        title: session.branch ?? 'Started by the control chat',
+        task: null,
+        session,
+        desk,
+        outfit: outfitFor(session.id, name),
+        spot,
+        zone: resolve(key, spot),
+        since: spot.queuedSince ?? session.statusSince ?? null,
+        href: chatHref(session.id),
+        items,
       });
     }
     const mine = everyone.filter((w) => w.project === name && w.role === 'worker');

@@ -98,7 +98,9 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
     const task = taskBySession.get(s.id) ?? null;
     const since = iso(s.statusSince, nowIso);
     const label = task ? `${workerLabel(task)} ${task.title}` : s.title;
-    const projectName = project?.name ?? task?.project ?? null;
+    // A session a project's control chat started through AoE belongs to that project too.
+    const parentProject = s.parentId ? (projectByControl.get(s.parentId) ?? null) : null;
+    const projectName = project?.name ?? task?.project ?? parentProject?.name ?? null;
 
     if (s.status === 'waiting') {
       if (now.getTime() - Date.parse(since) < debounceMs) continue;

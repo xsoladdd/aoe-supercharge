@@ -30,11 +30,7 @@ export function projectViews(snap: Snapshot): ProjectView[] {
     const tasks = snap.tasks.filter((t) => t.project === project.name);
     const counts = Object.fromEntries(STAGES.map((s) => [s, 0])) as Record<Stage, number>;
     for (const t of tasks) counts[t.stage]++;
-    const spawned = project.controlSessionId
-      ? snap.sessions
-          .filter((s) => s.parentId === project.controlSessionId && !managed.has(s.id) && !s.archived)
-          .sort(byRecent)
-      : [];
+    const spawned = spawnedBy(snap, project.controlSessionId, managed).sort(byRecent);
     return {
       project,
       control: project.controlSessionId ? (byId.get(project.controlSessionId) ?? null) : null,
@@ -64,6 +60,16 @@ function managedIds(snap: Snapshot): Set<string> {
 /** Pinned first, keeping the order otherwise (Array.prototype.sort is stable). */
 export function pinnedFirst<T>(items: T[], pinned: (item: T) => boolean): T[] {
   return [...items].sort((a, b) => Number(pinned(b)) - Number(pinned(a)));
+}
+
+/** Sessions a control chat started straight through AoE (`aoe add -P <control>`), not as tasks. */
+export function spawnedBy(
+  snap: Snapshot,
+  controlSessionId: string | null,
+  managed: Set<string> = managedIds(snap),
+): SessionView[] {
+  if (!controlSessionId) return [];
+  return snap.sessions.filter((s) => s.parentId === controlSessionId && !managed.has(s.id) && !s.archived);
 }
 
 /** Pinned first, then most recently used. */

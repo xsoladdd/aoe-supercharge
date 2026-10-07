@@ -8,7 +8,7 @@ import {
 } from '@phosphor-icons/react';
 import { Link } from 'wouter';
 import { DRESS_CODE_LABEL, relativeTime, ZONE_LABEL } from '@aoe-supercharge/core/shared';
-import { TaskAsks } from '@/components/answer';
+import { PromptCard, TaskAsks } from '@/components/answer';
 import { Avatar } from '@/components/office/avatar';
 import { Reason } from '@/components/office/roster';
 import { LiveStatus, StageBadge } from '@/components/status';
@@ -114,8 +114,32 @@ export function WorkerCard({
         </dl>
 
         {w.zone === 'door' && w.task && <TaskAsks task={w.task} session={w.session} />}
+        {w.zone === 'door' && !w.task && w.role === 'worker' && w.session?.prompt && (
+          <PromptCard session={w.session} />
+        )}
         {w.zone === 'door' && w.role === 'lead' && (
-          <p className="text-sm text-muted-foreground">{w.spot.reason}. Reply in the control chat.</p>
+          <div className="space-y-2">
+            {(() => {
+              const asks = w.items.filter((i) => i.kind === 'control_blocker' || i.kind === 'control_needs');
+              return (
+                asks.length > 0 && (
+                  <ol aria-label="What the control chat has for you" className="space-y-1.5 text-sm">
+                    {asks.map((i) => (
+                      <li key={i.id} className="flex gap-2">
+                        {i.kind === 'control_blocker' && (
+                          <span className="shrink-0 rounded bg-st-red/12 px-1.5 text-xs leading-5 font-medium text-st-red">
+                            Blocked
+                          </span>
+                        )}
+                        <span className="min-w-0">{i.detail}</span>
+                      </li>
+                    ))}
+                  </ol>
+                )
+              );
+            })()}
+            <p className="text-sm text-muted-foreground">{w.spot.reason}. Reply in the control chat.</p>
+          </div>
         )}
       </div>
 

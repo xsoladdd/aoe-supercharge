@@ -9,6 +9,7 @@ import {
   mulberry32,
   officeSpot,
   outfitFor,
+  sessionSpot,
   PANTRY_DWELL_MS,
   pickDesk,
   type NeedsYouItem,
@@ -164,6 +165,18 @@ describe('office: where a worker stands (SPEC §14.5)', () => {
     });
     const sorted = [q('B', ago(10)), q('C', ago(50)), q('A', ago(10))].sort(byQueue).map((x) => x.id);
     expect(sorted).toEqual(['C', 'A', 'B']);
+  });
+
+  it('a worker with no task goes where its session says', () => {
+    expect(sessionSpot(session('working'), [], NOW)).toMatchObject({ zone: 'desk', reason: 'Working' });
+    expect(sessionSpot(session('idle', ago(60_000)), [], NOW)).toMatchObject({ zone: 'pantry', prop: 'mug' });
+    expect(sessionSpot(session('idle', ago(1_000)), [], NOW)).toMatchObject({ zone: 'pantry', hold: true });
+    expect(sessionSpot(session('stopped'), [], NOW).zone).toBe('away');
+    expect(sessionSpot(session('working', ago(1), true), [], NOW).zone).toBe('away');
+    expect(sessionSpot(session('waiting'), [item('permission')], NOW)).toMatchObject({
+      zone: 'door',
+      prop: 'shield',
+    });
   });
 
   it('a NEEDS YOU list puts the lead in line; one that blocks work goes to the front', () => {
