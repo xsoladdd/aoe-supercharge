@@ -11,6 +11,8 @@ export interface Palette {
   corridor: [number, number];
   seam: number;
   pantry: [number, number];
+  /** The review lounge's carpet. */
+  lounge: [number, number];
   /** Rug under each team, picked per project. */
   carpets: [number, number][];
   wallLeft: number;
@@ -85,6 +87,7 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
       corridor: [0x2b2019, 0x2f231b],
       seam: 0x1b140f,
       pantry: [0x2d3033, 0x282b2e],
+      lounge: [0x2b2633, 0x29242f],
       carpets: [
         [0x232a35, 0x262e3a],
         [0x1f2d27, 0x22322b],
@@ -140,6 +143,7 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
     corridor: [0x3d2c22, 0x392920],
     seam: 0x281c15,
     pantry: [0xe7e4dd, 0xdcd8cf],
+    lounge: [0xe2dbe6, 0xddd5e1],
     carpets: [
       [0xe9e3d6, 0xe3dccd],
       [0xd9dfd0, 0xd2d9c8],

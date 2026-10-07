@@ -56,6 +56,8 @@ export interface OfficeModel {
   door: OfficeWorker[];
   teams: OfficeTeam[];
   pantry: OfficeWorker[];
+  /** Workers with an MR out, idle in the review lounge, by project then desk. */
+  review: OfficeWorker[];
   away: OfficeWorker[];
   everyone: OfficeWorker[];
 }
@@ -203,6 +205,7 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
       .sort((a, b) => byQueue({ ...a, id: a.key }, { ...b, id: b.key })),
     teams,
     pantry: everyone.filter((w) => w.zone === 'pantry'),
+    review: everyone.filter((w) => w.zone === 'review'),
     away: everyone.filter((w) => w.zone === 'away'),
     everyone,
   };

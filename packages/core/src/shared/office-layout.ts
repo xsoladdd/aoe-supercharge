@@ -37,6 +37,10 @@ export type FurnitureKind =
   | 'sofa'
   | 'foosball'
   | 'side_table'
+  /** The review lounge's pool table, two tiles by three. */
+  | 'pool_table'
+  /** A rack of cues on the lounge's wall side. */
+  | 'cue_rack'
   /** Brass posts and a rope along the side of the line that faces it. Blocks its column, so people join at the back. */
   | 'rope';
 
@@ -94,13 +98,17 @@ export interface OfficeLayout {
   pantry: { area: Rect; spots: { tile: Tile; seat: PantrySeat }[] };
   teams: TeamPlan[];
   furniture: Furniture[];
-  floors: { kind: 'carpet' | 'pantry' | 'runner'; rect: Rect; team?: string }[];
+  /** The review lounge (SPEC §14.5): a pool table, where workers with an MR out wait with their folder. */
+  review: { area: Rect; spots: Tile[] };
+  floors: { kind: 'carpet' | 'pantry' | 'runner' | 'lounge'; rect: Rect; team?: string }[];
   /** Camera targets: `office`, `door`, `pantry`, `board` and each project name. */
   areas: Record<string, Rect>;
 }
 
 const PANTRY_W = 8;
 const PANTRY_H = 7;
+/** The review lounge, in front of the pantry. */
+const LOUNGE_H = 7;
 /** Your corner, to the east wall: a tile to walk by, a plant and a lamp on either side of your door. */
 const SUITE_W = 7;
 /** Places in the line between the ropes. */
@@ -132,7 +140,7 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   const sx = tx + teamsW + 1;
   const doorX = sx + 3;
   const width = sx + SUITE_W;
-  const height = Math.max(PANTRY_H + 5, 1 + teamsH + 2, ROPED + 6);
+  const height = Math.max(PANTRY_H + 1 + LOUNGE_H + 3, 1 + teamsH + 2, ROPED + 6);
 
   const blocked = new Uint8Array(width * height);
   const walls = new Set<string>();
@@ -241,6 +249,34 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
     for (let x = px; x < px + PANTRY_W; x++)
       if (!blocked[y * width + x] && !taken.has(`${x},${y}`)) spots.push({ tile: { x, y }, seat: 'stand' });
 
+  // The review lounge, in front of the pantry: a pool table in the middle, a cue rack against the
+  // left wall side, and room to stand round the table with a folder.
+  const lounge = { x: px, y: PANTRY_H + 1, w: PANTRY_W, h: LOUNGE_H };
+  floors.push({ kind: 'lounge', rect: lounge });
+  const table = { x: px + 3, y: lounge.y + 2, w: 2, h: 3 };
+  put({ kind: 'pool_table', ...table });
+  put({ kind: 'cue_rack', x: px, y: lounge.y + 1, w: 1, h: 1 });
+  put({ kind: 'plant', x: px + PANTRY_W - 1, y: lounge.y, w: 1, h: 1 });
+  const ring: Tile[] = [];
+  for (let y = table.y - 1; y <= table.y + table.h; y++)
+    for (let x = table.x - 1; x <= table.x + table.w; x++)
+      if (
+        !blocked[y * width + x] &&
+        (x < table.x || x >= table.x + table.w || y < table.y || y >= table.y + table.h)
+      )
+        ring.push({ x, y });
+  // Round the table first (the long sides, then the ends), then the rest of the lounge.
+  ring.sort(
+    (a, b) =>
+      Number(a.y === table.y - 1 || a.y === table.y + table.h) -
+      Number(b.y === table.y - 1 || b.y === table.y + table.h),
+  );
+  const reviewSpots = [...ring];
+  const ringKeys = new Set(ring.map((t) => `${t.x},${t.y}`));
+  for (let y = lounge.y; y < lounge.y + lounge.h; y++)
+    for (let x = lounge.x; x < lounge.x + lounge.w; x++)
+      if (!blocked[y * width + x] && !ringKeys.has(`${x},${y}`)) reviewSpots.push({ x, y });
+
   // Plants by the entrance and at the front corner of the east side.
   const entrance = { x: 0, y: height - 3 };
   put({ kind: 'plant', x: 0, y: height - 1, w: 1, h: 1 });
@@ -253,6 +289,7 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   areas.board = { x: Math.floor(board.x0), y: 0, w: BOARD_W + 1, h: 2 };
   areas.door = { x: sx - 1, y: 0, w: SUITE_W + 2, h: ROPED + 3 };
   areas.pantry = pantryArea;
+  areas.review = lounge;
 
   return {
     width,
@@ -269,6 +306,7 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
     suite,
     board,
     pantry: { area: pantryArea, spots },
+    review: { area: lounge, spots: reviewSpots },
     teams: plans,
     furniture,
     floors,

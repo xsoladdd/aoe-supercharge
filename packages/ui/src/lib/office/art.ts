@@ -56,6 +56,8 @@ function drawFloor(layout: OfficeLayout, p: Palette): Graphics {
         diamond(g, x, y, x + 1, y + 1).fill(teamColor(p, teamIndex.get(f.team ?? '') ?? 0)[odd]!);
       } else if (f?.kind === 'pantry') {
         diamond(g, x, y, x + 1, y + 1).fill(p.pantry[odd]!);
+      } else if (f?.kind === 'lounge') {
+        diamond(g, x, y, x + 1, y + 1).fill(p.lounge[odd]!);
       } else if (f?.kind === 'runner') {
         diamond(g, x, y, x + 1, y + 1).fill(p.runner.base);
       } else {
@@ -791,6 +793,74 @@ export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string)
           mix(p.glow, 0xffffff, 0.35),
         );
         g.rect(c.x - 8, c.y - 34, 16, 1.5).fill(p.brass);
+        pieces.push(piece(zOf(f.x, f.y), g));
+        break;
+      }
+      case 'pool_table': {
+        // Felt on a wooden frame on four legs, one piece per tile so people round it sort right.
+        for (let dy = 0; dy < f.h; dy++)
+          for (let dx = 0; dx < f.w; dx++) {
+            const g = new Graphics();
+            const x0 = f.x + dx;
+            const y0 = f.y + dy;
+            const e = 0.12;
+            const lx0 = dx === 0 ? x0 + e : x0;
+            const lx1 = dx === f.w - 1 ? x0 + 1 - e : x0 + 1;
+            const ly0 = dy === 0 ? y0 + e : y0;
+            const ly1 = dy === f.h - 1 ? y0 + 1 - e : y0 + 1;
+            if ((dx === 0 || dx === f.w - 1) && (dy === 0 || dy === f.h - 1)) {
+              const lx = dx === 0 ? lx0 + 0.08 : lx1 - 0.16;
+              const ly = dy === 0 ? ly0 + 0.08 : ly1 - 0.16;
+              box(g, lx, ly, lx + 0.08, ly + 0.08, 16, p.wood);
+            }
+            box(g, lx0, ly0, lx1, ly1, 6, p.wood, 16);
+            const fx0 = dx === 0 ? lx0 + 0.14 : lx0;
+            const fx1 = dx === f.w - 1 ? lx1 - 0.14 : lx1;
+            const fy0 = dy === 0 ? ly0 + 0.14 : ly0;
+            const fy1 = dy === f.h - 1 ? ly1 - 0.14 : ly1;
+            diamond(g, fx0, fy0, fx1, fy1, 22).fill(p.felt);
+            // Pockets at the corners and the middle of the long sides.
+            for (const [px2, py2] of [
+              [f.x + e + 0.1, f.y + e + 0.1],
+              [f.x + f.w - e - 0.1, f.y + e + 0.1],
+              [f.x + e + 0.1, f.y + f.h - e - 0.1],
+              [f.x + f.w - e - 0.1, f.y + f.h - e - 0.1],
+              [f.x + e + 0.1, f.y + f.h / 2],
+              [f.x + f.w - e - 0.1, f.y + f.h / 2],
+            ] as const)
+              if (px2 >= x0 && px2 < x0 + 1 && py2 >= y0 && py2 < y0 + 1) {
+                const c = iso(px2, py2);
+                g.ellipse(c.x, c.y - 22, 2.6, 1.4).fill(0x111111);
+              }
+            // A few balls.
+            const balls: [number, number, number][] = [
+              [f.x + 0.9, f.y + 0.8, 0xf4f1de],
+              [f.x + 1.1, f.y + 2.0, 0xe63946],
+              [f.x + 0.8, f.y + 2.2, 0xf1c40f],
+              [f.x + 1.25, f.y + 2.25, 0x1d3557],
+            ];
+            for (const [bx, by, color] of balls)
+              if (bx >= x0 && bx < x0 + 1 && by >= y0 && by < y0 + 1) {
+                const c = iso(bx, by);
+                g.circle(c.x, c.y - 24, 2).fill(color);
+              }
+            pieces.push(piece(zOf(x0, y0), g));
+          }
+        break;
+      }
+      case 'cue_rack': {
+        const g = new Graphics();
+        box(g, f.x + 0.1, f.y + 0.3, f.x + 0.3, f.y + 0.7, 8, p.wood);
+        for (const [k, color] of [
+          [0.38, 0xc8a165],
+          [0.5, 0xb88a50],
+          [0.62, 0xc8a165],
+        ] as const) {
+          const a = iso(f.x + 0.2, f.y + k);
+          g.moveTo(a.x, a.y - 6)
+            .lineTo(a.x + 2, a.y - 56)
+            .stroke({ width: 1.8, color });
+        }
         pieces.push(piece(zOf(f.x, f.y), g));
         break;
       }

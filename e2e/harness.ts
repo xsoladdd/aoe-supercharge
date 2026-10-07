@@ -332,6 +332,16 @@ export async function startDemo(opts: {
       orion.push(key);
     }
     await as('om-darkmode', ['stage', 'verifying']);
+    // The review lounge: one failing, one with review threads open.
+    for (const [key, iid, pipeline, threads] of [
+      ['om-crash', 7, 'failed', 0],
+      ['om-push', 9, 'success', 2],
+    ] as const) {
+      await as(key, ['stage', 'verifying']);
+      await as(key, ['stage', 'mr_raised', '--mr', mrUrl(iid, 'orion/mobile')]);
+      writeFileSync(join(glabDir, `mr-${iid}.json`), mrJson(iid, 'orion/mobile', 'opened', pipeline));
+      writeFileSync(join(glabDir, `discussions-${iid}.json`), unresolved(threads));
+    }
   }
 
   // Live AoE statuses.
@@ -344,7 +354,10 @@ export async function startDemo(opts: {
   setStatus(tasks.a11y!.aoeSessionId, { status: 'Running' });
   setStatus(tasks.ratelimit!.aoeSessionId, { status: 'Running' });
   setStatus(tasks.qa!.aoeSessionId, { status: 'Running' });
-  for (const k of orion) setStatus(tasks[k]!.aoeSessionId, { status: k === 'om-i18n' ? 'Idle' : 'Running' });
+  for (const k of orion)
+    setStatus(tasks[k]!.aoeSessionId, {
+      status: ['om-i18n', 'om-crash', 'om-push'].includes(k) ? 'Idle' : 'Running',
+    });
   const controls = fake.state.sessions.filter(
     (s) => s.title.endsWith(' control') && s.group_path.startsWith('supercharge/'),
   );

@@ -233,7 +233,8 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
 - **Office** (`/office`): every worker stands where its status puts it.
   - Everyone who needs you stands in line at your door, in single file between brass posts and ropes, blockers first, then oldest first, with the reason over their heads.
   - Every project has a room of its own, behind low glass with its name over the doorway. Working workers sit at their own desk in their project's room; the control chat is the team lead at the head desk.
-  - Idle workers, and those waiting on an MR pipeline or review, take a break in the pantry after 15 seconds idle.
+  - Workers with an MR out wait in the **review lounge**, round the pool table, holding a folder: green when it is ready for review, amber while the pipeline runs or review threads are open, red when the pipeline failed or the MR was closed. A badge under each shows the MR number, the pipeline and the open threads; click it to open the MR. An MR ready for review still shows in Needs you, but no longer queues at your door.
+  - Idle workers take a break in the pantry after 15 seconds idle.
   - Each worker has a desk number and an outfit picked from seven dress codes, from business formal to medieval garb.
   - The floor is drawn like a game (PixiJS). Drag to look around, scroll or pinch to zoom, double-click an area to zoom in, or use the chips: Whole office, your door, Pantry, and one per room.
   - When a worker's status changes it walks to its new place, then stands still. A worker that raised an MR first takes a folder to its lead's desk and hands it over. Newcomers walk in through the entrance one at a time. Opening the page, or reconnecting, places everyone without walking.

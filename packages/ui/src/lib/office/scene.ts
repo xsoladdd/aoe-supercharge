@@ -16,7 +16,7 @@ import {
 import type { OfficeModel, OfficeWorker } from '@/lib/office';
 import { BOARD_H, buildStatic, FONT, type StaticOffice } from './art';
 import { Camera, MAX_ZOOM } from './camera';
-import { Character, type Hands, type Stance } from './character';
+import { Character, type Badge, type Hands, type Stance } from './character';
 import { depth, iso, TILE_H, TILE_W, toGrid, WALL_H, wallA, type Pt } from './iso';
 import { makePalette, type Palette } from './palette';
 
@@ -37,6 +37,8 @@ export interface SceneEvents {
   door(): void;
   /** The whiteboard was clicked. */
   board(): void;
+  /** An MR badge was clicked: open the MR. */
+  openMr(url: string): void;
   zoom(zoom: number): void;
 }
 
@@ -127,6 +129,25 @@ function handsFor(w: OfficeWorker): Hands {
   return 'down';
 }
 
+/** The MR badge for a worker in the review lounge (SPEC §14.5); nobody else wears one. */
+function badgeFor(w: OfficeWorker): Badge | null {
+  const mr = w.task?.mr;
+  if (w.zone !== 'review' || !mr) return null;
+  const p = mr.pipeline;
+  return {
+    iid: mr.iid,
+    pipeline:
+      p === 'success'
+        ? 'ok'
+        : p === 'failed' || p === 'canceled'
+          ? 'failed'
+          : p === null || p === 'skipped'
+            ? 'none'
+            : 'running',
+    threads: mr.unresolvedThreads,
+  };
+}
+
 function plateName(w: OfficeWorker) {
   return w.role === 'lead' ? `${w.project} lead` : w.name;
 }
@@ -151,6 +172,7 @@ export class OfficeScene {
   private zones = new Map<string, Zone>();
   private entrance = new EntranceQueue();
   private pantrySeat = new Map<string, number>();
+  private reviewSpot = new Map<string, number>();
   private model: OfficeModel | null = null;
   private called: string | null = null;
   private selected: string | null = null;
@@ -264,6 +286,7 @@ export class OfficeScene {
       w.worker = worker;
       w.leaving = false;
       w.ch.setName(plateName(worker));
+      w.ch.setBadge(badgeFor(worker));
       const prop = worker.zone === worker.spot.zone || worker.zone === 'door' ? worker.spot.prop : null;
       const shown = worker.zone === 'away' ? null : prop;
       if (w.errand) {
@@ -272,7 +295,7 @@ export class OfficeScene {
         w.errand = null;
       }
       if (!instant && moves.get(worker.key) === 'finish' && this.startErrand(w, spot, shown, now)) continue;
-      w.ch.setProp(shown, worker.zone === 'pantry', now);
+      w.ch.setProp(shown, worker.zone === 'pantry' || worker.zone === 'review', now);
       this.goTo(w, spot, now);
     }
     this.zones = new Map(model.everyone.map((w) => [w.key, w.zone]));
@@ -366,6 +389,29 @@ export class OfficeScene {
       });
     }
 
+    // The review lounge: round the pool table, each keeping its place while it stays.
+    const inReview = new Set(model.review.map((w) => w.key));
+    for (const k of [...this.reviewSpot.keys()]) if (!inReview.has(k)) this.reviewSpot.delete(k);
+    const taken = new Set(this.reviewSpot.values());
+    const lounge = L.review.spots;
+    for (const w of model.review) {
+      if (!this.reviewSpot.has(w.key)) {
+        const n = lounge.findIndex((_, i) => !taken.has(i));
+        this.reviewSpot.set(w.key, n < 0 ? lounge.length - 1 : n);
+        taken.add(this.reviewSpot.get(w.key)!);
+      }
+      const tile = lounge[Math.min(this.reviewSpot.get(w.key)!, lounge.length - 1)]!;
+      const table = L.furniture.find((f) => f.kind === 'pool_table')!;
+      const cx = table.x + table.w / 2 - 0.5;
+      const cy = table.y + table.h / 2 - 0.5;
+      out.set(w.key, {
+        tile,
+        stance: 'stand',
+        hands: 'down',
+        face: [sign(Math.round(cx - tile.x)), sign(Math.round(cy - tile.y))],
+      });
+    }
+
     // Away: out of the entrance.
     for (const w of model.away)
       out.set(w.key, { tile: L.entrance, stance: 'stand', hands: 'down', face: [-1, 0], vanish: 'exit' });
@@ -421,7 +467,7 @@ export class OfficeScene {
       const lw = lead.worker;
       lead.ch.setProp(lw.zone === lw.spot.zone || lw.zone === 'door' ? lw.spot.prop : null, false, now);
     }
-    w.ch.setProp(e.prop, w.worker.zone === 'pantry', now);
+    w.ch.setProp(e.prop, w.worker.zone === 'pantry' || w.worker.zone === 'review', now);
     this.goTo(w, e.final, now);
   }
 
@@ -538,6 +584,7 @@ export class OfficeScene {
   private remove(w: Walker) {
     this.walkers.delete(w.key);
     this.pantrySeat.delete(w.key);
+    this.reviewSpot.delete(w.key);
     w.ch.destroy();
   }
 
@@ -1037,6 +1084,12 @@ export class OfficeScene {
       this.wake();
       return;
     }
+    const world = this.camera.toWorld(p.x, p.y);
+    for (const b of this.walkers.values())
+      if (!b.hidden && b.worker.task?.mr && b.ch.onBadge(world.x, world.y)) {
+        this.opts.events.openMr(b.worker.task.mr.url);
+        return;
+      }
     const w = this.hit(p.x, p.y);
     if (w) {
       this.opts.events.select(w.key);

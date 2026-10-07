@@ -36,7 +36,7 @@ test.describe('office', () => {
       await expect(page.locator(`li[data-task="${t.id}"]`)).toHaveCount(0);
 
     // Each row sits in the section for its zone.
-    for (const zone of ['door', 'desk', 'pantry', 'away']) {
+    for (const zone of ['door', 'desk', 'review', 'pantry', 'away']) {
       const section = page.locator(`[data-zone-section="${zone}"]`);
       const inside = section.locator('li[data-zone]');
       for (const z of await inside.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.zone)))
@@ -68,6 +68,39 @@ test.describe('office', () => {
     await page.waitForTimeout(400);
     await axe(page, 'office (light)');
     await page.evaluate(() => document.documentElement.classList.add('dark'));
+  });
+
+  test('an MR ready for review waits in the review lounge with a green folder and its MR badge', async ({
+    signedIn: page,
+  }) => {
+    await page.goto('/office?view=list');
+    const lounge = page.locator('[data-zone-section="review"]');
+    await expect(lounge.getByRole('heading', { name: 'Review lounge' })).toBeVisible();
+    // NW-0004's MR is ready: it waits here, not at your door, and still shows in Needs you.
+    const row = lounge.locator('li[data-task="NW-0004"]');
+    await expect(row).toHaveAttribute('data-zone', 'review', { timeout: 20_000 });
+    await expect(row.getByText('MR ready for review')).toBeVisible();
+    await expect(
+      page.getByRole('list', { name: 'Queue at your door' }).locator('li[data-task="NW-0004"]'),
+    ).toHaveCount(0);
+    const badge = row.getByRole('link', { name: /^MR !38: pipeline passed, 0 open review threads/ });
+    await expect(badge).toHaveAttribute(
+      'href',
+      'https://gitlab.example.com/northwind/web/-/merge_requests/38',
+    );
+    await expect(badge).toHaveAttribute('target', '_blank');
+    await expect(badge).toHaveAttribute('rel', /noopener/);
+    await axe(page, 'office list with the review lounge');
+    // The floor's header counts the lounge, and its chip flies there.
+    await page.goto('/office');
+    const floor = page.locator('[data-office-floor]');
+    await expect(floor).toHaveAttribute('data-renderer', /^(webgl|webgpu|canvas)$/);
+    await expect(page.getByText(/\d+ in review/)).toBeVisible();
+    await page
+      .getByRole('navigation', { name: 'Go to' })
+      .getByRole('button', { name: 'Review lounge' })
+      .click();
+    await expect(floor).toHaveAttribute('data-camera-focus', 'review');
   });
 
   test('the daemon keeps an office history of who went where', async ({ signedIn: page }) => {

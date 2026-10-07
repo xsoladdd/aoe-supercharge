@@ -13,6 +13,12 @@ history.
   over, and goes on. Newcomers walk in through the entrance one at a time, so nobody appears on top of
   anyone. Opening the office, or reconnecting, places everyone where they are without walking.
   **Office animations** in Settings, Appearance turns walking off (as reduced motion does).
+- **A review lounge with a pool table.** Workers with an MR out wait there instead of the pantry,
+  holding a folder: green when it's ready for review, amber while the pipeline runs or review threads
+  are open, red when the pipeline failed or the MR was closed. A badge under each shows the MR number,
+  pipeline and open threads; click it to open the MR. An MR that is ready or closed still shows in
+  Needs you and still notifies, but no longer queues at your door. The header counts who is in review,
+  and the list has a Review lounge section with the same badges.
 - **The office keeps a history.** The daemon writes down every time someone in the office moves, or
   their reason changes, in a file per day under `~/.local/state/supercharge/history/`. It keeps 30 days
   (`office.history.retentionDays`). `GET /api/office/history` reads it back. History starts with this

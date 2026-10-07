@@ -13,6 +13,13 @@ import type { Palette } from './palette';
 export type Stance = 'stand' | 'sit';
 export type Hands = 'down' | 'typing' | 'mug' | 'paper' | 'magnifier' | 'letter';
 
+/** The MR badge under a worker in the review lounge: its number, pipeline and open threads. */
+export interface Badge {
+  iid: number;
+  pipeline: 'ok' | 'failed' | 'running' | 'none';
+  threads: number;
+}
+
 const SHIRT = 0xeef0f2;
 const BLUSH = 0xe8838f;
 
@@ -429,12 +436,15 @@ function propColor(prop: Exclude<Prop, null>, p: Palette): number {
   switch (prop) {
     case 'speech':
     case 'folder_closed':
+    case 'folder_red':
     case 'warning':
     case 'lost':
     case 'pipeline_failed':
       return p.status.red;
     case 'folder':
       return p.status.green;
+    case 'folder_amber':
+      return p.status.yellow;
     case 'envelope':
     case 'pipeline':
       return p.status.violet;
@@ -505,9 +515,12 @@ function drawIcon(g: G, prop: Exclude<Prop, null>, c: number, bg: number, glyph:
       break;
     case 'folder':
     case 'folder_closed':
+    case 'folder_red':
+    case 'folder_amber':
       g.poly([-7, -5, -2.5, -5, -1, -3.5, 7, -3.5, 7, 6, -7, 6]).fill(c);
       g.rect(-7, -2, 14, 1).fill({ color: bg, alpha: 0.5 });
-      if (prop === 'folder_closed')
+      if (prop === 'folder_amber') for (const x of [-3.5, 0, 3.5]) g.circle(x, 2, 1.1).fill(bg);
+      else if (prop === 'folder_closed' || prop === 'folder_red')
         g.moveTo(-2.5, -0.5)
           .lineTo(2.5, 4.5)
           .moveTo(2.5, -0.5)
@@ -551,6 +564,11 @@ export class Character {
   private wiggle = new Graphics();
   private bubble = new Container();
   private plate = new Container();
+  private badgeBox = new Container();
+  private badgeKey = '';
+  private badge: Badge | null = null;
+  private badgeW = 0;
+  private badgeAt = { x: 0, y: 0 };
   private plateText: Text;
   private plateBg = new Graphics();
   private view: 'front' | 'back' = 'front';
@@ -588,13 +606,17 @@ export class Character {
     // Scale from the bubble's tail tip and the plate's top edge, so they grow away from the body.
     this.bubble.pivot.y = 16;
     this.plate.pivot.y = -8;
-    this.overlay.addChild(this.bubble, this.plate);
+    this.overlay.addChild(this.bubble, this.plate, this.badgeBox);
+    this.badgeBox.visible = false;
     this.plate.visible = false;
     this.redraw();
   }
 
   setPalette(p: Palette) {
     this.p = p;
+    const badge = this.badge;
+    this.badgeKey = '';
+    this.setBadge(badge);
     this.plateText.style.fill = p.nameplateText;
     this.redraw();
     this.drawBubble();
@@ -684,6 +706,76 @@ export class Character {
     this.overlayScale = s;
     this.bubble.scale.set(this.pop * s);
     this.plate.scale.set(s);
+    this.badgeBox.scale.set(s);
+  }
+
+  /** The MR badge (review lounge only); null hides it. */
+  setBadge(b: Badge | null) {
+    const key = b ? `${b.iid}|${b.pipeline}|${b.threads}` : '';
+    if (key === this.badgeKey) return;
+    this.badgeKey = key;
+    this.badge = b;
+    for (const c of this.badgeBox.removeChildren()) c.destroy({ children: true });
+    this.badgeBox.visible = !!b;
+    if (!b) return;
+    const p = this.p;
+    const text = (t: string) =>
+      new Text({
+        text: t,
+        style: { fontFamily: FONT, fontSize: 9.5, fontWeight: '700', fill: p.nameplateText },
+        resolution: 4,
+      });
+    const num = text(`!${b.iid}`);
+    const count = b.threads ? text(String(b.threads)) : null;
+    const icons = new Graphics();
+    let x = 6;
+    num.position.set(x, -6.5);
+    x += num.width + 5;
+    // The pipeline: a tick, a cross, or a dot while it runs; a ring when there is none.
+    const c = b.pipeline === 'ok' ? p.status.green : b.pipeline === 'failed' ? p.status.red : p.status.yellow;
+    if (b.pipeline === 'none') icons.circle(x + 4, 0, 3.4).stroke({ width: 1.2, color: p.status.muted });
+    else icons.circle(x + 4, 0, 4.2).fill(c);
+    if (b.pipeline === 'ok')
+      icons
+        .moveTo(x + 2, 0)
+        .lineTo(x + 3.6, 1.6)
+        .lineTo(x + 6.2, -1.6)
+        .stroke({ width: 1.3, color: 0xffffff });
+    if (b.pipeline === 'failed')
+      icons
+        .moveTo(x + 2.4, -1.6)
+        .lineTo(x + 5.6, 1.6)
+        .moveTo(x + 5.6, -1.6)
+        .lineTo(x + 2.4, 1.6)
+        .stroke({ width: 1.3, color: 0xffffff });
+    x += 12;
+    if (count) {
+      // A speech bubble with the number of open review threads.
+      icons.roundRect(x, -4, 9, 7, 2).fill(p.nameplateText);
+      icons.poly([x + 2, 3, x + 5, 3, x + 2, 5.5]).fill(p.nameplateText);
+      x += 11;
+      count.position.set(x, -6.5);
+      x += count.width + 2;
+    }
+    const w = x + 5;
+    const bg = new Graphics()
+      .roundRect(0, -8, w, 16, 8)
+      .fill({ color: p.nameplate, alpha: 0.92 })
+      .stroke({ width: 1.2, color: c, alpha: 0.9 });
+    const inner = new Container();
+    inner.addChild(bg, icons, num, ...(count ? [count] : []));
+    inner.x = -w / 2;
+    this.badgeBox.addChild(inner);
+    this.badgeW = w;
+  }
+
+  /** Whether world point (x, y) is on the MR badge. */
+  onBadge(x: number, y: number): boolean {
+    if (!this.badgeBox.visible) return false;
+    const s = this.overlayScale;
+    return (
+      Math.abs(x - this.badgeAt.x) <= (this.badgeW / 2 + 2) * s && Math.abs(y - this.badgeAt.y) <= 10 * s
+    );
   }
 
   setSelected(selected: boolean, hovered: boolean, showName: boolean) {
@@ -707,6 +799,8 @@ export class Character {
     const lift = this.stance === 'sit' ? 3 : 0;
     this.bubble.position.set(x, y - (51 - lift) * SCALE);
     this.plate.position.set(x, y + 5);
+    this.badgeAt = { x, y: y + 5 + 26 * this.overlayScale };
+    this.badgeBox.position.set(this.badgeAt.x, this.badgeAt.y);
   }
 
   private drawPlate() {

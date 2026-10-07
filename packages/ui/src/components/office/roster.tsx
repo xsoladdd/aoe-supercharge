@@ -4,7 +4,12 @@ import {
   DeskIcon,
   DoorIcon,
   EnvelopeOpenIcon,
+  ChatCircleIcon,
+  CheckCircleIcon,
+  CircleDashedIcon,
+  ClockIcon,
   EyeIcon,
+  FolderIcon,
   HourglassMediumIcon,
   StopIcon,
   WarningOctagonIcon,
@@ -26,7 +31,9 @@ const MUTED = 'text-muted-foreground';
 const PROP_META: Partial<Record<Exclude<Prop, null>, { icon: Icon; color: string }>> = {
   pipeline: { icon: HourglassMediumIcon, color: 'text-st-violet' },
   pipeline_failed: { icon: XCircleIcon, color: 'text-st-red' },
-  folder: { icon: EyeIcon, color: 'text-st-violet' },
+  folder: { icon: EyeIcon, color: 'text-st-green' },
+  folder_amber: { icon: FolderIcon, color: 'text-st-yellow' },
+  folder_red: { icon: XCircleIcon, color: 'text-st-red' },
   letter: { icon: EnvelopeOpenIcon, color: 'text-st-cyan' },
   mug: { icon: CoffeeIcon, color: MUTED },
 };
@@ -78,6 +85,50 @@ export function Reason({ w }: { w: OfficeWorker }) {
   );
 }
 
+const PIPELINE: Record<string, { icon: Icon; color: string; label: string }> = {
+  ok: { icon: CheckCircleIcon, color: 'text-st-green', label: 'pipeline passed' },
+  failed: { icon: XCircleIcon, color: 'text-st-red', label: 'pipeline failed' },
+  running: { icon: ClockIcon, color: 'text-st-yellow', label: 'pipeline running' },
+  none: { icon: CircleDashedIcon, color: MUTED, label: 'no pipeline' },
+};
+
+export function pipelineKind(p: string | null): keyof typeof PIPELINE {
+  if (p === 'success') return 'ok';
+  if (p === 'failed' || p === 'canceled') return 'failed';
+  if (p === null || p === 'skipped') return 'none';
+  return 'running';
+}
+
+/**
+ * The MR badge (SPEC §14.5): its number, the pipeline and the open review threads. A link to the MR
+ * in a new tab; the floor draws the same badge under the character.
+ */
+export function MrBadge({ w }: { w: OfficeWorker }) {
+  const mr = w.task?.mr;
+  if (!mr) return null;
+  const p = PIPELINE[pipelineKind(mr.pipeline)]!;
+  const threads = mr.unresolvedThreads;
+  const label = `MR !${mr.iid}: ${p.label}, ${threads} open review ${threads === 1 ? 'thread' : 'threads'} (opens in a new tab)`;
+  return (
+    <a
+      href={mr.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={label}
+      title={label}
+      data-mr-badge={mr.iid}
+      className="tabular inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border border-border-strong px-2.5 text-[0.8125rem] font-semibold hover:bg-raised"
+    >
+      <span translate="no">!{mr.iid}</span>
+      <p.icon weight="bold" className={cn('size-4', p.color)} aria-hidden />
+      <span className="inline-flex items-center gap-0.5">
+        <ChatCircleIcon weight="bold" className="size-4" aria-hidden />
+        {threads}
+      </span>
+    </a>
+  );
+}
+
 function WorkerRow({
   w,
   now,
@@ -86,6 +137,7 @@ function WorkerRow({
   showProject,
   onSelect,
   steal,
+  extra,
 }: {
   w: OfficeWorker;
   now: Date;
@@ -97,6 +149,8 @@ function WorkerRow({
   onSelect?: (key: string) => void;
   /** Move keyboard focus to the row when it lights up (a deep link), not just scroll to it. */
   steal: boolean;
+  /** A control beside the row (not inside its link or button): the MR badge. */
+  extra?: React.ReactNode;
 }) {
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -158,6 +212,9 @@ function WorkerRow({
       data-zone={w.zone}
       data-since={w.since ?? undefined}
       data-blocks={w.zone === 'door' ? String(blocksWork(w.spot)) : undefined}
+      className={
+        extra ? 'flex items-center gap-2 pr-3 [&>:first-child]:min-w-0 [&>:first-child]:flex-1' : undefined
+      }
     >
       {onSelect ? (
         <button
@@ -181,6 +238,7 @@ function WorkerRow({
           {body}
         </Link>
       )}
+      {extra}
     </li>
   );
 }
@@ -343,6 +401,34 @@ export function OfficeRoster({
         </section>
 
         <div className="space-y-8">
+          <section aria-labelledby="zone-review" data-zone-section="review" className={sectionCls('review')}>
+            <div className="flex items-center gap-2">
+              <FolderIcon className="size-5 text-muted-foreground" />
+              <h2 id="zone-review" className="text-base font-semibold">
+                Review lounge
+              </h2>
+              <Count n={office.review.length} />
+            </div>
+            {office.review.length ? (
+              <ul className={LIST} aria-label="In the review lounge">
+                {office.review.map((w) => (
+                  <WorkerRow
+                    key={w.key}
+                    w={w}
+                    now={now}
+                    highlighted={focus.worker === w.key}
+                    showProject
+                    onSelect={focus.onSelect}
+                    steal={!!focus.steal}
+                    extra={<MrBadge w={w} />}
+                  />
+                ))}
+              </ul>
+            ) : (
+              <Empty>Nobody is waiting on review. Workers with an MR out wait here with their folder.</Empty>
+            )}
+          </section>
+
           <section aria-labelledby="zone-pantry" data-zone-section="pantry" className={sectionCls('pantry')}>
             <div className="flex items-center gap-2">
               <CoffeeIcon className="size-5 text-muted-foreground" />
@@ -366,7 +452,7 @@ export function OfficeRoster({
                 ))}
               </ul>
             ) : (
-              <Empty>The pantry is empty. Idle workers and those waiting on an MR take a break here.</Empty>
+              <Empty>The pantry is empty. Idle workers take a break here.</Empty>
             )}
           </section>
 

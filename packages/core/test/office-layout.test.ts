@@ -55,6 +55,7 @@ describe('office layout', () => {
         l.door,
         ...l.queue,
         ...l.pantry.spots.map((s) => s.tile),
+        ...l.review.spots,
         ...l.teams.flatMap((t) => [t.leadSeat, ...t.spare, ...t.desks.map((d) => d.seat)]),
       ];
       for (const g of goals) expect(l.grid.blocked(g.x, g.y), `${g.x},${g.y}`).toBe(false);
@@ -78,7 +79,16 @@ describe('office layout', () => {
     ]);
     expect(big.teams[0]!.desks.map((d) => d.n).slice(0, 9)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(big.width * big.height).toBeGreaterThan(small.width * small.height);
-    expect(Object.keys(big.areas).sort()).toEqual(['a', 'b', 'board', 'c', 'door', 'office', 'pantry']);
+    expect(Object.keys(big.areas).sort()).toEqual([
+      'a',
+      'b',
+      'board',
+      'c',
+      'door',
+      'office',
+      'pantry',
+      'review',
+    ]);
     // The whiteboard hangs between the pantry and your corner, in every office.
     for (const l of [small, big]) {
       expect(l.board.x1).toBeLessThanOrEqual(l.suite.x);
@@ -203,5 +213,26 @@ describe('rooms', () => {
             expect(l.grid.blocked(x, t.doorway.y)).toBe(false);
           }
       }
+  });
+});
+
+describe('review lounge', () => {
+  it('stands round a pool table in front of the pantry, clear of the rooms and the entrance', () => {
+    for (const n of [0, 1, 3]) {
+      const l = officeLayout(Array.from({ length: n }, (_, i) => ({ project: `p${i}`, desks: 10 })));
+      const a = l.review.area;
+      expect(l.areas.review).toEqual(a);
+      expect(l.furniture.filter((f) => f.kind === 'pool_table')).toHaveLength(1);
+      expect(a.y).toBeGreaterThanOrEqual(l.pantry.area.y + l.pantry.area.h);
+      expect(l.entrance.x).toBeLessThan(a.x);
+      for (const t of l.teams) expect(t.area.x).toBeGreaterThanOrEqual(a.x + a.w);
+      // Room for a crowd: at least ten places, the first ones right by the table, all different.
+      expect(l.review.spots.length).toBeGreaterThanOrEqual(10);
+      const keys = l.review.spots.map((t) => `${t.x},${t.y}`);
+      expect(new Set(keys).size).toBe(keys.length);
+      const table = l.furniture.find((f) => f.kind === 'pool_table')!;
+      const first = l.review.spots[0]!;
+      expect(first.x >= table.x - 1 && first.x <= table.x + table.w && first.y >= table.y - 1).toBe(true);
+    }
   });
 });

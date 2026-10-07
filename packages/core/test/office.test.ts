@@ -83,8 +83,6 @@ describe('office: where a worker stands (SPEC §14.5)', () => {
     ['plan_approval', 'scroll'],
     ['permission', 'shield'],
     ['approval', 'hand'],
-    ['mr_ready', 'folder'],
-    ['mr_closed', 'folder_closed'],
     ['session_error', 'warning'],
     ['session_missing', 'lost'],
   ] as const)('2: anything that needs you queues at the door: %s holds a %s', (kind, prop) => {
@@ -92,9 +90,18 @@ describe('office: where a worker stands (SPEC §14.5)', () => {
     expect(s).toMatchObject({ zone: 'door', prop, kind, queuedSince: ago(9_000), hold: false });
   });
 
+  it('2: an MR ready or closed waits in the review lounge, not at the door', () => {
+    const ready = at(task('ready_for_review', { mr: mr('success') }), session('idle'), [item('mr_ready')]);
+    expect(ready).toMatchObject({ zone: 'review', prop: 'folder', kind: null });
+    const closed = at(task('watching_mr', { mr: { ...mr('success')!, state: 'closed' } }), session('idle'), [
+      item('mr_closed'),
+    ]);
+    expect(closed).toMatchObject({ zone: 'review', prop: 'folder_red', reason: 'MR was closed' });
+  });
+
   it('2: several items queue once, at the oldest, with the most urgent prop', () => {
-    const s = at(task('ready_for_review'), session('waiting'), [
-      item('mr_ready', ago(60_000)),
+    const s = at(task('implementing'), session('waiting'), [
+      item('approval', ago(60_000)),
       item('permission', ago(10_000)),
     ]);
     expect(s).toMatchObject({ zone: 'door', kind: 'permission', prop: 'shield', queuedSince: ago(60_000) });
@@ -119,13 +126,32 @@ describe('office: where a worker stands (SPEC §14.5)', () => {
       expect(at(task('implementing'), s)).toMatchObject({ zone: 'desk', hold: true });
   });
 
-  it('7: idle with an MR open waits on the pipeline in the pantry', () => {
+  it('7: idle with an MR open waits in the review lounge, with a folder by its state', () => {
     expect(at(task('watching_mr', { mr: mr('running') }), session('idle'))).toMatchObject({
-      zone: 'pantry',
-      prop: 'pipeline',
+      zone: 'review',
+      prop: 'folder_amber',
+      reason: 'Waiting on the pipeline',
     });
-    expect(at(task('watching_mr', { mr: mr('failed') }), session('idle')).prop).toBe('pipeline_failed');
-    expect(at(task('mr_raised', { mr: mr('success') }), session('idle')).reason).toBe('Waiting on review');
+    expect(at(task('watching_mr', { mr: mr('failed') }), session('idle'))).toMatchObject({
+      prop: 'folder_red',
+      reason: 'Pipeline failed',
+    });
+    expect(at(task('mr_raised', { mr: mr('success') }), session('idle'))).toMatchObject({
+      prop: 'folder_amber',
+      reason: 'Waiting on review',
+    });
+    expect(
+      at(task('watching_mr', { mr: { ...mr('success')!, unresolvedThreads: 3 } }), session('idle')).reason,
+    ).toBe('3 review threads open');
+    expect(at(task('ready_for_review', { mr: mr('success') }), session('idle')).prop).toBe('folder');
+    // Finishing up at the desk first, like the pantry; a stopped session still has its MR out.
+    expect(at(task('watching_mr', { mr: mr('running') }), session('idle', ago(2_000)))).toMatchObject({
+      zone: 'review',
+      hold: true,
+    });
+    expect(at(task('watching_mr', { mr: mr('running') }), session('stopped')).zone).toBe('review');
+    // Working on review feedback: back at the desk.
+    expect(at(task('watching_mr', { mr: mr('running') }), session('working')).zone).toBe('desk');
   });
 
   it('8: idle after you answered reads your reply in the pantry', () => {
@@ -191,11 +217,11 @@ describe('office: where a worker stands (SPEC §14.5)', () => {
     // The lead has waited longest, but a worker with a question blocks work, and so does a blocker.
     const line = [
       { id: 'lead', spot: leadSpot(session('idle'), asks) },
-      { id: 'mr', spot: officeSpot(task('ready_for_review'), null, [item('mr_ready', ago(30_000))]) },
+      { id: 'lost', spot: officeSpot(task('implementing'), null, [item('session_missing', ago(30_000))]) },
       { id: 'asker', spot: officeSpot(task('blocked'), null, [item('question', ago(1_000))]) },
       { id: 'boss', spot: leadSpot(session('idle'), [item('control_blocker', ago(2_000))]) },
     ];
-    expect(line.sort(byQueue).map((x) => x.id)).toEqual(['boss', 'asker', 'lead', 'mr']);
+    expect(line.sort(byQueue).map((x) => x.id)).toEqual(['boss', 'asker', 'lead', 'lost']);
   });
 
   it('the door reads your name once it is set', () => {

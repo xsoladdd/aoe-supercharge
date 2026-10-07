@@ -3,8 +3,8 @@ import type { NeedsYouItem, NeedsYouKind, SessionView, TaskRecord } from './type
 
 /**
  * The office view (SPEC §14.5): where a worker stands *is* its status. Everyone who needs you queues
- * at your door, working workers sit at their desk, idle and waiting ones go to the pantry. Pure, so
- * the dashboard and the CLI agree.
+ * at your door, working workers sit at their desk, those with an MR wait in the review lounge, idle
+ * ones go to the pantry. Pure, so the dashboard and the CLI agree.
  */
 
 export type Zone = 'door' | 'desk' | 'pantry' | 'review' | 'away' | 'archived' | 'gone';
@@ -28,8 +28,13 @@ export type Prop =
   | 'scroll'
   | 'shield'
   | 'hand'
+  /** An MR ready to review (green). */
   | 'folder'
   | 'folder_closed'
+  /** An MR waiting: the pipeline running, or review threads open (amber). */
+  | 'folder_amber'
+  /** An MR whose pipeline failed, or that was closed (red). */
+  | 'folder_red'
   | 'warning'
   | 'lost'
   | 'clipboard'
@@ -116,9 +121,47 @@ const DESK_POSE: Record<Stage, Pose> = {
 
 /**
  * A reply you have not read yet is a notification, not something waiting on you: it stays out of the
- * line. What the reply lists under NEEDS YOU does bring the lead to the door.
+ * line. What the reply lists under NEEDS YOU does bring the lead to the door. An MR ready or closed
+ * waits in the review lounge with its folder instead (it still shows in Needs you, and notifies).
  */
-const NOT_AT_THE_DOOR = new Set<NeedsYouKind>(['control_replied']);
+const NOT_AT_THE_DOOR = new Set<NeedsYouKind>(['control_replied', 'mr_ready', 'mr_closed']);
+
+/** Stages with an MR out: a worker idle in one of them waits in the review lounge. */
+export const REVIEW_STAGES = new Set<Stage>(['mr_raised', 'watching_mr', 'ready_for_review']);
+
+export type Folder = 'green' | 'amber' | 'red';
+
+export const FOLDER_PROP: Record<Folder, Exclude<Prop, null>> = {
+  green: 'folder',
+  amber: 'folder_amber',
+  red: 'folder_red',
+};
+
+/**
+ * The folder a worker in the review lounge carries: red when the pipeline failed or the MR was
+ * closed, green when it is ready for review (or merged), amber while it waits on the pipeline or on
+ * open review threads.
+ */
+export function folderFor(task: Pick<TaskRecord, 'stage' | 'mr'>): { folder: Folder; reason: string } {
+  const mr = task.mr;
+  if (mr?.state === 'closed') return { folder: 'red', reason: 'MR was closed' };
+  if (mr?.pipeline === 'failed' || mr?.pipeline === 'canceled')
+    return { folder: 'red', reason: 'Pipeline failed' };
+  if (task.stage === 'ready_for_review' || mr?.state === 'merged')
+    return { folder: 'green', reason: mr?.state === 'merged' ? 'MR merged' : 'MR ready for review' };
+  if (mr?.unresolvedThreads)
+    return {
+      folder: 'amber',
+      reason: `${mr.unresolvedThreads} review ${mr.unresolvedThreads === 1 ? 'thread' : 'threads'} open`,
+    };
+  if (mr?.pipeline === 'success') return { folder: 'amber', reason: 'Waiting on review' };
+  return { folder: 'amber', reason: 'Waiting on the pipeline' };
+}
+
+function reviewSpot(task: Pick<TaskRecord, 'stage' | 'mr'>): OfficeSpot {
+  const { folder, reason } = folderFor(task);
+  return spot('review', 'waiting', FOLDER_PROP[folder], reason);
+}
 
 function atDoor(all: NeedsYouItem[]): OfficeSpot | null {
   const items = all.filter((i) => !NOT_AT_THE_DOOR.has(i.kind));
@@ -170,10 +213,12 @@ export function officeSpot(
   if (session?.archived) return spot('away', 'away', null, 'Archived');
   const status = session?.status ?? null;
   if (status === 'working') return spot('desk', DESK_POSE[task.stage], null, STAGE_LABEL[task.stage]);
-  if (status === 'stopped') return spot('away', 'away', null, 'Stopped');
+  // An MR out is a deliverable: it waits in the review lounge, even with its session stopped.
+  const review = REVIEW_STAGES.has(task.stage);
+  if (status === 'stopped') return review ? reviewSpot(task) : spot('away', 'away', null, 'Stopped');
   if (status === 'idle') {
     const idleFor = session?.statusSince ? now.getTime() - Date.parse(session.statusSince) : Infinity;
-    const s = pantry(task);
+    const s = review ? reviewSpot(task) : pantry(task);
     if (idleFor < PANTRY_DWELL_MS)
       return { ...s, hold: true, holdUntil: now.getTime() + PANTRY_DWELL_MS - idleFor };
     return s;
@@ -207,12 +252,6 @@ export function sessionSpot(
 }
 
 function pantry(task: Pick<TaskRecord, 'stage' | 'openQuestion' | 'mr'>): OfficeSpot {
-  if (task.stage === 'mr_raised' || task.stage === 'watching_mr') {
-    const pipeline = task.mr?.pipeline ?? null;
-    if (pipeline === 'failed') return spot('pantry', 'coffee', 'pipeline_failed', 'Pipeline failed');
-    if (pipeline === 'success') return spot('pantry', 'coffee', 'folder', 'Waiting on review');
-    return spot('pantry', 'coffee', 'pipeline', 'Waiting on the pipeline');
-  }
   if (task.stage === 'blocked' && task.openQuestion?.answeredAt)
     return spot('pantry', 'reading', 'letter', 'Reading your reply');
   return spot('pantry', 'coffee', 'mug', 'Idle');

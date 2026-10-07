@@ -4,6 +4,7 @@ import {
   ChalkboardSimpleIcon,
   CoffeeIcon,
   DoorOpenIcon,
+  FolderIcon,
   ListBulletsIcon,
   MinusIcon,
   PlusIcon,
@@ -211,6 +212,7 @@ export default function OfficeFloor({
     },
     door: callNext,
     board: openBoard,
+    openMr: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
     zoom: setZoom,
   };
 
@@ -227,6 +229,7 @@ export default function OfficeFloor({
       errands: (e, a) => handlers.current?.errands(e, a),
       door: () => handlers.current?.door(),
       board: () => handlers.current?.board(),
+      openMr: (url) => handlers.current?.openMr(url),
       zoom: (z) => handlers.current?.zoom(z),
     };
     OfficeScene.create(el, { theme, reducedMotion: reduced, doorLabel: door, events })
@@ -376,7 +379,8 @@ export default function OfficeFloor({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-4 py-2.5 lg:px-6">
         <h1 className="text-lg font-semibold tracking-tight">Office</h1>
         <p className="tabular text-sm text-muted-foreground">
-          {office.door.length} at your door · {deskCount} at desks · {office.pantry.length} in the pantry
+          {office.door.length} at your door · {deskCount} at desks · {office.review.length} in review ·{' '}
+          {office.pantry.length} in the pantry
           {office.away.length ? ` · ${office.away.length} away` : ''}
         </p>
         <p className="sr-only" role="status" aria-live="polite">
@@ -460,6 +464,9 @@ export default function OfficeFloor({
             </Chip>
             <Chip icon={CoffeeIcon} {...at('pantry')}>
               Pantry
+            </Chip>
+            <Chip icon={FolderIcon} {...at('review')}>
+              Review lounge
             </Chip>
             <Chip icon={ChalkboardSimpleIcon} pressed={boardOpen} onClick={openBoard}>
               Whiteboard

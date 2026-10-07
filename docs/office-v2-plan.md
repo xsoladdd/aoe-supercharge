@@ -115,7 +115,7 @@ away}.{label, timeZone, latitude, longitude}` · `office.weather.enabled` · `of
 | 1 | `buildOffice` in core, office state file, history log + API, `officeAt` | 7 backend, 1 model | 0.5.0 | Done |
 | 2 | Rooms: glass partitions with doorways, nameplates, edge walls in A\*, review/room layout capacity tests | 1 | 0.5.0 | Done |
 | 3 | Finish errand (walk to the lead, hand over a folder, then on), spawn queue at the entrance, animations toggle | 2 | 0.5.0 | Done |
-| 4 | Review lounge (pool table), folders, MR badges (click opens the MR), header count | 3 | 0.5.0 | |
+| 4 | Review lounge (pool table), folders, MR badges (click opens the MR), header count | 3 | 0.5.0 | Done |
 | 5 | Token/cost meter on desks, characters and header; runaway detection, warning, notification | 4 | 0.5.0 | |
 | 6 | Idle "go home" prompt (Archive / Keep / Snooze 30m), auto-archive, Archived list with Restore | 5 | 0.5.0 | |
 | 7 | Activity lighting (day, dim, night), clocks with time difference, Stockholm weather, window ambience | 6 | 0.5.0 | |
@@ -135,6 +135,13 @@ updated, demo data extended so it can be seen without real agents.
 - "A child completes" is read as: it leaves its desk with a deliverable (an MR stage). Going idle
   between replies is not finishing, or every worker would run an errand after every turn. A finish
   needs a lead (a project with a control chat); without one the worker just walks.
+- An MR stage with its session **stopped** still waits in the review lounge (it has a deliverable);
+  before, a stopped worker was away. `mr_closed` moved to the lounge too (red folder), like
+  `mr_ready` (green), so the door keeps what stops work. Amber covers a running pipeline and open
+  review threads; there is no separate "CodeRabbit" state, since the watcher counts every unresolved
+  resolvable thread.
+- The canvas badge's click is not covered by E2E (its place moves with the camera); the roster's badge
+  link, with the same URL, is.
 - A "reconnect" is a whole new snapshot from the daemon (the replay buffer could not cover the gap).
   A short drop that replays its events animates as normal, since those changes were seen live.
 - A history file is kept while any of its UTC day is inside the retention, so up to `retentionDays + 1`
