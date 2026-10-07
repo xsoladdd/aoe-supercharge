@@ -11,7 +11,9 @@ import { createApp } from './app.ts';
 import { attachShellSockets } from './shell.ts';
 import { PromptReader } from '../prompt.ts';
 import { transcriptStore } from '../transcript.ts';
+ 
 import { BranchWatcher } from './branch-watcher.ts';
+ 
 import { MrWatcher } from './mr-watcher.ts';
 import { CostWatcher, OfficeWatcher, WeatherWatcher } from './office.ts';
 import { Store } from './store.ts';
