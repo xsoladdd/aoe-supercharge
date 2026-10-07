@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.2 (2026-10-07)
+
+What your control chat says needs you puts it in line at your door.
+
+- **A control chat's NEEDS YOU list counts.** When a control chat's latest reply has a `🔴 NEEDS YOU`
+  section, each item shows in Needs you, and the control chat waits in line at your door in the office,
+  with how many things it has for you. It leaves the line once a reply has nothing under NEEDS YOU. An
+  item that says work is blocked shows as Blocked on you, and notifies like a worker's question.
+- **Blockers go to the front of the line.** Whoever has work stopped until you act (a worker's question,
+  permission prompt or plan, a blocked control chat item, a session error) stands ahead of the rest. The
+  rest stay oldest first.
+- The control skill reports what needs you under `🔴 NEEDS YOU`, and writes "Blocked" where work is
+  stopped.
+- `supercharge start` no longer fails with "Bootstrap failed: 5: Input/output error" when the service is
+  already running. It waits for launchd to unload the old daemon before loading the new one.
+
 ## 0.3.1 (2026-10-07)
 
 Claude's questions one at a time, and the sessions a control chat starts on its own.
