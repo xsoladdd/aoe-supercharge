@@ -108,6 +108,10 @@ export interface FloorProps {
   /** What is on the whiteboard, and the projects to file new notes under. */
   notes: NoteRecord[];
   projects: string[];
+  /** `ui.officeAnimations`: off, everyone jumps to their place as with reduced motion. */
+  animations?: boolean;
+  /** Changes with every whole snapshot (a reconnect): everyone is placed again without walking. */
+  epoch?: number;
 }
 
 /**
@@ -125,12 +129,15 @@ export default function OfficeFloor({
   standalone = false,
   notes,
   projects,
+  animations = true,
+  epoch = 0,
 }: FloorProps) {
   const host = useRef<HTMLDivElement>(null);
   const [scene, setScene] = useState<OfficeScene | null>(null);
   const [renderer, setRenderer] = useState<Renderer>('loading');
   const theme = usePageTheme();
-  const reduced = useReducedMotion();
+  const prefersReduced = useReducedMotion();
+  const reduced = prefersReduced || !animations;
   const [selected, setSelected] = useState<string | null>(linkWorker);
   const [boardOpen, setBoardOpen] = useState(!linkWorker && linkFocus === 'board');
   const [steal, setSteal] = useState(!!linkWorker);
@@ -138,6 +145,8 @@ export default function OfficeFloor({
   const [following, setFollowing] = useState<string | null>(null);
   const [focus, setFocus] = useState(linkWorker ?? linkFocus ?? 'office');
   const [walking, setWalking] = useState(0);
+  const [errands, setErrands] = useState('');
+  const [arriving, setArriving] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [rosterOpen, setRosterOpen] = useState(() => readRosterPref(standalone));
   /** A camera move asked for before the scene was ready. */
@@ -196,6 +205,10 @@ export default function OfficeFloor({
       if (area === 'free') setFollowing(null);
     },
     walking: setWalking,
+    errands: (e, a) => {
+      setErrands(e.join(','));
+      setArriving(a);
+    },
     door: callNext,
     board: openBoard,
     zoom: setZoom,
@@ -211,6 +224,7 @@ export default function OfficeFloor({
       select: (k) => handlers.current?.select(k),
       focus: (a) => handlers.current?.focus(a),
       walking: (n) => handlers.current?.walking(n),
+      errands: (e, a) => handlers.current?.errands(e, a),
       door: () => handlers.current?.door(),
       board: () => handlers.current?.board(),
       zoom: (z) => handlers.current?.zoom(z),
@@ -235,6 +249,13 @@ export default function OfficeFloor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A reconnect brings a whole new snapshot: place everyone again, nobody walks (runs before setModel).
+  const seenEpoch = useRef(epoch);
+  useEffect(() => {
+    if (!scene || epoch === seenEpoch.current) return;
+    seenEpoch.current = epoch;
+    scene.resync();
+  }, [scene, epoch]);
   useEffect(() => scene?.setModel(office), [scene, office]);
   useEffect(() => scene?.setBoard(boardLines(notes)), [scene, notes]);
   useEffect(() => scene?.setTheme(theme), [scene, theme]);
@@ -343,6 +364,8 @@ export default function OfficeFloor({
       data-renderer={renderer}
       data-camera-focus={focus}
       data-walking={walking}
+      data-errands={errands}
+      data-arriving={arriving}
       data-motion={reduced ? 'jump' : 'walk'}
       data-called={called ?? ''}
       data-selected={sel?.key ?? ''}

@@ -40,6 +40,7 @@ export class Store {
     scale: 'default',
     sound: true,
     displayName: '',
+    officeAnimations: true,
   };
   sessionsLoaded = false;
   ledgerLoaded = false;

@@ -5,6 +5,7 @@ import { doorLabel, type Snapshot } from '@aoe-supercharge/core/shared';
 import { CommandLine } from '@/components/copy';
 import { OfficeRoster } from '@/components/office/roster';
 import { HeaderActions } from '@/lib/header-slot';
+import { useLive } from '@/lib/live';
 import { useSearchParam } from '@/lib/nav';
 import { useOffice } from '@/lib/office';
 import { useNow } from '@/lib/theme';
@@ -65,6 +66,7 @@ function ViewSwitch({ view }: { view: OfficeView }) {
  */
 export function OfficePage({ snap, standalone = false }: { snap: Snapshot; standalone?: boolean }) {
   const { office, announcement } = useOffice(snap);
+  const { epoch } = useLive();
   const now = useNow();
   const view = useOfficeView();
   const workerParam = useSearchParam('worker');
@@ -111,6 +113,8 @@ export function OfficePage({ snap, standalone = false }: { snap: Snapshot; stand
             standalone={standalone}
             notes={snap.notes}
             projects={snap.projects.map((p) => p.name)}
+            animations={snap.ui.officeAnimations ?? true}
+            epoch={epoch}
           />
         </Suspense>
       </>

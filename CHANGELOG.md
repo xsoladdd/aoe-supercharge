@@ -9,6 +9,10 @@ history.
   front and the project's name over it. People walk in and out through the doorway, never through the
   glass. The chips are made from your projects; one flies you to that room. Three projects with ten
   desks each fit without overlap. `npm run demo` adds a third, busy project to look at.
+- **Errands and arrivals.** A worker who raises an MR walks to its lead's desk with a folder, hands it
+  over, and goes on. Newcomers walk in through the entrance one at a time, so nobody appears on top of
+  anyone. Opening the office, or reconnecting, places everyone where they are without walking.
+  **Office animations** in Settings, Appearance turns walking off (as reduced motion does).
 - **The office keeps a history.** The daemon writes down every time someone in the office moves, or
   their reason changes, in a file per day under `~/.local/state/supercharge/history/`. It keeps 30 days
   (`office.history.retentionDays`). `GET /api/office/history` reads it back. History starts with this

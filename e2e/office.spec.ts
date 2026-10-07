@@ -433,6 +433,106 @@ test.describe('office', () => {
       await expect(row).toHaveAttribute('data-zone', 'desk', { timeout: 15_000 });
     });
 
+    test('a worker who raised an MR takes the folder to its lead, then goes on', async ({
+      signedIn: page,
+    }) => {
+      // NW-0001 has an MR open: from its desk, going idle is finishing.
+      const id = await sessionId('NW-0001');
+      await page.goto('/office');
+      await drawn(page);
+      const row = page.locator('li[data-task="NW-0001"]');
+      try {
+        await setStatus(id, 'Running');
+        await expect(row).toHaveAttribute('data-zone', 'desk', { timeout: 15_000 });
+        await expect(floor(page)).toHaveAttribute('data-walking', '0', { timeout: 15_000 });
+        await floor(page).evaluate((el) => {
+          const seen: string[] = [];
+          (window as unknown as { __errands: string[] }).__errands = seen;
+          new MutationObserver(() => seen.push((el as HTMLElement).dataset.errands ?? '')).observe(el, {
+            attributes: true,
+            attributeFilter: ['data-errands'],
+          });
+        });
+        await setStatus(id, 'Idle');
+        // It finishes up at its desk for 15 seconds, then sets off with the folder.
+        await expect(floor(page)).toHaveAttribute('data-errands', /northwind-web\/NW-0001/, {
+          timeout: 30_000,
+        });
+        await expect(floor(page)).toHaveAttribute('data-errands', '', { timeout: 15_000 });
+        await expect(row).not.toHaveAttribute('data-zone', 'desk');
+        const seen = await page.evaluate(() => (window as unknown as { __errands: string[] }).__errands);
+        expect(seen.at(-1)).toBe('');
+      } finally {
+        await setStatus(id, 'Waiting');
+      }
+      await expect(row).toHaveAttribute('data-zone', 'door', { timeout: 15_000 });
+    });
+
+    test('newcomers come in through the entrance one at a time', async ({ signedIn: page, browserName }) => {
+      await page.goto('/office');
+      await drawn(page);
+      const snap = (await (await page.request.get('/api/snapshot')).json()) as {
+        projects: { name: string; controlSessionId: string }[];
+      };
+      const control = snap.projects.find((p) => p.name === 'northwind-web')!.controlSessionId;
+      await floor(page).evaluate((el) => {
+        const seen: string[] = [];
+        (window as unknown as { __arriving: string[] }).__arriving = seen;
+        new MutationObserver(() => seen.push((el as HTMLElement).dataset.arriving ?? '')).observe(el, {
+          attributes: true,
+          attributeFilter: ['data-arriving'],
+        });
+      });
+      const ids: string[] = [];
+      try {
+        for (const n of [1, 2, 3])
+          ids.push(
+            (
+              (await fake('/__fake/sessions', {
+                method: 'POST',
+                body: JSON.stringify({
+                  title: `crowd ${n} ${browserName}`,
+                  project_path: `/tmp/crowd-${browserName}-${n}`,
+                  parent_session_id: control,
+                  status: 'Running',
+                }),
+              })) as { id: string }
+            ).id,
+          );
+        for (const id of ids)
+          await expect(page.locator(`li[data-session="${id}"]`)).toHaveAttribute('data-zone', 'desk', {
+            timeout: 15_000,
+          });
+        await expect(floor(page)).toHaveAttribute('data-arriving', '0', { timeout: 15_000 });
+        await expect(floor(page)).toHaveAttribute('data-walking', '0', { timeout: 15_000 });
+        // Two of the three waited outside for their turn.
+        const seen = await page.evaluate(() => (window as unknown as { __arriving: string[] }).__arriving);
+        expect(Math.max(...seen.map(Number))).toBeGreaterThanOrEqual(1);
+      } finally {
+        for (const id of ids) await fake(`/__fake/sessions/${id}`, { method: 'DELETE' });
+      }
+    });
+
+    test('Office animations off in Settings: everyone jumps', async ({ signedIn: page }) => {
+      await page.goto('/settings');
+      const toggle = page.getByRole('switch', { name: 'Office animations' });
+      await expect(toggle).toBeChecked();
+      await toggle.click();
+      await expect(toggle).not.toBeChecked();
+      try {
+        await page.goto('/office');
+        await drawn(page);
+        await expect(floor(page)).toHaveAttribute('data-motion', 'jump');
+      } finally {
+        await page.goto('/settings');
+        await page.getByRole('switch', { name: 'Office animations' }).click();
+        await expect(page.getByRole('switch', { name: 'Office animations' })).toBeChecked();
+      }
+      await page.goto('/office');
+      await drawn(page);
+      await expect(floor(page)).toHaveAttribute('data-motion', 'walk');
+    });
+
     test('Call next brings the first in line in; closing the card sends them back', async ({
       signedIn: page,
     }) => {

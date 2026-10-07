@@ -20,9 +20,14 @@ export interface LiveState {
   error: string | null;
   /** task id → timestamp of its last stage change seen live (drives the one-shot highlight). */
   changed: Record<string, number>;
+  /**
+   * Counts whole snapshots (first load, and every reconnect that could not replay): the office places
+   * everyone again without walking when it changes.
+   */
+  epoch: number;
 }
 
-let state: LiveState = { connection: 'loading', snapshot: null, error: null, changed: {} };
+let state: LiveState = { connection: 'loading', snapshot: null, error: null, changed: {}, epoch: 0 };
 const listeners = new Set<() => void>();
 let source: EventSource | null = null;
 let started = false;
@@ -56,7 +61,9 @@ function connectEvents() {
         // ignore malformed frames
       }
     });
-  on<Snapshot>('snapshot', (snapshot) => set({ snapshot, connection: 'live', error: null }));
+  on<Snapshot>('snapshot', (snapshot) =>
+    set({ snapshot, connection: 'live', error: null, epoch: state.epoch + 1 }),
+  );
   on<SessionView[]>('sessions', (sessions) => patchSnapshot({ sessions }));
   on<TaskRecord[]>('tasks', (tasks) => {
     const changed = markChanged(state.snapshot?.tasks ?? [], tasks);
@@ -89,7 +96,7 @@ export async function startLive() {
   started = true;
   try {
     const snapshot = await getJson<Snapshot>('/api/snapshot');
-    set({ snapshot, connection: 'live' });
+    set({ snapshot, connection: 'live', epoch: state.epoch + 1 });
     connectEvents();
   } catch (err) {
     started = false;

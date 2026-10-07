@@ -399,7 +399,15 @@ function DisplayName({ saved }: { saved: string }) {
 }
 
 /** Theme, interface size, the nudge sound and your door sign: applied at once, saved to config.toml. */
-function Appearance({ sound, displayName }: { sound: boolean; displayName: string }) {
+function Appearance({
+  sound,
+  displayName,
+  officeAnimations,
+}: {
+  sound: boolean;
+  displayName: string;
+  officeAnimations: boolean;
+}) {
   const theme = useThemePref();
   const scale = useScalePref();
   const save = (patch: Record<string, string | boolean>) =>
@@ -465,6 +473,21 @@ function Appearance({ sound, displayName }: { sound: boolean; displayName: strin
             <Switch id="ui-sound" checked={sound} onCheckedChange={(v) => void save({ sound: v })} />
           </div>
         </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+          <div>
+            <label htmlFor="ui-office-animations" className="text-[0.9375rem] font-medium">
+              Office animations
+            </label>
+            <div className="text-sm text-muted-foreground">
+              Walking, errands and arrivals. Off, everyone jumps to their place.
+            </div>
+          </div>
+          <Switch
+            id="ui-office-animations"
+            checked={officeAnimations}
+            onCheckedChange={(v) => void save({ officeAnimations: v })}
+          />
+        </div>
         <DisplayName saved={displayName} />
       </div>
     </section>
@@ -475,10 +498,12 @@ export function SettingsPage({
   health,
   sound,
   displayName,
+  officeAnimations = true,
 }: {
   health: Health;
   sound: boolean;
   displayName: string;
+  officeAnimations?: boolean;
 }) {
   const [data, setData] = useState<ConfigResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -652,7 +677,7 @@ export function SettingsPage({
 
       {data && (
         <div className="grid gap-4 xl:grid-cols-2">
-          <Appearance sound={sound} displayName={displayName} />
+          <Appearance sound={sound} displayName={displayName} officeAnimations={officeAnimations} />
           {sections.map(({ key, fields }) => {
             // Agent settings are read each time Supercharge starts a chat; one already running keeps its own.
             const note =

@@ -559,6 +559,7 @@ export class ConfigWatcher {
       scale: loaded.config.ui.scale,
       sound: loaded.config.ui.sound,
       displayName: loaded.config.ui.displayName,
+      officeAnimations: loaded.config.ui.officeAnimations,
     });
     this.onApplied(loaded.config);
   }

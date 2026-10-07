@@ -1,7 +1,18 @@
 // The dashboard's CSP forbids eval; this swaps Pixi's generated shader code for plain functions.
 import 'pixi.js/unsafe-eval';
 import { Application, Container, Graphics, Text } from 'pixi.js';
-import { findPath, fnv1a, officeLayout, type OfficeLayout, type Tile } from '@aoe-supercharge/core/shared';
+import {
+  EntranceQueue,
+  findPath,
+  fnv1a,
+  HANDOVER_MS,
+  officeLayout,
+  planMoves,
+  type OfficeLayout,
+  type Prop,
+  type Tile,
+  type Zone,
+} from '@aoe-supercharge/core/shared';
 import type { OfficeModel, OfficeWorker } from '@/lib/office';
 import { BOARD_H, buildStatic, FONT, type StaticOffice } from './art';
 import { Camera, MAX_ZOOM } from './camera';
@@ -21,6 +32,8 @@ export interface SceneEvents {
   /** The area the camera was sent to; `free` once you pan or zoom yourself. */
   focus(area: string): void;
   walking(count: number): void;
+  /** Who is on the finish errand, and how many wait outside the entrance for their turn. */
+  errands(keys: string[], arriving: number): void;
   door(): void;
   /** The whiteboard was clicked. */
   board(): void;
@@ -66,6 +79,13 @@ interface Walker {
   hidden: 'door' | 'exit' | null;
   fade: { from: number; to: number; start: number } | null;
   leaving: boolean;
+  /** A newcomer waits out of sight until the entrance is free (epoch of `performance.now()`). */
+  enterAt: number;
+  /**
+   * The finish errand (SPEC §14.5): to the lead's desk with a folder, then on to `final`. `until` is
+   * set on arrival at the lead: when the handover ends.
+   */
+  errand: { final: Spot; finalKey: string; prop: Prop; until: number } | null;
 }
 
 /** Tiles per second. Long walks speed up so none takes longer than LONGEST_WALK_S. */
@@ -78,6 +98,7 @@ const NAMES_AT = 1.15;
 const DRAG_PX = 5;
 
 const centre = (t: Tile): Pt => ({ x: t.x + 0.5, y: t.y + 0.5 });
+const spotKey = (s: Spot) => `${s.tile.x},${s.tile.y},${s.stance},${s.hands},${s.face},${s.vanish ?? ''}`;
 const sign = (n: number) => (n > 0 ? 1 : n < 0 ? -1 : 0);
 
 function inPolygon(p: Pt, poly: Pt[]): boolean {
@@ -126,6 +147,9 @@ export class OfficeScene {
   /** Screen px the whiteboard card covers on the left, kept clear when flying to the board. */
   private boardCover = 0;
   private walkers = new Map<string, Walker>();
+  /** Where each character was when the model last came in, to tell a finish from a walk. */
+  private zones = new Map<string, Zone>();
+  private entrance = new EntranceQueue();
   private pantrySeat = new Map<string, number>();
   private model: OfficeModel | null = null;
   private called: string | null = null;
@@ -141,6 +165,7 @@ export class OfficeScene {
   private raf = 0;
   private last = 0;
   private walking = 0;
+  private errandsSeen = '';
   private lastZoom = 0;
   private placed = false;
   private destroyed = false;
@@ -228,19 +253,29 @@ export class OfficeScene {
     const now = performance.now();
     const spots = this.assign(model);
     const live = new Set<string>();
+    const instant = this.opts.reducedMotion || !this.placed;
+    const moves = new Map(planMoves(this.placed ? this.zones : null, model).map((m) => [m.key, m.kind]));
     for (const worker of model.everyone) {
       const spot = spots.get(worker.key);
       if (!spot) continue;
       live.add(worker.key);
       let w = this.walkers.get(worker.key);
-      if (!w) w = this.spawn(worker);
+      if (!w) w = this.spawn(worker, now);
       w.worker = worker;
       w.leaving = false;
       w.ch.setName(plateName(worker));
       const prop = worker.zone === worker.spot.zone || worker.zone === 'door' ? worker.spot.prop : null;
-      w.ch.setProp(worker.zone === 'away' ? null : prop, worker.zone === 'pantry', now);
+      const shown = worker.zone === 'away' ? null : prop;
+      if (w.errand) {
+        // On an errand to the lead: carry on unless where it is going has changed.
+        if (spotKey(spot) === w.errand.finalKey) continue;
+        w.errand = null;
+      }
+      if (!instant && moves.get(worker.key) === 'finish' && this.startErrand(w, spot, shown, now)) continue;
+      w.ch.setProp(shown, worker.zone === 'pantry', now);
       this.goTo(w, spot, now);
     }
+    this.zones = new Map(model.everyone.map((w) => [w.key, w.zone]));
     // Done or deleted: out of the building.
     for (const w of this.walkers.values())
       if (!live.has(w.key) && !w.leaving) {
@@ -354,7 +389,43 @@ export class OfficeScene {
     return [sign(a.x + a.w / 2 - 0.5 - t.x) || 1, sign(a.y + a.h / 2 - 0.5 - t.y) || 1];
   }
 
-  private spawn(worker: OfficeWorker): Walker {
+  /**
+   * The finish errand: to the front of the lead's desk carrying a folder, a pause while it is handed
+   * over, then on to `final`. False when there is no lead desk to go to.
+   */
+  private startErrand(w: Walker, final: Spot, prop: Prop, now: number): boolean {
+    const plan = this.layout.teams.find((t) => t.project === w.worker.project);
+    if (!plan || w.hidden) return false;
+    const tile = { x: plan.leadSeat.x, y: plan.leadSeat.y + 2 };
+    if (this.layout.grid.blocked(tile.x, tile.y)) return false;
+    w.errand = { final, finalKey: spotKey(final), prop, until: 0 };
+    w.ch.setProp('folder', false, now);
+    this.goTo(w, { tile, stance: 'stand', hands: 'down', face: [0, -1] }, now);
+    return true;
+  }
+
+  /** The folder changes hands: the lead holds it up for a moment, the worker goes on. */
+  private handOver(w: Walker, now: number) {
+    const e = w.errand!;
+    e.until = now + HANDOVER_MS;
+    w.ch.setProp(null, false, now);
+    const lead = this.walkers.get(`${w.worker.project}/lead`);
+    if (lead && !lead.hidden && lead.worker.zone === 'desk') lead.ch.setProp('folder', false, now);
+  }
+
+  private endErrand(w: Walker, now: number) {
+    const e = w.errand!;
+    w.errand = null;
+    const lead = this.walkers.get(`${w.worker.project}/lead`);
+    if (lead) {
+      const lw = lead.worker;
+      lead.ch.setProp(lw.zone === lw.spot.zone || lw.zone === 'door' ? lw.spot.prop : null, false, now);
+    }
+    w.ch.setProp(e.prop, w.worker.zone === 'pantry', now);
+    this.goTo(w, e.final, now);
+  }
+
+  private spawn(worker: OfficeWorker, now: number): Walker {
     const ch = new Character(worker.outfit, plateName(worker), this.palette);
     const w: Walker = {
       key: worker.key,
@@ -370,6 +441,9 @@ export class OfficeScene {
       hidden: this.placed ? 'exit' : null,
       fade: null,
       leaving: false,
+      // Newcomers take turns at the entrance.
+      enterAt: this.placed && !this.opts.reducedMotion ? this.entrance.next(now) : 0,
+      errand: null,
     };
     this.objects.addChild(ch.root);
     this.overlay.addChild(ch.overlay);
@@ -379,13 +453,19 @@ export class OfficeScene {
   }
 
   private goTo(w: Walker, spot: Spot, now: number) {
-    const key = `${spot.tile.x},${spot.tile.y},${spot.stance},${spot.hands},${spot.face},${spot.vanish ?? ''}`;
+    const key = spotKey(spot);
     if (key === w.spotKey) return;
     const sameTile = !!w.spot && w.spot.tile.x === spot.tile.x && w.spot.tile.y === spot.tile.y;
     w.spot = spot;
     w.spotKey = key;
     const instant = this.opts.reducedMotion || !this.placed;
 
+    if (w.hidden === 'exit' && !spot.vanish && !instant && now < w.enterAt) {
+      // Someone else is coming in: wait outside for a turn (see `step`).
+      w.spot = spot;
+      w.spotKey = '';
+      return;
+    }
     if (w.hidden && !spot.vanish) {
       // Back from behind your door, or in through the entrance.
       w.pos = centre(w.hidden === 'door' ? this.layout.door : this.layout.entrance);
@@ -440,6 +520,7 @@ export class OfficeScene {
     w.ch.pose(s.stance, s.hands);
     w.ch.face(s.face[0], s.face[1]);
     w.ch.still();
+    if (w.errand && !w.errand.until && w.spotKey !== w.errand.finalKey) this.handOver(w, now);
     if (s.vanish) {
       if (instant) this.hide(w, s.vanish);
       else w.fade = { from: 1, to: 0, start: now };
@@ -492,6 +573,15 @@ export class OfficeScene {
       this.walking = walking;
       this.opts.events.walking(walking);
     }
+    const errands = [...this.walkers.values()].filter((w) => w.errand).map((w) => w.key);
+    const arriving = [...this.walkers.values()].filter(
+      (w) => w.hidden === 'exit' && w.spot && !w.spot.vanish && !w.spotKey,
+    ).length;
+    const seen = `${errands.join(',')}|${arriving}`;
+    if (seen !== this.errandsSeen) {
+      this.errandsSeen = seen;
+      this.opts.events.errands(errands, arriving);
+    }
     if (busy || this.camera.moving) this.raf = requestAnimationFrame(this.frame);
     else this.last = 0;
   };
@@ -499,6 +589,14 @@ export class OfficeScene {
   /** One frame for one character. True while it still has something to do. */
   private step(w: Walker, now: number, dt: number): boolean {
     let busy = false;
+    if (w.hidden === 'exit' && w.spot && !w.spot.vanish && !w.spotKey) {
+      if (now >= w.enterAt) this.goTo(w, w.spot, now);
+      else return true;
+    }
+    if (w.errand?.until) {
+      if (now >= w.errand.until) this.endErrand(w, now);
+      else busy = true;
+    }
     if (w.path.length) {
       let left = (w.speed * dt) / 1000;
       while (left > 0 && w.path.length) {
@@ -685,6 +783,20 @@ export class OfficeScene {
 
   setReducedMotion(reduced: boolean) {
     this.opts.reducedMotion = reduced;
+  }
+
+  /**
+   * A fresh snapshot (a reconnect): the next model places everyone where they are, with no walking,
+   * no errands and nobody queueing at the entrance.
+   */
+  resync() {
+    this.placed = false;
+    this.entrance.reset();
+    for (const w of this.walkers.values()) {
+      w.errand = null;
+      w.enterAt = 0;
+      w.spotKey = '';
+    }
   }
 
   // ---- Camera ---------------------------------------------------------------------------------

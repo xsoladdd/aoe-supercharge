@@ -263,6 +263,8 @@ export interface Snapshot {
     sound: boolean;
     /** Your name on the office door; empty reads "Your office". */
     displayName: string;
+    /** Walking, errands and arrivals in the office (off: everyone jumps, as with reduced motion). */
+    officeAnimations: boolean;
   };
 }
 

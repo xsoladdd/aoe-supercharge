@@ -201,6 +201,7 @@ waitingDebounceSeconds = 20
 [ui]
 theme = "dark"                     # dark | light | system
 displayName = "Ericson"            # on your office door: "Ericson’s office"
+officeAnimations = true            # walking, errands and arrivals in the office
 
 [office.history]
 retentionDays = 30                 # days of office history kept
@@ -235,7 +236,8 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - Idle workers, and those waiting on an MR pipeline or review, take a break in the pantry after 15 seconds idle.
   - Each worker has a desk number and an outfit picked from seven dress codes, from business formal to medieval garb.
   - The floor is drawn like a game (PixiJS). Drag to look around, scroll or pinch to zoom, double-click an area to zoom in, or use the chips: Whole office, your door, Pantry, and one per room.
-  - When a worker's status changes it walks to its new place, then stands still. With reduced motion it jumps there instead. Nothing is drawn while nobody moves.
+  - When a worker's status changes it walks to its new place, then stands still. A worker that raised an MR first takes a folder to its lead's desk and hands it over. Newcomers walk in through the entrance one at a time. Opening the page, or reconnecting, places everyone without walking.
+  - With reduced motion, or **Office animations** off (Settings, Appearance), everyone jumps to their place instead. Nothing is drawn while nobody moves.
   - Click a worker, or its row in the list beside the floor, for its card: why it is there, its stage, and its question or approval to answer in place. **Follow** keeps the camera on it.
   - **Call next** (or N) calls the front of the line in through your door and opens their card. Answer, and they walk back to work; close the card, and they go back in line.
   - Keys on the floor: arrows or WASD to move, + and - to zoom, 0 for the whole office, F to follow, Escape to close the card.

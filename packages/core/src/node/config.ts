@@ -237,6 +237,12 @@ export const ConfigSchema = z.strictObject({
         .describe(
           'Your name on the office door ("Ericson" reads "Ericson’s office"). Empty reads "Your office".',
         ),
+      officeAnimations: z
+        .boolean()
+        .default(true)
+        .describe(
+          'Walking, errands and arrivals in the office. Off, everyone jumps to their place (as with reduced motion).',
+        ),
     })
     .prefault({}),
   office: z
