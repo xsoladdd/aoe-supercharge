@@ -21,8 +21,10 @@ const watchLines = async (id: string) =>
     .filter((s) => s.id === id)
     .flatMap((s) => s.message.split('\n'))
     .filter((l) => l.startsWith('[WATCH]'));
-const kinds = async (control: string, session: string) =>
+/** The kinds told about one session, in order, from the `from`th line on (earlier runs share sessions). */
+const kinds = async (control: string, session: string, from = 0) =>
   (await watchLines(control))
+    .slice(from)
     .filter((l) => l.includes(` session=${session} `))
     .map((l) => /kind=(\w+)/.exec(l)![1]);
 
@@ -71,8 +73,9 @@ test.describe('worker watch', () => {
       }) as Promise<{ id: string }>;
     const crew = await mk('watch-crew', { status: 'Running' });
     let idler: { id: string } | null = null;
+    let before = 0;
     const once = async (session: string, expected: string[]) =>
-      expect.poll(() => kinds(control, session), { timeout: 20_000 }).toEqual(expected);
+      expect.poll(() => kinds(control, session, before), { timeout: 20_000 }).toEqual(expected);
     try {
       await patch(control, { status: 'Idle' });
       await setWatch(page, true);
@@ -81,7 +84,7 @@ test.describe('worker watch', () => {
       const panel = page.getByRole('complementary', { name: 'Project panel' });
       await panel.getByRole('tab', { name: 'Watch' }).click();
       await expect(panel.getByText(/Watching [1-9]\d* workers?/)).toBeVisible({ timeout: 15_000 });
-      const before = (await watchLines(control)).length;
+      before = (await watchLines(control)).length;
 
       // A task's worker errors.
       await patch(task, { status: 'Error', last_error: 'claude exited unexpectedly' });
@@ -112,8 +115,8 @@ test.describe('worker watch', () => {
       await once(idler.id, ['stalled']);
       // Still once each a few polls later.
       await page.waitForTimeout(4_000);
-      expect(await kinds(control, crew.id)).toEqual(['error', 'permission', 'question', 'done']);
-      expect(await kinds(control, idler.id)).toEqual(['stalled']);
+      expect(await kinds(control, crew.id, before)).toEqual(['error', 'permission', 'question', 'done']);
+      expect(await kinds(control, idler.id, before)).toEqual(['stalled']);
       expect((await watchLines(control)).length).toBe(before + 6);
 
       // In the chat: compact notices, with links to the worker and to what its pane showed.
@@ -141,7 +144,7 @@ test.describe('worker watch', () => {
       await setWatch(page, false);
       await patch(crew.id, { status: 'Error', last_error: 'again' });
       await page.waitForTimeout(4_000);
-      expect(await kinds(control, crew.id)).toHaveLength(4);
+      expect(await kinds(control, crew.id, before)).toHaveLength(4);
     } finally {
       await setWatch(page, false).catch(() => {});
       for (const s of [crew, idler]) if (s) await fake(`/__fake/sessions/${s.id}`, { method: 'DELETE' });
