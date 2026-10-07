@@ -186,6 +186,37 @@ test.describe('project', () => {
     await expect(page.getByLabel(/^Message /)).toHaveCount(0);
   });
 
+  test('sessions the control chat started through AoE are listed with its project', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    const control = await sessionId('northwind-web control');
+    const title = `test-nw-${browserName}`;
+    const { id } = (await fake('/__fake/sessions', {
+      method: 'POST',
+      body: JSON.stringify({
+        title,
+        project_path: '/tmp/northwind-web-worktrees/test',
+        parent_session_id: control,
+        status: 'Running',
+      }),
+    })) as { id: string };
+    try {
+      await page.goto('/p/northwind-web');
+      const sidebar = page.locator('[data-sidebar="sidebar"]');
+      await expect(sidebar.getByRole('link', { name: new RegExp(title) })).toBeVisible({ timeout: 15_000 });
+      const spawned = page.locator('section[aria-labelledby="spawned-heading"]');
+      await expect(spawned.getByRole('link', { name: new RegExp(title) })).toBeVisible();
+      await spawned.getByRole('link', { name: new RegExp(title) }).click();
+      await expect(page).toHaveURL(new RegExp(`/chat/${id}`));
+      // Not among the sessions Supercharge doesn't know.
+      await page.goto('/');
+      await expect(page.locator('#standalone').getByText(title)).toHaveCount(0);
+    } finally {
+      await fake(`/__fake/sessions/${id}`, { method: 'DELETE' });
+    }
+  });
+
   test('a permission prompt is answered from the chat by its number', async ({ signedIn: page }) => {
     const id = await sessionId('AA-0001');
     await fake(`/__fake/sessions/${id}`, {
@@ -265,11 +296,31 @@ test.describe('project', () => {
       });
       await expect(card.getByRole('link', { name: /NW-0005/ })).toBeVisible();
       await axe(page, 'multiple-choice question');
+      // One question at a time: Previous and Next step through them, and only the last one sends.
+      await expect(card.getByText('Question 1 of 2')).toBeVisible();
+      await expect(card.getByRole('button', { name: 'Previous' })).toBeDisabled();
+      await expect(card.getByRole('button', { name: 'Send answers' })).toHaveCount(0);
+      await card.getByRole('button', { name: 'Next' }).click();
+      await expect(card.getByText('Question 2 of 2')).toBeVisible();
+      await expect(
+        card.getByText('Run the pass before or after content entry?', { exact: true }),
+      ).toBeVisible();
+      await expect(card.getByText('Which browsers should the QA pass cover?', { exact: true })).toHaveCount(
+        0,
+      );
+      // Sending with the first one unanswered goes back to it.
       await card.getByRole('button', { name: 'Send answers' }).click();
       await expect(card.getByRole('alert')).toContainText('Answer every question');
+      await expect(card.getByText('Question 1 of 2')).toBeVisible();
       await card.getByRole('checkbox', { name: /^Chrome/ }).check();
       await card.getByRole('checkbox', { name: /^Safari/ }).check();
+      await card.getByRole('button', { name: 'Next' }).click();
       await card.getByRole('radio', { name: 'After', exact: true }).check();
+      // The answers survive going back and forth.
+      await card.getByRole('button', { name: 'Previous' }).click();
+      await expect(card.getByRole('checkbox', { name: /^Safari/ })).toBeChecked();
+      await card.getByRole('button', { name: /^Timing/ }).click();
+      await expect(card.getByRole('radio', { name: 'After', exact: true })).toBeChecked();
       await card.getByRole('button', { name: 'Send answers' }).click();
       await expect(page.getByText('Answers sent')).toBeVisible();
       const state = (await fake('/__fake/state')) as {

@@ -96,7 +96,11 @@ This sends a prompt to that worker's session and is recorded in the audit log. N
 
 When a command has to come from the user (a permission rule blocks it for you, or it is theirs to decide), give it in a fenced `bash` block, one block per thing to run, without a `$ ` prompt and without output lines. The Supercharge dashboard puts a **Run** button on `bash` blocks. A click runs the block in this session through Claude Code's shell mode (`!`), as the user, and you then see its output. Use a `text` block for anything that is not meant to be run, like a list of names.
 
-## 7. Rules
+## 7. Asking the user several things
+
+When you have several questions for the user, ask them in one AskUserQuestion call (it takes up to four), not one call per question. The dashboard shows a call's questions one at a time with Previous and Next, and sends all the answers together. With more than four, ask the first four, then the rest in a second call. Don't number questions as "[2/5]" across calls: the user sees only the questions of the call in front of them.
+
+## 8. Rules
 
 - Never run `supercharge stage`, `ask` or `plan` yourself; those belong to workers.
 - Never merge, push or close merge requests unless the user tells you to.

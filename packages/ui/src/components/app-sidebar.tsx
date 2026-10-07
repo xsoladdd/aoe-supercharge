@@ -167,7 +167,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                   None yet. Run <code className="font-mono">supercharge init</code> in a repository.
                 </p>
               )}
-              {projects.map(({ project, control, tasks }) => {
+              {projects.map(({ project, control, tasks, spawned }) => {
                 const href = `/p/${project.name}`;
                 const active = location === href || location.startsWith(`${href}/`);
                 const needs = needsByProject.get(project.name) ?? 0;
@@ -295,6 +295,31 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                               );
                             });
                           })()}
+                          {/* Started by the control chat straight through AoE, not as tasks. */}
+                          {spawned.map((s) => (
+                            <SessionMenu key={s.id} sessionId={s.id} order={spawned.map((x) => x.id)}>
+                              <SidebarMenuSubItem className={SELECTED}>
+                                <SidebarMenuSubButton
+                                  asChild
+                                  size="md"
+                                  isActive={location === chatHref(s.id)}
+                                  className="h-8"
+                                >
+                                  <Link
+                                    href={chatHref(s.id)}
+                                    title={`${s.title}, started by the control chat`}
+                                  >
+                                    <TerminalWindowIcon className="size-4" />
+                                    <span className="truncate">{s.title}</span>
+                                    <div className="ml-auto flex shrink-0 items-center gap-1">
+                                      <Marks session={s} />
+                                      <LiveStatus status={s.status} labelled={false} unread={s.unread} />
+                                    </div>
+                                  </Link>
+                                </SidebarMenuSubButton>
+                              </SidebarMenuSubItem>
+                            </SessionMenu>
+                          ))}
                         </SidebarMenuSub>
                       </CollapsibleContent>
                     </SidebarMenuItem>

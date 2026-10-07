@@ -1,4 +1,7 @@
 import {
+  CaretLeftIcon,
+  CaretRightIcon,
+  CheckIcon,
   CircleNotchIcon,
   ClipboardTextIcon,
   HandPalmIcon,
@@ -15,7 +18,7 @@ import {
   type TaskRecord,
   workerName,
 } from '@aoe-supercharge/core/shared';
-import { lazy, Suspense, useEffect, useId, useState } from 'react';
+import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
 import { CommandLine } from '@/components/copy';
@@ -158,9 +161,10 @@ function CardShell({
 }
 
 /**
- * Claude's own multiple-choice questions (AskUserQuestion), all tabs at once: radios for one answer,
- * checkboxes for several, and "Something else" for your own words. Sent as one message after
- * Supercharge closes the question in the terminal.
+ * Claude's own multiple-choice questions (AskUserQuestion): radios for one answer, checkboxes for
+ * several, and "Something else" for your own words. Several questions go one at a time with Previous and
+ * Next, like the tabs in Claude's terminal. Sent as one message after Supercharge closes the question in
+ * the terminal.
  */
 function AskForm({
   session,
@@ -181,8 +185,24 @@ function AskForm({
   const partial = tabs.length > 1;
   const [picked, setPicked] = useState<string[][]>(() => questions.map(() => []));
   const [other, setOther] = useState<string[]>(() => questions.map(() => ''));
+  const [step, setStep] = useState(0);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const stepped = questions.length > 1;
+  const last = step === questions.length - 1;
+  const answered = (qi: number) => picked[qi]!.length > 0 || !!other[qi]!.trim();
+  const nameOf = (qi: number) => questions[qi]?.header || `Question ${qi + 1}`;
+  // After Previous or Next, focus moves to the question shown (not on first render).
+  const current = useRef<HTMLFieldSetElement>(null);
+  const moved = useRef(false);
+  useEffect(() => {
+    if (moved.current) current.current?.focus();
+  }, [step]);
+  const go = (to: number) => {
+    setError(null);
+    moved.current = true;
+    setStep(Math.max(0, Math.min(questions.length - 1, to)));
+  };
 
   const toggle = (qi: number, label: string, multi: boolean) => {
     setError(null);
@@ -194,9 +214,14 @@ function AskForm({
   };
 
   const send = async () => {
-    const missing = questions.findIndex((_, i) => !picked[i]!.length && !other[i]!.trim());
+    const missing = questions.findIndex((_, i) => !answered(i));
     if (missing >= 0) {
-      setError(`Answer every question, or write something else for it (question ${missing + 1} is empty).`);
+      if (stepped) go(missing);
+      setError(
+        stepped
+          ? `Answer every question, or write something else for it (${nameOf(missing)} has no answer yet).`
+          : 'Answer the question, or write something else for it.',
+      );
       return;
     }
     setSending(true);
@@ -218,30 +243,78 @@ function AskForm({
           .filter(Boolean)
           .join('\n\n'),
       });
-      toast.success('Answers sent');
+      toast.success(stepped ? 'Answers sent' : 'Answer sent');
       onAnswered?.();
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not send the answers.');
-      toast.error('Answers not sent');
+      toast.error(stepped ? 'Answers not sent' : 'Answer not sent');
     } finally {
       setSending(false);
     }
   };
 
+  const shown = stepped ? [step] : questions.map((_, qi) => qi);
+
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        void send();
+        // Enter moves on to the next question; on the last one it sends.
+        if (stepped && !last) go(step + 1);
+        else void send();
       }}
       className="space-y-5"
     >
-      {questions.map((q, qi) => {
+      {stepped && (
+        <div className="space-y-2">
+          <p aria-live="polite" className="text-sm text-muted-foreground">
+            Question {step + 1} of {questions.length}
+            {questions.every((_, i) => answered(i)) && ', all answered'}
+          </p>
+          <ol aria-label="Questions" className="flex flex-wrap gap-1.5">
+            {questions.map((_, qi) => {
+              const done = answered(qi);
+              return (
+                <li key={qi}>
+                  <button
+                    type="button"
+                    onClick={() => go(qi)}
+                    aria-current={qi === step ? 'step' : undefined}
+                    className={cn(
+                      'inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[0.8125rem] font-medium transition-colors',
+                      qi === step
+                        ? 'border-ring/70 bg-accent text-foreground ring-2 ring-ring/25'
+                        : 'border-border text-muted-foreground hover:border-border-strong hover:text-foreground',
+                    )}
+                  >
+                    {done ? (
+                      <CheckIcon weight="bold" aria-hidden className="size-3.5 text-st-green" />
+                    ) : (
+                      <span aria-hidden className="font-mono text-xs">
+                        {qi + 1}
+                      </span>
+                    )}
+                    {nameOf(qi)}
+                    {done && <span className="sr-only">, answered</span>}
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      )}
+      {shown.map((qi) => {
+        const q = questions[qi]!;
         const multi = !!q.multiSelect;
         return (
-          <fieldset key={qi} className="space-y-2">
+          <fieldset
+            key={qi}
+            ref={stepped ? current : undefined}
+            tabIndex={stepped ? -1 : undefined}
+            className="space-y-2 outline-none"
+          >
             <legend className="mb-2 flex flex-wrap items-center gap-2">
-              {q.header && (
+              {q.header && !stepped && (
                 <span className="rounded-full bg-raised px-2 py-0.5 text-xs font-medium text-muted-foreground">
                   {q.header}
                 </span>
@@ -305,20 +378,22 @@ function AskForm({
           answers the one shown; Claude asks the others again after it reads your answer.
         </p>
       )}
-      <div className="space-y-1.5">
-        <label htmlFor={`ask-${id}-note`} className="text-sm font-medium">
-          Anything else for Claude? <span className="font-normal text-muted-foreground">(optional)</span>
-        </label>
-        <textarea
-          id={`ask-${id}-note`}
-          name="note"
-          rows={2}
-          autoComplete="off"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          className="block w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-[0.9375rem] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 focus-visible:outline-none"
-        />
-      </div>
+      {(!stepped || last) && (
+        <div className="space-y-1.5">
+          <label htmlFor={`ask-${id}-note`} className="text-sm font-medium">
+            Anything else for Claude? <span className="font-normal text-muted-foreground">(optional)</span>
+          </label>
+          <textarea
+            id={`ask-${id}-note`}
+            name="note"
+            rows={2}
+            autoComplete="off"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            className="block w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-[0.9375rem] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 focus-visible:outline-none"
+          />
+        </div>
+      )}
       {error && (
         <p role="alert" className="text-sm text-st-red">
           {error}
@@ -326,12 +401,29 @@ function AskForm({
       )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          Supercharge closes the question in Claude’s terminal and sends your answers as a message. Audited.
+          {stepped && !last
+            ? 'Nothing is sent until you have gone through every question.'
+            : 'Supercharge closes the question in Claude’s terminal and sends your answers as a message. Audited.'}
         </p>
-        <Button type="submit" variant="gradient" disabled={sending}>
-          {sending ? <CircleNotchIcon className="animate-spin" /> : <PaperPlaneRightIcon weight="fill" />}
-          {sending ? 'Sending…' : questions.length > 1 ? 'Send answers' : 'Send answer'}
-        </Button>
+        <div className="flex items-center gap-2">
+          {stepped && (
+            <Button type="button" variant="outline" disabled={step === 0} onClick={() => go(step - 1)}>
+              <CaretLeftIcon />
+              Previous
+            </Button>
+          )}
+          {stepped && !last ? (
+            <Button type="submit" variant="gradient">
+              Next
+              <CaretRightIcon />
+            </Button>
+          ) : (
+            <Button type="submit" variant="gradient" disabled={sending}>
+              {sending ? <CircleNotchIcon className="animate-spin" /> : <PaperPlaneRightIcon weight="fill" />}
+              {sending ? 'Sending…' : stepped ? 'Send answers' : 'Send answer'}
+            </Button>
+          )}
+        </div>
       </div>
     </form>
   );

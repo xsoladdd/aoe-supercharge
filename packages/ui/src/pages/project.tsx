@@ -1,4 +1,4 @@
-import { PlusIcon, DotsThreeIcon, GearSixIcon } from '@phosphor-icons/react';
+import { PlusIcon, DotsThreeIcon, GearSixIcon, TerminalWindowIcon } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import type { Snapshot } from '@aoe-supercharge/core/shared';
@@ -25,7 +25,9 @@ import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { WorkerList } from '@/components/worker-list';
 import { projectViews, sessionMap } from '@/lib/derive';
-import { useSearchParam } from '@/lib/nav';
+import { LiveStatus } from '@/components/status';
+import { SessionMenu } from '@/components/session-menu';
+import { chatHref, useSearchParam } from '@/lib/nav';
 import { PageHeader } from '@/pages/overview';
 
 /**
@@ -186,6 +188,45 @@ export function ProjectPage({
           showArchived={showArchived}
         />
       </section>
+      {view.spawned.length > 0 && (
+        <section aria-labelledby="spawned-heading" className="space-y-3">
+          <div>
+            <h2 id="spawned-heading" className="text-base font-semibold">
+              Started by the control chat
+            </h2>
+            <p className="text-[0.9375rem] text-muted-foreground">
+              Sessions the control chat started straight through AoE rather than as tasks, so they have no
+              stage or merge request here.
+            </p>
+          </div>
+          <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-card">
+            {view.spawned.map((s) => (
+              <SessionMenu key={s.id} sessionId={s.id} order={view.spawned.map((x) => x.id)}>
+                <li className="data-[state=open]:bg-raised data-selected:bg-primary/10">
+                  <Link
+                    href={chatHref(s.id)}
+                    className="flex min-w-0 items-center gap-3 px-4 py-2.5 transition-colors hover:bg-raised/70"
+                  >
+                    <TerminalWindowIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    <span className="truncate text-[0.9375rem]">{s.title}</span>
+                    {s.branch && (
+                      <span
+                        translate="no"
+                        className="truncate font-mono text-[0.8125rem] text-muted-foreground"
+                      >
+                        {s.branch}
+                      </span>
+                    )}
+                    <span className="ml-auto shrink-0">
+                      <LiveStatus status={s.status} unread={s.unread} />
+                    </span>
+                  </Link>
+                </li>
+              </SessionMenu>
+            ))}
+          </ul>
+        </section>
+      )}
     </div>
   );
 }

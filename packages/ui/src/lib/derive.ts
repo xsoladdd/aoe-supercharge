@@ -12,6 +12,11 @@ export interface ProjectView {
   control: SessionView | null;
   tasks: TaskRecord[];
   counts: Record<Stage, number>;
+  /**
+   * Sessions the control chat started straight through AoE (`aoe add -P <control>`) rather than as
+   * tasks: no stage or worker card, but they are this project's, so they are listed with it.
+   */
+  spawned: SessionView[];
 }
 
 export function sessionMap(snap: Snapshot): Map<string, SessionView> {
@@ -20,15 +25,22 @@ export function sessionMap(snap: Snapshot): Map<string, SessionView> {
 
 export function projectViews(snap: Snapshot): ProjectView[] {
   const byId = sessionMap(snap);
+  const managed = managedIds(snap);
   return snap.projects.map((project) => {
     const tasks = snap.tasks.filter((t) => t.project === project.name);
     const counts = Object.fromEntries(STAGES.map((s) => [s, 0])) as Record<Stage, number>;
     for (const t of tasks) counts[t.stage]++;
+    const spawned = project.controlSessionId
+      ? snap.sessions
+          .filter((s) => s.parentId === project.controlSessionId && !managed.has(s.id) && !s.archived)
+          .sort(byRecent)
+      : [];
     return {
       project,
       control: project.controlSessionId ? (byId.get(project.controlSessionId) ?? null) : null,
       tasks,
       counts,
+      spawned,
     };
   });
 }
@@ -54,17 +66,23 @@ export function pinnedFirst<T>(items: T[], pinned: (item: T) => boolean): T[] {
   return [...items].sort((a, b) => Number(pinned(b)) - Number(pinned(a)));
 }
 
+/** Pinned first, then most recently used. */
+const byRecent = (a: SessionView, b: SessionView) =>
+  Number(b.pinned) - Number(a.pinned) || (b.lastAccessedAt ?? '').localeCompare(a.lastAccessedAt ?? '');
+
 export function unmanagedGroups(snap: Snapshot): SessionGroup[] {
   const managed = managedIds(snap);
-  const rest = snap.sessions.filter((s) => !managed.has(s.id) && !s.archived);
+  // Sessions a control chat started are listed with its project (ProjectView.spawned).
+  const controls = new Set(snap.projects.map((p) => p.controlSessionId).filter((x): x is string => !!x));
+  const rest = snap.sessions.filter(
+    (s) => !managed.has(s.id) && !s.archived && !(s.parentId && controls.has(s.parentId)),
+  );
   const ids = new Set(rest.map((s) => s.id));
   const childrenOf = new Map<string, SessionView[]>();
   for (const s of rest) {
     if (s.parentId && ids.has(s.parentId))
       childrenOf.set(s.parentId, [...(childrenOf.get(s.parentId) ?? []), s]);
   }
-  const byRecent = (a: SessionView, b: SessionView) =>
-    Number(b.pinned) - Number(a.pinned) || (b.lastAccessedAt ?? '').localeCompare(a.lastAccessedAt ?? '');
   const groups: SessionGroup[] = rest
     .filter((s) => childrenOf.has(s.id))
     .map((parent) => ({ parent, children: (childrenOf.get(parent.id) ?? []).sort(byRecent) }));
