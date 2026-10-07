@@ -1,11 +1,15 @@
 import {
   ArrowSquareOutIcon,
   ChatTeardropTextIcon,
+  CircleNotchIcon,
   CrosshairSimpleIcon,
   GitMergeIcon,
   KanbanIcon,
+  PaperPlaneRightIcon,
   XIcon,
 } from '@phosphor-icons/react';
+import { useId, useState } from 'react';
+import { toast } from 'sonner';
 import { Link } from 'wouter';
 import { DRESS_CODE_LABEL, relativeTime, ZONE_LABEL } from '@aoe-supercharge/core/shared';
 import { PromptCard, TaskAsks } from '@/components/answer';
@@ -13,6 +17,8 @@ import { Avatar } from '@/components/office/avatar';
 import { Reason } from '@/components/office/roster';
 import { LiveStatus, StageBadge } from '@/components/status';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { ApiError, sendJson } from '@/lib/api';
 import { chatHref } from '@/lib/nav';
 import type { OfficeModel, OfficeWorker } from '@/lib/office';
 import { cn } from '@/lib/utils';
@@ -25,6 +31,84 @@ function where(w: OfficeWorker, office: OfficeModel): string {
   if (w.zone === 'desk')
     return w.role === 'lead' ? 'At the lead desk' : w.desk ? `At desk ${w.desk}` : 'In the team walkway';
   return ZONE_LABEL[w.zone];
+}
+
+/**
+ * Write to a team's control chat from its card on the floor, as from its chat: typed into its AoE
+ * session and recorded in the audit log. Picking the lead puts you straight in the box.
+ */
+function LeadMessage({ sessionId, project }: { sessionId: string; project: string }) {
+  const id = useId();
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const send = async () => {
+    if (!text.trim()) {
+      setError('Write a message first.');
+      return;
+    }
+    setSending(true);
+    setError(null);
+    try {
+      await sendJson('POST', `/api/sessions/${encodeURIComponent(sessionId)}/send`, { message: text });
+      setText('');
+      toast.success(`Sent to the ${project} control chat`, { description: 'Recorded in the audit log.' });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not send. Try again, or write in the chat.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        void send();
+      }}
+      className="space-y-2"
+    >
+      <label htmlFor={`${id}-text`} className="text-sm font-medium">
+        Message the control chat
+      </label>
+      <Textarea
+        id={`${id}-text`}
+        // You picked the lead to talk to it.
+        autoFocus
+        rows={2}
+        value={text}
+        onChange={(e) => {
+          setText(e.target.value);
+          if (error) setError(null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            void send();
+          }
+        }}
+        placeholder="What should the team do next?"
+        aria-invalid={!!error}
+        aria-describedby={`${id}-hint${error ? ` ${id}-error` : ''}`}
+        className="max-h-40"
+      />
+      {error && (
+        <p id={`${id}-error`} role="alert" className="text-sm text-st-red">
+          {error}
+        </p>
+      )}
+      <div className="flex items-center justify-between gap-3">
+        <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+          Enter sends, Shift+Enter adds a line
+        </p>
+        <Button type="submit" size="sm" disabled={sending} className="px-3">
+          {sending ? <CircleNotchIcon className="animate-spin" /> : <PaperPlaneRightIcon />}
+          Send
+        </Button>
+      </div>
+    </form>
+  );
 }
 
 /**
@@ -138,9 +222,12 @@ export function WorkerCard({
                 )
               );
             })()}
-            <p className="text-sm text-muted-foreground">{w.spot.reason}. Reply in the control chat.</p>
+            <p className="text-sm text-muted-foreground">
+              {w.spot.reason}. Reply below, or in the control chat.
+            </p>
           </div>
         )}
+        {w.role === 'lead' && w.session && <LeadMessage sessionId={w.session.id} project={w.project} />}
       </div>
 
       <footer className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">

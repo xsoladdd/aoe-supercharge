@@ -321,6 +321,30 @@ test.describe('office', () => {
       await win.close();
     });
 
+    test('picking a team lead lets you message its control chat', async ({ signedIn: page, browserName }) => {
+      const control = await sessionId('northwind-web control');
+      await page.goto('/office');
+      await drawn(page);
+      await page.locator('[data-worker="northwind-web/lead"]').click();
+      const card = page.locator('[data-worker-card="northwind-web/lead"]');
+      const box = card.getByRole('textbox', { name: 'Message the control chat' });
+      await expect(box).toBeFocused();
+      await axe(page, 'office lead card');
+      // Nothing to send yet.
+      await card.getByRole('button', { name: 'Send' }).click();
+      await expect(card.getByRole('alert')).toHaveText('Write a message first.');
+      const message = `Pick up the footer copy next (${browserName})`;
+      await box.fill(message);
+      await box.press('Enter');
+      await expect(box).toHaveValue('');
+      await expect
+        .poll(async () => {
+          const state = (await fake('/__fake/state')) as { sent: { id: string; message: string }[] };
+          return state.sent.filter((m) => m.id === control).at(-1)?.message;
+        })
+        .toBe(message);
+    });
+
     test('picking a worker in the list opens its card and flies to it', async ({ signedIn: page }) => {
       await page.goto('/office');
       await drawn(page);
