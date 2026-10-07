@@ -235,6 +235,16 @@ describe('ledger', () => {
     expect(await ledger.takenDesks('demo')).toEqual([2]);
   });
 
+  it('crew: a worker the control chat started through AoE keeps its first name, and no one else gets it', async () => {
+    const ledger = await setup();
+    await ledger.createTask({ ...newTask('DE-0008'), name: 'Gareth' });
+    await ledger.nameCrew('demo', 's1', 'Percival');
+    await ledger.nameCrew('demo', 's1', 'Tristan');
+    expect((await ledger.getProject('demo'))?.crew).toEqual({ s1: 'Percival' });
+    expect(await ledger.takenNames('demo')).toEqual(expect.arrayContaining(['Gareth', 'Percival']));
+    expect(await ledger.takenNames('demo')).not.toContain('Tristan');
+  });
+
   it('locks are a set of session ids', async () => {
     const ledger = await setup();
     expect(await ledger.readLocks()).toEqual([]);

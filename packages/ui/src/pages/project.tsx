@@ -208,6 +208,9 @@ export function ProjectPage({
                     className="flex min-w-0 items-center gap-3 px-4 py-2.5 transition-colors hover:bg-raised/70"
                   >
                     <TerminalWindowIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                    {view.project.crew?.[s.id] && (
+                      <span className="shrink-0 text-[0.9375rem] font-medium">{view.project.crew[s.id]}</span>
+                    )}
                     <span className="truncate text-[0.9375rem]">{s.title}</span>
                     {s.branch && (
                       <span

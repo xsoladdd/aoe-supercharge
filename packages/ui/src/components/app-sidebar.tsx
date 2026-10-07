@@ -296,30 +296,36 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                             });
                           })()}
                           {/* Started by the control chat straight through AoE, not as tasks. */}
-                          {spawned.map((s) => (
-                            <SessionMenu key={s.id} sessionId={s.id} order={spawned.map((x) => x.id)}>
-                              <SidebarMenuSubItem className={SELECTED}>
-                                <SidebarMenuSubButton
-                                  asChild
-                                  size="md"
-                                  isActive={location === chatHref(s.id)}
-                                  className="h-8"
-                                >
-                                  <Link
-                                    href={chatHref(s.id)}
-                                    title={`${s.title}, started by the control chat`}
+                          {spawned.map((s) => {
+                            const name = project.crew?.[s.id];
+                            return (
+                              <SessionMenu key={s.id} sessionId={s.id} order={spawned.map((x) => x.id)}>
+                                <SidebarMenuSubItem className={SELECTED}>
+                                  <SidebarMenuSubButton
+                                    asChild
+                                    size="md"
+                                    isActive={location === chatHref(s.id)}
+                                    className="h-8"
                                   >
-                                    <TerminalWindowIcon className="size-4" />
-                                    <span className="truncate">{s.title}</span>
-                                    <div className="ml-auto flex shrink-0 items-center gap-1">
-                                      <Marks session={s} />
-                                      <LiveStatus status={s.status} labelled={false} unread={s.unread} />
-                                    </div>
-                                  </Link>
-                                </SidebarMenuSubButton>
-                              </SidebarMenuSubItem>
-                            </SessionMenu>
-                          ))}
+                                    <Link
+                                      href={chatHref(s.id)}
+                                      title={`${s.title}, started by the control chat`}
+                                    >
+                                      <TerminalWindowIcon className="size-4" />
+                                      {name && <span className="shrink-0 font-medium">{name}</span>}
+                                      <span className={cn('truncate', name && 'text-muted-foreground')}>
+                                        {s.title}
+                                      </span>
+                                      <div className="ml-auto flex shrink-0 items-center gap-1">
+                                        <Marks session={s} />
+                                        <LiveStatus status={s.status} labelled={false} unread={s.unread} />
+                                      </div>
+                                    </Link>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              </SessionMenu>
+                            );
+                          })}
                         </SidebarMenuSub>
                       </CollapsibleContent>
                     </SidebarMenuItem>

@@ -174,6 +174,9 @@ export class AoeWatcher {
     }
     await this.readAsks(views);
     this.store.setSessions(views);
+    await this.nameCrew(views).catch((err) =>
+      this.ctx.logger.warn('could not name a worker', { err: (err as Error).message }),
+    );
     for (const id of [...this.since.keys()]) if (!live.some((s) => s.id === id)) this.since.delete(id);
     await this.followRemovedSessions(new Set(live.map((s) => s.id)), trashed).catch((err) =>
       this.ctx.logger.warn('could not sync removed workers', { err: (err as Error).message }),
@@ -225,6 +228,28 @@ export class AoeWatcher {
 
   private absent = new Map<string, { polls: number; since: number }>();
   private lastRestoreScan = 0;
+
+  /**
+   * A worker a control chat starts straight through AoE (`aoe add -P`) gets a name like a task's, the
+   * first time it is seen, kept with the project. A session `supercharge task new` is still writing
+   * down may get one too; its task's own name is the one shown, and the spare is simply never reused.
+   */
+  private async nameCrew(views: SessionView[]) {
+    const managed = new Set(this.store.tasks.map((t) => t.aoeSessionId));
+    for (const p of this.store.projects) {
+      if (!p.controlSessionId) continue;
+      const fresh = views
+        .filter((v) => v.parentId === p.controlSessionId && !managed.has(v.id) && !p.crew?.[v.id])
+        .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? '') || a.id.localeCompare(b.id));
+      // Each is written before the next is named, so names never repeat. The ledger watcher picks them up.
+      for (const v of fresh)
+        await this.ctx.ledger.nameCrew(
+          p.name,
+          v.id,
+          pickWorkerName(await this.ctx.ledger.takenNames(p.name), p.name),
+        );
+    }
+  }
 
   /**
    * Workers follow their AoE session. Trashed (AoE's delete) or gone for good: the task moves out of

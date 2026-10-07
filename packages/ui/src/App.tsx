@@ -67,7 +67,14 @@ function crumbsFor(location: string, snap: Snapshot): Crumb[] {
         { label: task.id, href: `/p/${task.project}/t/${task.id}`, mono: true },
         { label: 'Chat' },
       ];
-    return [{ label: snap.sessions.find((s) => s.id === id)?.title ?? id }];
+    const session = snap.sessions.find((s) => s.id === id);
+    const lead = session?.parentId
+      ? snap.projects.find((p) => p.controlSessionId === session.parentId)
+      : null;
+    // A worker the control chat started through AoE: under its project, by its name.
+    const name = session && lead?.crew?.[session.id];
+    if (lead && name) return [{ label: lead.name, href: `/p/${lead.name}` }, { label: name }];
+    return [{ label: session?.title ?? id }];
   }
   return [];
 }

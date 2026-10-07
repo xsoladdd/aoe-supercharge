@@ -199,7 +199,15 @@ export class Ledger {
       ...(await this.listTasks(project)),
       ...(await this.listRemovedTasks()).filter((t) => t.project === project),
     ];
-    return tasks.map((t) => t.name).filter((n): n is string => !!n);
+    const crew = Object.values((await this.getProject(project))?.crew ?? {});
+    return [...tasks.map((t) => t.name).filter((n): n is string => !!n), ...crew];
+  }
+
+  /** Name a worker the control chat started through AoE (ProjectRecord.crew). The first name stays. */
+  async nameCrew(project: string, sessionId: string, name: string): Promise<void> {
+    await this.updateProject(project, (p) =>
+      p.crew?.[sessionId] ? p : { ...p, crew: { ...p.crew, [sessionId]: name } },
+    );
   }
 
   async readPlan(project: string, id: string): Promise<string | null> {

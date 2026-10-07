@@ -148,6 +148,7 @@ export function buildOffice(snap: Snapshot, now: Date): OfficeModel {
     );
     for (const session of spawned) {
       const key = `${name}/s/${session.id}`;
+      const crew = project.crew?.[session.id];
       const items = bySession.get(session.id) ?? [];
       const spot = sessionSpot(session, items, now);
       const desk = pickDesk(taken);
@@ -157,8 +158,9 @@ export function buildOffice(snap: Snapshot, now: Date): OfficeModel {
         role: 'worker',
         project: name,
         id: null,
-        name: session.title,
-        title: session.branch ?? 'Started by the control chat',
+        // Named like a task's worker; until the daemon has named it, its AoE title.
+        name: crew ?? session.title,
+        title: crew ? session.title : (session.branch ?? 'Started by the control chat'),
         task: null,
         session,
         desk,

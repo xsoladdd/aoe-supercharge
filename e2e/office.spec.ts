@@ -112,6 +112,20 @@ test.describe('office', () => {
       await expect(row).toHaveAttribute('data-zone', 'desk', { timeout: 15_000 });
       await expect(row).toHaveAttribute('data-project', 'northwind-web');
       await expect(row.getByText(title)).toBeVisible();
+      // Named like a task's worker the first time the daemon sees it, and kept with the project.
+      let name = '';
+      await expect
+        .poll(async () => {
+          const snap = (await (await page.request.get('/api/snapshot')).json()) as {
+            projects: { name: string; crew?: Record<string, string> }[];
+          };
+          return (name = snap.projects.find((p) => p.name === 'northwind-web')?.crew?.[id] ?? '');
+        })
+        .toMatch(/^[A-Z][a-z]+( [IVX]+)?$/);
+      await expect(row.getByText(name, { exact: true })).toBeVisible();
+      await page.goto(`/chat/${id}`);
+      await expect(page.getByRole('navigation', { name: 'breadcrumb' })).toContainText(name);
+      await page.goto('/office?view=list');
       await setStatus(id, 'Stopped');
       await expect(row).toHaveAttribute('data-zone', 'away', { timeout: 15_000 });
     } finally {

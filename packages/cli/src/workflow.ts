@@ -929,8 +929,11 @@ export async function adoptSessions(
       rev: 1,
       id: await ctx.ledger.allocateTaskId(project.name),
       project: project.name,
-      // Each adopted task is written before the next is named, so names never repeat.
-      name: pickWorkerName(await ctx.ledger.takenNames(project.name), project.name),
+      // A worker the office already knows keeps its name. Each adopted task is written before the next
+      // is named, so names never repeat.
+      name:
+        (await ctx.ledger.getProject(project.name))?.crew?.[e.id] ??
+        pickWorkerName(await ctx.ledger.takenNames(project.name), project.name),
       desk: pickDesk(await ctx.ledger.takenDesks(project.name)),
       title,
       brief: '',

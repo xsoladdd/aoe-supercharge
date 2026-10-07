@@ -105,6 +105,11 @@ export interface ProjectRecord {
   installMode: 'user' | 'commit';
   createdAt: string;
   updatedAt: string;
+  /**
+   * Names for the workers its control chat started straight through AoE (`aoe add -P`), by session
+   * id, as tasks have theirs. Kept after a session is gone, so a name is never given twice.
+   */
+  crew?: Record<string, string>;
 }
 
 /** Dashboard-level session status, normalised from AoE's PascalCase enum. */
