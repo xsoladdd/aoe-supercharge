@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.3 (2026-10-07)
+
+- **Workers your control chat starts through AoE are in the office.** A session started with
+  `aoe add -P <control>` instead of `supercharge task new` takes a free desk in its project's team, and
+  goes to the pantry, your door or away as its session does. Waiting on a menu, it can be answered from
+  its card. Its Needs-you items count for its project.
+- A control chat's list of things for you is found under the other headings control chats use for it
+  too: "Still waiting on you", "Waiting for your answers", "Blocked on you", "Your call", not only
+  "NEEDS YOU". At your door, its card lists them, blockers marked.
+
 ## 0.3.2 (2026-10-07)
 
 What your control chat says needs you puts it in line at your door.
