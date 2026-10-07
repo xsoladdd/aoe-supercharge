@@ -148,10 +148,8 @@ describe('office: where a worker stands (SPEC §14.5)', () => {
   });
 
   it('team leads: at the door when they need you, else at the lead desk', () => {
-    expect(leadSpot(session('idle'), [item('control_replied')])).toMatchObject({
-      zone: 'door',
-      prop: 'envelope',
-    });
+    // An unread reply is a notification; it does not put the lead in line.
+    expect(leadSpot(session('idle'), [item('control_replied')]).zone).toBe('desk');
     expect(leadSpot(session('waiting'), [item('control_waiting')]).prop).toBe('clipboard');
     expect(leadSpot(session('working'), []).zone).toBe('desk');
     expect(leadSpot(session('stopped'), []).zone).toBe('away');

@@ -112,7 +112,14 @@ const DESK_POSE: Record<Stage, Pose> = {
   done: 'typing',
 };
 
-function atDoor(items: NeedsYouItem[]): OfficeSpot | null {
+/**
+ * A reply you have not read yet is a notification, not something waiting on you: it stays out of the
+ * line. What the reply lists under NEEDS YOU does bring the lead to the door.
+ */
+const NOT_AT_THE_DOOR = new Set<NeedsYouKind>(['control_replied']);
+
+function atDoor(all: NeedsYouItem[]): OfficeSpot | null {
+  const items = all.filter((i) => !NOT_AT_THE_DOOR.has(i.kind));
   if (!items.length) return null;
   const kind = URGENCY.find((k) => items.some((i) => i.kind === k)) ?? items[0]!.kind;
   const since = items.map((i) => i.since).sort()[0]!;
