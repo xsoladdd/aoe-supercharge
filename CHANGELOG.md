@@ -1,11 +1,17 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 (2026-10-08)
+
+A whiteboard in every room, and fewer false alarms from the worker watch.
 
 - **A whiteboard in every room.** Each project's room in the office has its own whiteboard, standing
-  against its left glass, with that project's open todos and notes. Click it (or use the **Whiteboard**
-  button on the team in the list, or `?focus=board:<project>`) to read it up close and tick todos off.
-  The whiteboard by your door now keeps only the global notes.
+  against its left glass, half way down it, with that project's open todos and notes. Click it (or use
+  the **Whiteboard** button on the team in the list, or `?focus=board:<project>`) to read it up close
+  and tick todos off. The whiteboard by your door now keeps only the global notes. A room's sign now
+  stands at the room's west end, and a board focus waits until the board is in its place.
+- **No false stall while background shells run.** A worker that is waiting on its own background
+  shells is no longer reported as stalled.
+- **No runaway flag for control chats.** A control chat is no longer flagged as a runaway session.
 
 ## 1.1.0 (2026-10-08)
 

@@ -12,7 +12,7 @@ An opinionated parent/child dashboard for Claude Code, built on [Agent of Empire
 
 It runs as a small local daemon (Node 24, about 70 MB idle) bound to `127.0.0.1`. Merge requests are watched by a script, never by an LLM loop.
 
-> Status: v1.1.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 (1.18.0 passes the live contract too; see [AoE versions](#aoe-versions)).
+> Status: v1.2.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 (1.18.0 passes the live contract too; see [AoE versions](#aoe-versions)).
 > The design rationale lives in [SPEC.md](SPEC.md).
 
 ---
@@ -31,10 +31,10 @@ macOS and Linux only. On Windows, use WSL2 (AoE requires it). You need [Node.js 
 
 **Supercharge is not on npm or Homebrew yet**, and there is no tap, so `npm install -g aoe-supercharge`, `brew install` and the one-line `curl … | bash` do not work today. Install the packed release from GitHub, or from a checkout.
 
-**From a GitHub release.** Every release on the [Releases page](https://github.com/xsoladdd/aoe-supercharge/releases) has the packed CLI attached. For 1.1.0:
+**From a GitHub release.** Every release on the [Releases page](https://github.com/xsoladdd/aoe-supercharge/releases) has the packed CLI attached. For 1.2.0:
 
 ```bash
-npm install -g https://github.com/xsoladdd/aoe-supercharge/releases/download/v1.1.0/aoe-supercharge-1.1.0.tgz
+npm install -g https://github.com/xsoladdd/aoe-supercharge/releases/download/v1.2.0/aoe-supercharge-1.2.0.tgz
 ```
 
 This checks no dependencies: install them first (see [Dependencies](#dependencies)), then run `supercharge doctor`.
