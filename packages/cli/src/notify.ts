@@ -43,6 +43,8 @@ const TOGGLE: Record<NeedsYouKind, keyof Config['notifications'] | null> = {
   control_blocker: 'blocked',
   // The rest of a NEEDS YOU list arrives with the reply, which "Control chat replied" announces.
   control_needs: null,
+  // About a worker who waits on you for it: its own item has told you already.
+  control_relayed: null,
   session_error: 'error',
   session_missing: 'error',
   mr_ready: 'readyForReview',
@@ -58,6 +60,7 @@ const TITLE: Record<NeedsYouKind, string> = {
   control_replied: 'Control chat replied',
   control_blocker: 'Blocked on you',
   control_needs: 'Control chat needs you',
+  control_relayed: 'Passed on by the control chat',
   session_error: 'Session error',
   session_missing: 'Session missing',
   mr_ready: 'Ready for review',

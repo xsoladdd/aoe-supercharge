@@ -1,3 +1,4 @@
+import { callingFor } from './control-relay.ts';
 import { evaluateMr } from './mr-rules.ts';
 import { STAGE_LABEL, type Stage } from './stages.ts';
 import type { MrState, NeedsYouItem, NeedsYouKind, SessionView, TaskRecord } from './types.ts';
@@ -21,7 +22,16 @@ export const ZONE_LABEL: Record<Zone, string> = {
 };
 
 export type Pose =
-  'typing' | 'sketching' | 'inspecting' | 'waiting' | 'coffee' | 'reading' | 'away' | 'waving';
+  | 'typing'
+  | 'sketching'
+  | 'inspecting'
+  | 'waiting'
+  | 'coffee'
+  | 'reading'
+  | 'away'
+  | 'waving'
+  /** A lead at its desk while its workers wait on you for what it listed (`control_relayed`). */
+  | 'phone';
 
 /** What a worker holds or shows above its head, so the reason reads at a glance. */
 export type Prop =
@@ -44,6 +54,8 @@ export type Prop =
   | 'pipeline_failed'
   | 'letter'
   | 'mug'
+  /** Held to the ear, not shown in a bubble: a lead calling for its workers. */
+  | 'phone'
   | null;
 
 export interface OfficeSpot {
@@ -81,6 +93,7 @@ const URGENCY: NeedsYouKind[] = [
   'control_needs',
   'mr_ready',
   'control_replied',
+  'control_relayed',
 ];
 
 /** Work is stopped until you act: these stand at the front of the line. */
@@ -107,6 +120,7 @@ const DOOR: Record<NeedsYouKind, { prop: Exclude<Prop, null>; reason: string }> 
   control_replied: { prop: 'envelope', reason: 'Control chat replied' },
   control_blocker: { prop: 'hand', reason: 'Blocked on you' },
   control_needs: { prop: 'clipboard', reason: 'Needs you' },
+  control_relayed: { prop: 'phone', reason: 'Calling for a worker' },
 };
 
 export const DESK_POSE: Record<Stage, Pose> = {
@@ -122,10 +136,17 @@ export const DESK_POSE: Record<Stage, Pose> = {
 
 /**
  * A reply you have not read yet is a notification, not something waiting on you: it stays out of the
- * line. What the reply lists under NEEDS YOU does bring the lead to the door. An MR ready or closed
- * waits in the review lounge with its folder instead (it still shows in Needs you, and notifies).
+ * line. What the reply lists under NEEDS YOU does bring the lead to the door, but not an item about one
+ * of its workers: that worker is in line for it already, and the lead is on the phone at its desk. An
+ * MR ready or closed waits in the review lounge with its folder instead (it still shows in Needs you,
+ * and notifies).
  */
-const NOT_AT_THE_DOOR = new Set<NeedsYouKind>(['control_replied', 'mr_ready', 'mr_closed']);
+const NOT_AT_THE_DOOR = new Set<NeedsYouKind>([
+  'control_replied',
+  'control_relayed',
+  'mr_ready',
+  'mr_closed',
+]);
 
 /** Stages with an MR out: a worker idle in one of them waits in the review lounge. */
 export const REVIEW_STAGES = new Set<Stage>(['mr_raised', 'watching_mr', 'ready_for_review']);
@@ -268,7 +289,10 @@ function pantry(task: Pick<TaskRecord, 'stage' | 'openQuestion' | 'mr'>): Office
   return spot('pantry', 'coffee', 'mug', 'Idle');
 }
 
-/** A project's control chat is the team lead: at the door when it needs you, else at the lead desk. */
+/**
+ * A project's control chat is the team lead: at the door when it needs you itself, on the phone at the
+ * lead desk while its workers wait on you for what it listed, else at the lead desk.
+ */
 export function leadSpot(
   session: Pick<SessionView, 'status' | 'archived'> | null,
   items: NeedsYouItem[],
@@ -278,6 +302,8 @@ export function leadSpot(
   if (!session) return spot('desk', 'waiting', null, 'Checking in', true);
   if (session.archived) return spot('away', 'away', null, 'Archived');
   if (session.status === 'stopped') return spot('away', 'away', null, 'Stopped');
+  const calls = items.filter((i) => i.kind === 'control_relayed');
+  if (calls.length) return spot('desk', 'phone', 'phone', callingFor(calls));
   if (session.status === 'working') return spot('desk', 'typing', null, 'Working');
   return spot('desk', 'reading', null, 'At the lead desk', session.status !== 'idle');
 }

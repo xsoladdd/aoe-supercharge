@@ -1,4 +1,4 @@
-import type { NeedsYouItem } from '@aoe-supercharge/core/shared';
+import { isRelayed, type NeedsYouItem } from '@aoe-supercharge/core/shared';
 import { useEffect, useRef, useState } from 'react';
 
 const NUDGE_EVENT = 'supercharge:nudge';
@@ -22,11 +22,13 @@ const RENUDGE_AFTER_MS = 30 * 60_000;
  * keeps the count in the tab title. Items flicker out and back in (a session going briefly back to
  * work, an AoE poll that failed), so each item nudges once per RENUDGE_AFTER_MS, not on every return.
  */
-export function useNeedsYouNudge(items: NeedsYouItem[] | undefined, sound: boolean) {
+export function useNeedsYouNudge(all: NeedsYouItem[] | undefined, sound: boolean) {
   const seen = useRef<Set<string> | null>(null);
   const nudged = useRef(new Map<string, number>());
   useEffect(() => {
-    if (!items) return;
+    if (!all) return;
+    // A relayed item repeats what its worker's own item already told you.
+    const items = all.filter((i) => !isRelayed(i));
     const ids = new Set(items.map((i) => i.id));
     const now = Date.now();
     if (!seen.current) for (const id of ids) nudged.current.set(id, now);
@@ -42,7 +44,7 @@ export function useNeedsYouNudge(items: NeedsYouItem[] | undefined, sound: boole
     }
     seen.current = ids;
     document.title = items.length ? `(${items.length}) Supercharge` : 'Supercharge';
-  }, [items, sound]);
+  }, [all, sound]);
 }
 
 /** True for a few seconds after a new Needs-you item that matches `filter` arrives. */

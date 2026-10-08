@@ -196,6 +196,11 @@ export type NeedsYouKind =
   /** An item under NEEDS YOU in a control chat's latest reply; a blocker when it says work is stopped. */
   | 'control_blocker'
   | 'control_needs'
+  /**
+   * An item under NEEDS YOU about one of the control chat's workers, while that worker waits on you
+   * (SPEC §14.5): the worker is in line for it, and its lead takes a call at its desk.
+   */
+  | 'control_relayed'
   | 'session_error'
   | 'session_missing'
   | 'mr_ready'
@@ -210,6 +215,8 @@ export interface NeedsYouItem {
   title: string;
   detail: string;
   since: string;
+  /** A `control_relayed` item: the worker it is about, who stands in line for it. */
+  relay?: { name: string; label: string; taskId: string | null; sessionId: string };
 }
 
 export type AoeState = 'ok' | 'starting' | 'unreachable' | 'incompatible' | 'missing';

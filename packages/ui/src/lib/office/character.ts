@@ -11,7 +11,8 @@ import type { Palette } from './palette';
  */
 
 export type Stance = 'stand' | 'sit';
-export type Hands = 'down' | 'typing' | 'mug' | 'paper' | 'magnifier' | 'letter';
+/** `phone`: a lead holding a phone to its ear while its workers wait on you (SPEC §14.5). */
+export type Hands = 'down' | 'typing' | 'mug' | 'paper' | 'magnifier' | 'letter' | 'phone';
 
 /** The cost meter under a worker: how full (0 to 1). */
 export interface Meter {
@@ -405,8 +406,17 @@ function armShape(g: G, o: Look) {
   g.circle(0, 12.4, 2.6).fill(o.skin).stroke(line(o.skin, 1));
 }
 
-function heldItem(g: G, hands: Hands, p: Palette) {
+/** Where the phone sits against the right ear, in body units; the ringing arcs spread from here. */
+const PHONE = { x: 13.2, y: -37 };
+
+function heldItem(g: G, hands: Hands, p: Palette, skin: number) {
   switch (hands) {
+    case 'phone':
+      // A handset against the ear, the mitten round its lower half.
+      g.roundRect(10.6, -42.8, 5.4, 11.4, 2).fill(0x343a46).stroke(line(0x343a46, 1));
+      g.roundRect(12, -41.6, 1.4, 7.6, 0.7).fill({ color: 0xffffff, alpha: 0.28 });
+      g.circle(12.6, -34.4, 2.7).fill(skin).stroke(line(skin, 1));
+      break;
     case 'mug':
       g.roundRect(5, -33, 6, 7, 1.6).fill(0xffffff).stroke({ width: 0.8, color: 0xd8d2c6 });
       g.circle(11.6, -29.5, 2).stroke({ width: 1, color: 0xd8d2c6 });
@@ -582,6 +592,10 @@ export class Character {
   private warned = false;
   private homeBox = new Graphics();
   private homeAsked = false;
+  /** Ringing arcs beside the phone, in the body so they turn with it: the near one and the far one. */
+  private ringBox = new Container();
+  private ringNear = new Graphics();
+  private ringFar = new Graphics();
   private plateText: Text;
   private plateBg = new Graphics();
   private view: 'front' | 'back' = 'front';
@@ -609,6 +623,8 @@ export class Character {
     this.armL.position.set(-10.2, -23.6);
     this.armR.position.set(10.2, -23.6);
     this.root.addChild(this.ring, this.shadow, this.body);
+    this.ringBox.addChild(this.ringNear, this.ringFar);
+    this.ringBox.visible = false;
     this.plateText = new Text({
       text: name,
       style: { fontFamily: FONT, fontSize: 10.5, fontWeight: '600', fill: p.nameplateText },
@@ -688,12 +704,15 @@ export class Character {
         ? [-0.34, 0.34, 0.82]
         : this.hands === 'mug'
           ? [0.08, 2.5, 0.78]
-          : this.hands === 'down'
-            ? [0.1, -0.1, 1]
-            : [-0.5, 0.5, 0.78];
+          : this.hands === 'phone'
+            ? // The right arm up beside the head, the hand at the ear.
+              [0.1, 3.25, 0.95]
+            : this.hands === 'down'
+              ? [0.1, -0.1, 1]
+              : [-0.5, 0.5, 0.78];
     this.armL.rotation = l;
     this.armR.rotation = r;
-    this.armL.scale.y = this.hands === 'mug' ? 1 : s;
+    this.armL.scale.y = this.hands === 'mug' || this.hands === 'phone' ? 1 : s;
     this.armR.scale.y = s;
   }
 
@@ -710,7 +729,8 @@ export class Character {
   }
 
   setProp(prop: Prop, thought: boolean, now: number) {
-    const shown = prop && prop !== 'mug' && prop !== 'letter' ? prop : null;
+    // Held, not shown in a bubble.
+    const shown = prop && prop !== 'mug' && prop !== 'letter' && prop !== 'phone' ? prop : null;
     if (shown === this.prop && thought === this.thought) return;
     if (shown && !this.prop) this.bubbleSince = now;
     this.prop = shown;
@@ -983,7 +1003,7 @@ export class Character {
       face(this.head);
       hairFront(this.front, o);
       accessoryFront(this.front, o, ink);
-      heldItem(this.held, this.hands, this.p);
+      heldItem(this.held, this.hands, this.p, o.skin);
       this.body.removeChildren();
       this.body.addChild(
         this.wiggle,
@@ -996,13 +1016,14 @@ export class Character {
         this.armL,
         this.armR,
         this.held,
+        this.ringBox,
       );
     } else {
       torsoBack(this.torso, o);
       hairBackView(this.front, o);
       hairBack(this.front, o, 'back');
       accessoryBack(this.front, o, ink);
-      heldItem(this.held, this.hands, this.p);
+      heldItem(this.held, this.hands, this.p, o.skin);
       this.body.removeChildren();
       this.body.addChild(
         this.wiggle,
@@ -1014,8 +1035,52 @@ export class Character {
         this.torso,
         this.head,
         this.front,
+        this.ringBox,
       );
     }
+    this.drawRings();
+  }
+
+  /** The ringing arcs, spreading out from the phone; `ringPhone` pulses them. */
+  private drawRings() {
+    this.ringNear.clear();
+    this.ringFar.clear();
+    if (this.hands !== 'phone') {
+      this.ringBox.visible = false;
+      return;
+    }
+    const c = this.p.status.cyan;
+    const cx = PHONE.x + 3.5;
+    // Ink round the colour, like every other shape, so they read on light floors and dark ones.
+    for (const [g, r] of [
+      [this.ringNear, 7],
+      [this.ringFar, 11.5],
+    ] as const)
+      for (const stroke of [
+        { width: 4.4, color: INK, cap: 'round' as const },
+        { width: 2.2, color: c, cap: 'round' as const },
+      ])
+        g.moveTo(cx + r * Math.cos(-0.85), PHONE.y + r * Math.sin(-0.85))
+          .arc(cx, PHONE.y, r, -0.85, 0.85)
+          .stroke(stroke);
+  }
+
+  /** Whether it holds the phone: a lead calling for its workers. */
+  get onPhone(): boolean {
+    return this.hands === 'phone';
+  }
+
+  /**
+   * The phone ringing: `t` from 0 to 1 through one ring, the near arc and then the far one pulsing
+   * out from the phone. Null hides them: between rings, and under reduced motion.
+   */
+  ringPhone(t: number | null) {
+    const on = t !== null && this.hands === 'phone';
+    this.ringBox.visible = on;
+    if (!on) return;
+    const bump = (x: number) => (x > 0 && x < 0.75 ? Math.sin((Math.PI * x) / 0.75) : 0);
+    this.ringNear.alpha = bump(t);
+    this.ringFar.alpha = bump(t - 0.25);
   }
 
   /** Is world point (x, y) on this character standing at (fx, fy)? */

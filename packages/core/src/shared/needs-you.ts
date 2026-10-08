@@ -1,3 +1,4 @@
+import { crewWorker, relayState, relayTarget, taskWorker, type RelayWorker } from './control-relay.ts';
 import { fnv1a } from './hash.ts';
 import { workerLabel } from './names.ts';
 import type { SessionPrompt } from './prompt.ts';
@@ -157,22 +158,64 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
     }
   }
 
-  // What the control chats' latest replies list under NEEDS YOU.
+  // What the control chats' latest replies list under NEEDS YOU. An item about one of its workers is
+  // relayed while that worker waits on you, and gone once it has moved on (SPEC §14.5).
+  const workerItems = items.filter((i) => !i.kind.startsWith('control_'));
+  const taskSessions = new Set(tasks.map((t) => t.aoeSessionId));
+  const workersOf = (control: SessionView, project: ProjectRecord | null): RelayWorker[] => [
+    ...tasks
+      .filter(
+        (t) =>
+          (project && t.project === project.name) || sessionById.get(t.aoeSessionId)?.parentId === control.id,
+      )
+      .map((t) => taskWorker(t, sessionById.get(t.aoeSessionId) ?? null)),
+    ...sessions
+      .filter((c) => c.parentId === control.id && !taskSessions.has(c.id) && !projectByControl.has(c.id))
+      .map((c) => crewWorker(c, project?.crew?.[c.id] ?? null)),
+  ];
   for (const s of sessions) {
     if (s.archived || !s.asks?.items.length) continue;
     const project = projectByControl.get(s.id) ?? null;
     if (!project && !parentIds.has(s.id)) continue;
-    for (const a of s.asks.items)
+    const workers = workersOf(s, project);
+    const lead = `${project ? project.name : s.title} control chat`;
+    for (const a of s.asks.items) {
+      const hash = fnv1a(a.text).toString(16);
+      const target = relayTarget(a.text, workers);
+      const worker = target === 'ambiguous' ? null : target;
+      const open = worker ? workerItems.filter((i) => i.sessionId === worker.sessionId) : [];
+      const state = worker ? relayState(a.since ?? s.asks.at, worker, open) : 'own';
+      if (state === 'cleared') continue;
+      if (worker && state === 'open') {
+        items.push({
+          id: `control_relayed:${s.id}:${hash}`,
+          kind: 'control_relayed',
+          project: project?.name ?? null,
+          taskId: null,
+          sessionId: s.id,
+          title: `${worker.label} via the ${lead}`,
+          detail: a.text,
+          since: s.asks.at,
+          relay: {
+            name: worker.name,
+            label: worker.label,
+            taskId: worker.taskId,
+            sessionId: worker.sessionId,
+          },
+        });
+        continue;
+      }
       items.push({
-        id: `control_needs:${s.id}:${fnv1a(a.text).toString(16)}`,
+        id: `control_needs:${s.id}:${hash}`,
         kind: a.blocker ? 'control_blocker' : 'control_needs',
         project: project?.name ?? null,
         taskId: null,
         sessionId: s.id,
-        title: `${project ? project.name : s.title} control chat`,
+        title: lead,
         detail: a.text,
         since: s.asks.at,
       });
+    }
   }
 
   return items.sort((a, b) => Date.parse(a.since) - Date.parse(b.since));

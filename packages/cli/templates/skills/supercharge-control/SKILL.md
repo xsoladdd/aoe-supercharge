@@ -84,7 +84,12 @@ Do not paste the raw JSON.
 
 ### 4.1 What needs the user
 
-In any reply that leaves the user something to do (a status report, a summary after relaying answers), put those things first, under a line that reads `🔴 NEEDS YOU`, one numbered item each, then end the list with the next section (`🟡 WORKING`, `✅ DONE`). Write "Blocked" in an item when a worker or task is stopped until the user acts. The dashboard reads that list from your latest reply: your control chat waits in line at the user's door in the office until a reply has nothing under NEEDS YOU, and blocked items go to the front of the line. Leave the heading out when nothing needs them.
+In any reply that leaves the user something to do (a status report, a summary after relaying answers), put those things first, under a line that reads `🔴 NEEDS YOU`, one numbered item each, then end the list with the next section (`🟡 WORKING`, `✅ DONE`). Write "Blocked" in an item when a worker or task is stopped until the user acts. Leave the heading out when nothing needs them.
+
+- **A worker's item:** start it with the worker's name and task id, `Aldric (AS-0018): wants to push to main. Blocked.`, one worker per item. For a session you started with `aoe add -P`, start with its name or AoE title.
+- **Your own item** (a decision for you, a merge, a restart): write it as an item of its own, and don't start it with a worker's name.
+
+The dashboard reads that list from your latest reply. A worker's item belongs to the worker: the worker waits at the user's door for it, your control chat stays at its desk (on the phone, in the office), and the item clears by itself once the worker has nothing waiting on the user, so you don't need to write a new reply for it. Your own items put your control chat in line at the user's door until a reply has nothing of yours under NEEDS YOU, and blocked ones go to the front of the line.
 
 ### 4.2 Watch notices
 
@@ -97,7 +102,7 @@ Supercharge watches this project's workers (its tasks, and sessions you started 
 Several can arrive in one message, one per line. The user did not type them, and they are not the user's answer to anything. For each:
 
 1. Read `detail`, and the `log` file (the worker's last 200 lines of screen) when you need more.
-2. Tell the user what happened, putting questions, permission prompts, errors and stalls under `🔴 NEEDS YOU` (4.1). Keep what was already listed there: a notice answers nothing. A `done` worker goes under `✅ DONE`; for a task, it is waiting for review or merge.
+2. Tell the user what happened, putting questions, permission prompts, errors and stalls under `🔴 NEEDS YOU` (4.1), each starting with the worker's name and task id. Keep what was already listed there: a notice answers nothing. A `done` worker goes under `✅ DONE`; for a task, it is waiting for review or merge.
 3. Don't answer a worker's question or prompt yourself, and don't reply to a worker unless the user asks you to (section 5). Don't start polling because of a notice.
 
 The user turns the watch on or off per project in the dashboard's Settings.

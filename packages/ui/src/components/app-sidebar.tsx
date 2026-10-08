@@ -14,7 +14,7 @@ import {
 } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
-import { STAGE_LABEL, type SessionView, type Snapshot } from '@aoe-supercharge/core/shared';
+import { isRelayed, STAGE_LABEL, type SessionView, type Snapshot } from '@aoe-supercharge/core/shared';
 import { Wordmark } from '@/components/brand';
 import { LiveStatus, STAGE_META } from '@/components/status';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -91,11 +91,13 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
   const groups = useMemo(() => unmanagedGroups(snap), [snap]);
   const sessions = useMemo(() => sessionMap(snap), [snap]);
   const theme = useResolvedTheme();
+  // What a control chat passes on counts once, as its worker's own item.
+  const needs = useMemo(() => snap.needsYou.filter((n) => !isRelayed(n)), [snap.needsYou]);
   const needsByProject = useMemo(() => {
     const m = new Map<string, number>();
-    for (const n of snap.needsYou) if (n.project) m.set(n.project, (m.get(n.project) ?? 0) + 1);
+    for (const n of needs) if (n.project) m.set(n.project, (m.get(n.project) ?? 0) + 1);
     return m;
-  }, [snap.needsYou]);
+  }, [needs]);
   const aoe = snap.health.aoe;
   const [adding, setAdding] = useState(false);
   const [adopting, setAdopting] = useState<string | null>(null);
@@ -124,10 +126,8 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                     <span>Overview</span>
                   </Link>
                 </SidebarMenuButton>
-                {snap.needsYou.length > 0 && (
-                  <SidebarMenuBadge className="tabular text-st-yellow">
-                    {snap.needsYou.length}
-                  </SidebarMenuBadge>
+                {needs.length > 0 && (
+                  <SidebarMenuBadge className="tabular text-st-yellow">{needs.length}</SidebarMenuBadge>
                 )}
               </SidebarMenuItem>
               <SidebarMenuItem>

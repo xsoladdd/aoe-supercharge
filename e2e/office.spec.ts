@@ -804,6 +804,78 @@ test.describe('office', () => {
         .toBe(message);
     });
 
+    test('a worker waits at your door for what its lead passed on; the lead takes the call at its desk', async ({
+      signedIn: page,
+      browserName,
+    }) => {
+      const control = await sessionId('northwind-web control');
+      const title = `phone call ${browserName}`;
+      const { id } = (await fake('/__fake/sessions', {
+        method: 'POST',
+        body: JSON.stringify({
+          title,
+          project_path: `/tmp/northwind-call-${browserName}`,
+          parent_session_id: control,
+          status: 'Running',
+        }),
+      })) as { id: string };
+      // Typed into the control chat as if by you; the fake Claude answers 0.9 s later.
+      const say = async (message: string) => {
+        await fake('/__fake/send', { method: 'POST', body: JSON.stringify({ id: control, message }) });
+        await page.waitForTimeout(1_500);
+      };
+      const item = `${title} wants to run npm publish. Blocked until you say.`;
+      const lead = page.locator('li[data-role="lead"][data-project="northwind-web"]');
+      const needs = page.locator('section[aria-labelledby="needs-you-heading"]');
+      try {
+        await fake(`/__fake/sessions/${id}/permission`, { method: 'POST', body: '{}' });
+        // You ask for status; the control chat lists the worker's permission prompt under NEEDS YOU.
+        await say('status?');
+        await fake(`/__fake/sessions/${control}/reply`, {
+          method: 'POST',
+          body: JSON.stringify({
+            text: ['🔴 NEEDS YOU', `1. ${item}`, '', '🟡 WORKING', '- the rest: on it'].join('\n'),
+          }),
+        });
+
+        // Needs you: the worker's own item, and the control chat's passed on, pointing at the worker.
+        await page.goto('/');
+        const passed = needs.locator('li', { hasText: item });
+        await expect(passed.getByText('Passed on')).toBeVisible({ timeout: 15_000 });
+        await expect(passed.getByRole('link')).toHaveAttribute('href', `/chat/${id}`);
+
+        // The office: the worker in line, its lead on the phone at its desk, not in line behind it.
+        await page.goto('/office');
+        await drawn(page);
+        await expect(page.locator(`li[data-session="${id}"]`)).toHaveAttribute('data-zone', 'door', {
+          timeout: 15_000,
+        });
+        await expect(lead).toHaveAttribute('data-zone', 'desk');
+        await expect(lead).toHaveAttribute('data-relayed', '1');
+        await expect(lead.getByText(/^Calling for /)).toBeVisible();
+        // Picking the lead lists the call, with a way to the worker in line.
+        await page.locator('[data-worker="northwind-web/lead"]').click();
+        const card = page.locator('[data-worker-card="northwind-web/lead"]');
+        await expect(card.getByText(item)).toBeVisible();
+        await axe(page, 'office lead on the phone');
+        await card.getByRole('button', { name: /^Show .+ at your door$/ }).click();
+        await expect(page.locator(`[data-worker-card="northwind-web/s/${id}"]`)).toBeVisible();
+
+        // You answer the worker itself: it gets back to work, and the lead puts the phone down with no
+        // new reply from the control chat.
+        await setStatus(id, 'Running');
+        await expect(lead).not.toHaveAttribute('data-relayed', { timeout: 15_000 });
+        await expect(lead).toHaveAttribute('data-zone', 'desk');
+        await expect(lead.getByText(/^Calling for /)).toHaveCount(0);
+        await page.goto('/');
+        await expect(needs.getByText(item)).toHaveCount(0);
+      } finally {
+        // A reply with nothing under NEEDS YOU clears the list before the worker goes.
+        await say('Thanks, all good.');
+        await fake(`/__fake/sessions/${id}`, { method: 'DELETE' });
+      }
+    });
+
     test('picking a worker in the list opens its card and flies to it', async ({ signedIn: page }) => {
       await page.goto('/office');
       await drawn(page);

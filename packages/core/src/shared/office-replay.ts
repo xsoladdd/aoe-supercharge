@@ -75,6 +75,7 @@ export function historyPeople(h: HistoryWindow): { key: string; name: string; pr
 function poseOf(c: CharState): Pose {
   switch (c.zone) {
     case 'desk':
+      if (c.prop === 'phone') return 'phone';
       return c.stage ? DESK_POSE[c.stage] : c.role === 'lead' ? 'reading' : 'typing';
     case 'door':
     case 'review':

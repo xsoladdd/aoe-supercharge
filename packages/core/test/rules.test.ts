@@ -237,3 +237,146 @@ describe('computeNeedsYou', () => {
     expect(computeNeedsYou({ ...args, aoeReachable: false })).toEqual([]);
   });
 });
+
+describe('computeNeedsYou: what a control chat lists about its workers (relayed)', () => {
+  const project = {
+    name: 'northwind',
+    controlSessionId: 'ctrl',
+    crew: { 'w-crew': 'Osric' },
+  } as unknown as Parameters<typeof computeNeedsYou>[0]['projects'][number];
+  const listed = '2026-10-05T11:40:00Z';
+  const asks = (...texts: string[]) => ({
+    at: listed,
+    items: texts.map((text) => ({ text, blocker: /blocked/i.test(text), since: listed })),
+  });
+  const aldric = (p: Partial<TaskRecord> = {}) => task({ id: 'AS-0018', name: 'Aldric', ...p });
+  const asking = aldric({
+    stage: 'blocked',
+    blockedFrom: 'implementing',
+    openQuestion: { text: 'Which db?', askedAt: '2026-10-05T11:30:00Z', answeredAt: null },
+  });
+  const run = (tasks: TaskRecord[], sessions: SessionView[], ...texts: string[]) =>
+    computeNeedsYou({
+      now,
+      aoeReachable: true,
+      waitingDebounceSeconds: 20,
+      projects: [project],
+      tasks,
+      sessions: [session({ id: 'ctrl', asks: asks(...texts) }), ...sessions],
+    });
+  const worker = (p: Partial<SessionView> = {}) => session({ id: 's-AS-0018', parentId: 'ctrl', ...p });
+  const kinds = (items: ReturnType<typeof computeNeedsYou>) => items.map((i) => i.kind);
+
+  it('passes on what a worker asked: the worker stands in line, the item points to it', () => {
+    const items = run([asking], [worker()], 'Aldric (AS-0018): which db? Blocked until you say.');
+    expect(kinds(items)).toEqual(['question', 'control_relayed']);
+    expect(items[1]).toMatchObject({
+      project: 'northwind',
+      taskId: null,
+      sessionId: 'ctrl',
+      relay: { name: 'Aldric', label: 'Aldric (AS-0018)', taskId: 'AS-0018', sessionId: 's-AS-0018' },
+    });
+  });
+
+  it('matches the task id, the worker name or its session title, and tolerates any order', () => {
+    for (const text of [
+      'Which db for as-0018? Blocked.',
+      'Blocked: Aldric needs a db.',
+      'The content-entry worker wants a db.',
+    ])
+      expect(kinds(run([asking], [worker({ title: 'content-entry worker' })], text))).toEqual([
+        'question',
+        'control_relayed',
+      ]);
+  });
+
+  it('clears by itself once you answer the worker, with no new reply', () => {
+    const answered = aldric({
+      openQuestion: {
+        text: 'Which db?',
+        askedAt: '2026-10-05T11:30:00Z',
+        answeredAt: '2026-10-05T11:50:00Z',
+      },
+    });
+    const items = run(
+      [answered],
+      [worker({ status: 'working', statusSince: '2026-10-05T11:50:00Z' })],
+      'Aldric (AS-0018): which db? Blocked until you say.',
+    );
+    expect(items).toEqual([]);
+  });
+
+  it('clears when you answered before the reply came in, as the worker is back at work', () => {
+    const items = run(
+      [aldric()],
+      [worker({ status: 'working', statusSince: '2026-10-05T11:35:00Z' })],
+      'Aldric (AS-0018): which db?',
+    );
+    expect(items).toEqual([]);
+  });
+
+  it('a stall is the control chat telling you: its own ask, until the worker moves', () => {
+    const text = 'Aldric (AS-0018) stalled 30m with nothing to report. Nudge him?';
+    const idle = worker({ status: 'idle', statusSince: '2026-10-05T11:00:00Z' });
+    expect(kinds(run([aldric()], [idle], text))).toEqual(['control_needs']);
+    const nudged = worker({ status: 'working', statusSince: '2026-10-05T11:45:00Z' });
+    expect(run([aldric()], [nudged], text)).toEqual([]);
+  });
+
+  it('stays the control chat’s own ask when it names two workers, or nobody it knows', () => {
+    const gareth = task({ id: 'AS-0017', name: 'Gareth', aoeSessionId: 's-AS-0017' });
+    const both = run(
+      [asking, gareth],
+      [worker(), session({ id: 's-AS-0017', parentId: 'ctrl', status: 'waiting', statusSince: listed })],
+      'Aldric and Gareth both want the db settled.',
+    );
+    expect(kinds(both)).toEqual(['question', 'approval', 'control_needs']);
+    expect(kinds(run([asking], [worker()], 'Pick a db for the new API work.'))).toEqual([
+      'question',
+      'control_needs',
+    ]);
+    // A short session title is too common a word to go by.
+    expect(kinds(run([asking], [worker({ title: 'api' })], 'Who owns the api keys?'))).toEqual([
+      'question',
+      'control_needs',
+    ]);
+  });
+
+  it('a worker that left before the item was listed is gone: its own ask; one that left after, cleared', () => {
+    const done = (at: string) =>
+      aldric({
+        stage: 'done',
+        history: [{ at, from: 'ready_for_review', to: 'done', by: 'daemon', note: null }],
+      });
+    const text = 'Reuse what Aldric (AS-0018) built for the importer?';
+    expect(kinds(run([done('2026-10-05T10:00:00Z')], [], text))).toEqual(['control_needs']);
+    expect(run([done('2026-10-05T11:50:00Z')], [], text)).toEqual([]);
+  });
+
+  it('passes on what a crew session waits for, by its name or its AoE title', () => {
+    const crew = session({
+      id: 'w-crew',
+      title: 'hero copy fix',
+      parentId: 'ctrl',
+      status: 'waiting',
+      statusSince: '2026-10-05T11:30:00Z',
+    });
+    for (const text of ['Osric wants to push. Blocked.', 'hero copy fix wants to push. Blocked.']) {
+      const items = run([], [crew], text);
+      expect(kinds(items)).toEqual(['approval', 'control_relayed']);
+      expect(items[1]!.relay).toEqual({ name: 'Osric', label: 'Osric', taskId: null, sessionId: 'w-crew' });
+    }
+  });
+
+  it('shows again, relayed, when the worker needs you again', () => {
+    const again = aldric({
+      stage: 'blocked',
+      openQuestion: { text: 'And the cache?', askedAt: '2026-10-05T11:55:00Z', answeredAt: null },
+    });
+    // Oldest first: the new question came after the list.
+    expect(kinds(run([again], [worker()], 'Aldric (AS-0018): which db?'))).toEqual([
+      'control_relayed',
+      'question',
+    ]);
+  });
+});

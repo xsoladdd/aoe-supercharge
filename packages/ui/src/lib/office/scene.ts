@@ -103,6 +103,13 @@ const SPEED = 4.5;
 const LONGEST_WALK_S = 6;
 const FADE_MS = 280;
 const POP_MS = 240;
+/**
+ * A lead on the phone rings in bursts, two rings and a rest, like a phone: frames are drawn only
+ * while it rings, so the floor still goes quiet in between (SPEC §14.5).
+ */
+const RING_EACH_MS = 600;
+const RING_MS = 2 * RING_EACH_MS;
+const RING_CYCLE_MS = 3_000;
 /** Names show over every head from this zoom; below it only on hover or selection. */
 const NAMES_AT = 1.15;
 const DRAG_PX = 5;
@@ -125,6 +132,7 @@ function handsFor(w: OfficeWorker): Hands {
   const s = w.spot;
   if (w.zone === 'desk') {
     if (s.zone !== 'desk') return 'down';
+    if (s.pose === 'phone') return 'phone';
     return s.pose === 'typing'
       ? 'typing'
       : s.pose === 'sketching'
@@ -157,7 +165,11 @@ function badgeFor(w: OfficeWorker): Badge | null {
 }
 
 function plateName(w: OfficeWorker) {
-  return w.role === 'lead' ? `${w.project} lead` : w.name;
+  if (w.role !== 'lead') return w.name;
+  // On the phone: who it is calling for ("Calling for Aldric"), so hovering it says.
+  return w.zone === 'desk' && w.spot.pose === 'phone'
+    ? `${w.project} lead · ${w.spot.reason.replace(/^Calling/, 'calling')}`
+    : `${w.project} lead`;
 }
 
 export class OfficeScene {
@@ -210,6 +222,9 @@ export class OfficeScene {
   private destroyed = false;
   /** Frames drawn so far, on the host as `data-frames`: tests check it stays put while nothing moves. */
   private frames = 0;
+  /** Wakes the floor for the next burst of ringing, and when. */
+  private ringTimer: ReturnType<typeof setTimeout> | null = null;
+  private ringAt = Infinity;
   private resize: ResizeObserver;
   private pointers = new Map<number, Pt>();
   private drag: { x: number; y: number; t: number; vx: number; vy: number; moved: boolean } | null = null;
@@ -725,8 +740,38 @@ export class OfficeScene {
       w.ch.popBubble(pop);
       busy = true;
     } else w.ch.popBubble(1);
+    if (this.ring(w, now)) busy = true;
     this.decorate(w);
     return busy;
+  }
+
+  /**
+   * The phone at a lead's ear rings in place: true while it rings. In the rest between bursts nothing
+   * is drawn, and a timer wakes the floor for the next one. Under reduced motion it just holds it.
+   */
+  private ring(w: Walker, now: number): boolean {
+    if (!w.ch.onPhone || w.hidden || w.path.length || this.opts.reducedMotion) {
+      w.ch.ringPhone(null);
+      return false;
+    }
+    // Each lead on its own beat, so two phones don't ring in unison.
+    const c = (now + (fnv1a(w.key) % RING_CYCLE_MS)) % RING_CYCLE_MS;
+    if (c < RING_MS) {
+      w.ch.ringPhone((c % RING_EACH_MS) / RING_EACH_MS);
+      return true;
+    }
+    w.ch.ringPhone(null);
+    const at = now + RING_CYCLE_MS - c;
+    if (this.ringTimer === null || at < this.ringAt) {
+      if (this.ringTimer !== null) clearTimeout(this.ringTimer);
+      this.ringAt = at;
+      this.ringTimer = setTimeout(() => {
+        this.ringTimer = null;
+        this.ringAt = Infinity;
+        this.wake();
+      }, at - now);
+    }
+    return false;
   }
 
   /** Apply the camera to the world, and keep names readable at this zoom. */
@@ -1264,6 +1309,7 @@ export class OfficeScene {
   destroy() {
     this.destroyed = true;
     cancelAnimationFrame(this.raf);
+    if (this.ringTimer !== null) clearTimeout(this.ringTimer);
     this.resize.disconnect();
     const canvas = this.app.canvas as HTMLCanvasElement;
     canvas.removeEventListener('pointerdown', this.onDown);

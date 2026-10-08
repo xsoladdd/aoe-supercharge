@@ -147,6 +147,13 @@ describe('history replay (SPEC §14.5)', () => {
     // Nothing live in the past: no prompts, no runaways.
     expect(model.everyone.every((w) => !w.idle.prompt && !w.cost?.runaway.length)).toBe(true);
   });
+
+  it('a lead that was on the phone for its workers is on the phone in the past too', () => {
+    const calling = { ...lead, reason: 'Calling for Aldric', prop: 'phone' as const };
+    const model = historyModel([calling]);
+    expect(model.teams[0]?.lead?.spot).toMatchObject({ zone: 'desk', pose: 'phone', prop: 'phone' });
+    expect(historyModel([lead]).teams[0]?.lead?.spot.pose).toBe('reading');
+  });
 });
 
 describe('since I was away', () => {
