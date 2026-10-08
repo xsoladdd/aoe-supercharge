@@ -1,19 +1,81 @@
 name: Release
 
-# Tag vX.Y.Z → test, publish to npm with provenance, create a GitHub release, and open a PR on the
-# Homebrew tap. Needs secrets NPM_TOKEN and TAP_TOKEN (a token with push access to xsoladdd/homebrew-tap).
-# Before the first release: choose a license (add LICENSE and "license" in packages/cli/package.json).
+# Trunk and tag: every change reaches main through a pull request, and a release is a "Release X.Y.Z"
+# commit on main (the version bump and the CHANGELOG heading) plus a vX.Y.Z tag.
+#
+# This workflow makes the tag and the GitHub Release, so nobody runs `gh release create` by hand:
+#   - A push to main whose commit message starts with "Release X.Y.Z" is the release. The workflow tests it,
+#     packs it, and creates the GitHub Release (and with it the vX.Y.Z tag) with the npm tarball attached.
+#     That tarball is the install path in the README.
+#   - Pushing a vX.Y.Z tag by hand still works: it releases that tag the same way.
+# npm publish and the Homebrew tap are off until their secrets exist (and a license is chosen: add
+# LICENSE and "license" in packages/cli/package.json before the first npm publish):
+#   - NPM_TOKEN: publish to npm with provenance.
+#   - TAP_TOKEN: a token with push access to xsoladdd/homebrew-tap, to open the formula PR. Needs NPM_TOKEN too,
+#     since the formula points at the npm tarball.
 on:
   push:
+    branches: [main]
     tags: ['v*']
 
 permissions:
   contents: write
   id-token: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  release:
+  plan:
+    name: Is this a release?
     runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.which.outputs.release }}
+      version: ${{ steps.which.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: which
+        env:
+          # Through env, never inline in the script: a commit message is not ours to trust.
+          MESSAGE: ${{ github.event.head_commit.message }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            subject="$(printf '%s\n' "$MESSAGE" | head -n 1)"
+            version="$(printf '%s\n' "$subject" | sed -nE 's/^Release ([0-9]+\.[0-9]+\.[0-9]+)( .*)?$/\1/p')"
+            if [ -z "$version" ]; then
+              echo "Not a release commit ($subject): nothing to do."
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$version" >/dev/null 2>&1; then
+              echo "v$version already exists: nothing to do."
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          have="$(node -p "require('./packages/cli/package.json').version")"
+          if [ "$have" != "$version" ]; then
+            echo "::error::packages/cli/package.json says $have, but this release is $version"
+            exit 1
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  release:
+    name: Release v${{ needs.plan.outputs.version }}
+    needs: plan
+    if: needs.plan.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.plan.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+      # Secrets cannot be tested in an `if:` directly; through env they can.
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,23 +84,46 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
       - run: npm ci
-      - name: Version matches the tag
-        run: test "v$(node -p "require('./packages/cli/package.json').version")" = "$GITHUB_REF_NAME"
       - run: npm run build
       - run: npx vitest run
-      - name: Publish to npm
+
+      - name: Pack
+        run: npm pack -w aoe-supercharge
+
+      - name: Release notes from the CHANGELOG
+        run: |
+          awk -v v="$VERSION" '
+            /^## / { if (found) exit; if (index($0, "## " v " ") == 1 || $0 == "## " v) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "Release v$VERSION" > notes.md; fi
+          cat notes.md
+
+      - name: GitHub Release, with the tarball attached
+        run: |
+          tag="v$VERSION"
+          file="aoe-supercharge-$VERSION.tgz"
+          test -f "$file"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            # Made by hand before this ran: only the tarball is missing.
+            gh release upload "$tag" "$file" --clobber
+          else
+            # Creates the tag on this commit when it does not exist yet.
+            gh release create "$tag" "$file" --title "$tag" --notes-file notes.md --target "$GITHUB_SHA"
+          fi
+
+      - name: Publish to npm (only with NPM_TOKEN)
+        if: env.NPM_TOKEN != ''
         run: npm publish -w aoe-supercharge --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - name: GitHub release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" --generate-notes
-      - name: Update the Homebrew tap
+
+      - name: Update the Homebrew tap (only with NPM_TOKEN and TAP_TOKEN)
+        if: env.NPM_TOKEN != '' && env.TAP_TOKEN != ''
         env:
           GH_TOKEN: ${{ secrets.TAP_TOKEN }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          version="$VERSION"
           url="https://registry.npmjs.org/aoe-supercharge/-/aoe-supercharge-${version}.tgz"
           sha="$(curl -fsSL "$url" | sha256sum | awk '{print $1}')"
           sed -e "s/{{VERSION}}/${version}/g" -e "s/{{SHA256}}/${sha}/g" Formula/aoe-supercharge.rb.tmpl > aoe-supercharge.rb
@@ -51,4 +136,15 @@ jobs:
           git add Formula/aoe-supercharge.rb
           git commit -m "aoe-supercharge ${version}"
           git push -u origin "aoe-supercharge-${version}"
-          gh pr create --title "aoe-supercharge ${version}" --body "Automated update from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+          gh pr create --title "aoe-supercharge ${version}" --body "Automated update from ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/v${version}"
+
+      - name: Summary
+        run: |
+          {
+            echo "## Released v$VERSION"
+            echo
+            echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/v$VERSION"
+            [ -z "$NPM_TOKEN" ] && echo "- npm publish skipped (no NPM_TOKEN)"
+            [ -z "$TAP_TOKEN" ] && echo "- Homebrew tap skipped (no TAP_TOKEN)"
+            true
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -31,7 +31,7 @@ macOS and Linux only. On Windows, use WSL2 (AoE requires it). You need [Node.js 
 
 **Supercharge is not on npm or Homebrew yet**, and there is no tap, so `npm install -g aoe-supercharge`, `brew install` and the one-line `curl … | bash` do not work today. Install the packed release from GitHub, or from a checkout.
 
-**From a GitHub release.** Every release on the [Releases page](https://github.com/xsoladdd/aoe-supercharge/releases) has the packed CLI attached. For 1.3.0:
+**From a GitHub release.** Every release on the [Releases page](https://github.com/xsoladdd/aoe-supercharge/releases) has the packed CLI attached; CI builds it with `npm pack` when a `Release X.Y.Z` commit lands on `main` and makes the release and its `vX.Y.Z` tag (see [Releasing](CLAUDE.md#releasing)). For 1.3.0:
 
 ```bash
 npm install -g https://github.com/xsoladdd/aoe-supercharge/releases/download/v1.3.0/aoe-supercharge-1.3.0.tgz
@@ -70,7 +70,7 @@ Then check everything:
 supercharge doctor
 ```
 
-*Planned:* publishing to npm (`npm install -g aoe-supercharge`) and a Homebrew tap (`brew install xsoladdd/tap/aoe-supercharge`). The release workflow is written but needs a license and the `NPM_TOKEN` and `TAP_TOKEN` secrets first (see [License](#license)).
+*Planned:* publishing to npm (`npm install -g aoe-supercharge`) and a Homebrew tap (`brew install xsoladdd/tap/aoe-supercharge`). The release workflow already skips both steps; they switch on once a license is chosen and the `NPM_TOKEN` and `TAP_TOKEN` secrets exist (see [License](#license)).
 
 ## Dependencies
 
@@ -120,7 +120,18 @@ Then talk to the control chat (in AoE, or from your phone; see [Phone access](#p
   - an AoE session that is a child of the control session,
   - a ledger entry.
 - The control chat runs `task new` itself; you can run it by hand too.
+- **Model and effort.** A control chat starts on Opus at `xhigh` effort (`agent.controlModel`, `agent.controlEffort`) and is locked to them: its Model picker in the composer is shown, with a lock, and cannot be changed, so nothing is typed into the chat that Claude Code would save as your default. The `opus` alias is Opus 5.5 on the current Claude Code and follows the next Opus; pin a full model id in Settings to stop that. Workers get a `--model` and an `--effort` per task from the control chat (the table is in its skill); `agent.model` and `agent.effort` are only the fallbacks. Both apply to that one session. Existing control chats keep the arguments they were started with; new ones get `xhigh`.
 - **A new worker starts on its own.** Claude Code does nothing until it gets a first message, so `task new` sends a short kickoff once the session is at its prompt with no menu open. If that can't happen, the daemon sends it later; if it is lost, it is sent again (up to 3 times), but never to a worker someone already wrote to. Every send is audited as `prompt_sent`.
+
+### Cleaning up finished workers
+
+A done worker is still a live AoE session with a worktree and a branch. `supercharge task cleanup <task-id>` (or the **Clean up** button on a done task, in its right-click menu, and **Clean up all done** on the project page) removes them, and it checks first so unmerged work is never lost. It fetches `origin` and refuses unless one of these is true:
+
+- the task's branch is an ancestor of `origin/<base>` (fast-forward or merge commit);
+- every commit has an equivalent patch there (cherry-picked or rebased; `git cherry`);
+- the MR watcher recorded its pull request as merged and the worktree holds nothing past that pull request's head (squash merges).
+
+It also refuses when the worktree has uncommitted or untracked files, when the session is locked, or when the task is not done. The message says why, lists up to five files or commits, and says what to do. Otherwise it removes the AoE session with its worktree and branch (what `aoe rm --purge --delete-worktree --delete-branch` does, without `--force`), moves the task to `removed/` and writes `task_cleaned_up` to the audit log. `--all-done` checks each done task of the project on its own and skips the ones that are not safe. `--dry-run` only checks. It never touches a session outside the project.
 
 **Instructions reach the agents without touching your repository.** Two user-level skills are installed in `~/.claude/skills/` (`supercharge-control` and `supercharge-worker`), and each session gets its role and brief through `--append-system-prompt-file`.
 
@@ -161,8 +172,9 @@ supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_req
 | `supercharge proxy enable` / `disable` / `status` | Opt-in clean URL `http://supercharge.localhost` via local Caddy |
 | `supercharge uninstall [--purge]` | Remove the service and managed skills (`--purge`: also config, ledger, state) |
 | `supercharge init [--name <p>] [--commit]` | Register the current repository |
-| `supercharge task new "<title>" [--brief …] [--brief-file …] [--base …]` | Create a task |
+| `supercharge task new "<title>" [--brief …] [--brief-file …] [--base …] [--model …] [--effort …]` | Create a task |
 | `supercharge task list [--project <p>] [--json]` | List tasks |
+| `supercharge task cleanup <task-id> \| --all-done [--dry-run] [--json]` | Remove a finished worker's session, worktree and branch. Refuses unless its work is on `origin/main` (see [Cleaning up](#cleaning-up-finished-workers)) |
 | `supercharge whoami [--json]` | `control`, `worker` or `none` for this session |
 | `supercharge stage <stage> [--note …] [--mr <url>]` | Report a stage change |
 | `supercharge ask "<question>"` | Block on a question |
@@ -199,6 +211,10 @@ autoStart = true                   # start `aoe serve --daemon` when needed
 
 [agent]
 workerPermissionMode = "plan"      # plan | default | acceptEdits | auto
+controlModel = "opus"              # new control chats; "" = your Claude Code default
+controlEffort = "xhigh"            # new control chats: low | medium | high | xhigh | max
+model = ""                         # workers started without --model
+effort = "default"                 # workers started without --effort
 extraArgs = []
 
 [remoteControl]
@@ -267,7 +283,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
 
 `http://supercharge.localhost:4280`. Dark by default, with a light mode. It's built to be read from across a desk.
 
-- **Needs you** (pinned): blocked questions, approvals or input waiting in AoE, control chats waiting on you or that have replied, session errors, MRs ready for review, MRs closed. Oldest first, each one click from its context.
+- **Needs you** (pinned): blocked questions, approvals or input waiting in AoE, control chats waiting on you or that have replied (a reply is marked read as soon as you have its chat open and visible; the chat's side panel also has a Dismiss button), session errors, MRs ready for review, MRs closed. Oldest first, each one click from its context.
 - **Sidebar:** projects, then each control chat, then its workers. Every row shows a status icon and stage. Your other AoE sessions are grouped under their parent too.
 - **Project page:** the control chat's live status and a rollup of its workers, then a worker list showing:
   - stage stepper,
