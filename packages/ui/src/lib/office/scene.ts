@@ -24,12 +24,14 @@ import {
   mrLabel,
 } from '@aoe-supercharge/core/shared';
 import type { OfficeModel, OfficeWorker } from '@/lib/office';
-import { boardSpots, buildStatic, drawSky, FONT, label, type StaticOffice } from './art';
+import { artFor, boardSpots, buildStatic, drawSky, FONT, label, type StaticOffice } from './art';
 import { Camera, MAX_ZOOM } from './camera';
 import { Character, type Badge, type Hands, type Meter, type Stance } from './character';
 import { depth, iso, mix, TILE_H, TILE_W, toGrid, WALL_H, type Pt } from './iso';
 import { cuttingBoard, drawSteam, plateArt, plateLabel, potArt, steamAt } from './kitchen-art';
 import { makePalette, type Palette } from './palette';
+import { resolveTheme } from './themes';
+import type { OfficeTheme, ThemeArt } from './themes/types';
 
 /**
  * The drawn office (SPEC §14.5). It draws only while something moves: a worker walking, the camera
@@ -65,6 +67,8 @@ export interface BoardLine {
 
 export interface SceneOptions {
   theme: 'dark' | 'light';
+  /** The office theme's id (SPEC §14.5); unknown or missing is Headquarters. */
+  officeTheme?: string;
   reducedMotion: boolean;
   doorLabel: string;
   events: SceneEvents;
@@ -127,6 +131,8 @@ const POP_MS = 240;
 const RING_EACH_MS = 600;
 const RING_MS = 2 * RING_EACH_MS;
 const RING_CYCLE_MS = 3_000;
+/** A new office theme's flames and flickers move this long, then only while something else moves. */
+const MOTION_MS = 3_000;
 /** How long a cook stirs (and the steam rises), or a chopper chops, on arriving; then it holds still. */
 const WORK_MS = 3000;
 /** Names show over every head from this zoom; below it only on hover or selection. */
@@ -207,6 +213,9 @@ export class OfficeScene {
   private layout: OfficeLayout = officeLayout([]);
   private layoutKey = '';
   private palette: Palette;
+  /** The office theme, and the art it draws with. */
+  private design: OfficeTheme;
+  private kit: ThemeArt;
   private world = new Container();
   private ground = new Container();
   private objects = new Container();
@@ -248,6 +257,9 @@ export class OfficeScene {
   /** The pots' steam rises until then, after a cook arrives (`performance.now()`); then it holds still. */
   private steamUntil = 0;
   private steamMoving = false;
+  /** The theme's flames and flickers move until then (`performance.now()`), and while anything else moves. */
+  private motionUntil = 0;
+  private motionMoving = false;
   private hoveredPlate: string | null = null;
   private plateTag: Container | null = null;
   private platesSeen = '';
@@ -301,7 +313,9 @@ export class OfficeScene {
     private opts: SceneOptions,
   ) {
     app.ticker?.stop();
-    this.palette = makePalette(opts.theme);
+    this.design = resolveTheme(opts.officeTheme);
+    this.kit = artFor(this.design);
+    this.palette = makePalette(opts.theme, this.design);
     this.objects.sortableChildren = true;
     this.world.addChild(this.ground, this.objects, this.shadeLayer, this.overlay);
     app.stage.addChild(this.world);
@@ -992,6 +1006,15 @@ export class OfficeScene {
       this.steamMoving = steaming;
       if (steaming) busy = true;
     }
+    // The theme's flames and flickers: for a moment after it is picked, then whenever the floor is drawn
+    // anyway. They never keep it drawing on their own; with reduced motion they rest.
+    const motion = this.office?.motion ?? [];
+    if (motion.length) {
+      const moving = !this.opts.reducedMotion && (busy || now < this.motionUntil);
+      if (moving || this.motionMoving) for (const m of motion) m.draw(moving ? now : 0);
+      this.motionMoving = moving;
+      if (moving && now < this.motionUntil) busy = true;
+    }
     this.view();
     this.app.render();
     this.host.dataset.frames = String(++this.frames);
@@ -1136,7 +1159,7 @@ export class OfficeScene {
       this.office.floor.destroy();
       this.office.walls.destroy({ children: true });
     }
-    this.office = buildStatic(this.layout, this.palette, this.opts.doorLabel);
+    this.office = buildStatic(this.layout, this.palette, this.opts.doorLabel, this.kit);
     // Pots, boards and plates are drawn again for the new floor (or palette) by the next model.
     this.clearThings();
     this.ground.removeChildren();
@@ -1178,7 +1201,7 @@ export class OfficeScene {
     if (!office) return;
     // The windows follow the office's light as it eases, unless they show the weather.
     const look = this.weatherWindows ? this.look : { ...this.look, sky: this.light.sky };
-    drawSky(office.sky, office.windows, this.palette, look);
+    drawSky(office.sky, office.windows, this.palette, look, this.kit);
     const g = this.shadeLayer;
     g.clear();
     if (this.light.shade <= 0.001) return;
@@ -1193,7 +1216,21 @@ export class OfficeScene {
   setTheme(theme: 'dark' | 'light') {
     if (theme === this.opts.theme) return;
     this.opts.theme = theme;
-    this.palette = makePalette(theme);
+    this.restyle();
+  }
+
+  /** Redraw the office in another theme (SPEC §14.5): only the office, not who is in it. */
+  setOfficeTheme(id: string | null | undefined) {
+    const design = resolveTheme(id);
+    if (design.id === this.design.id) return;
+    this.design = design;
+    this.kit = artFor(design);
+    this.motionUntil = performance.now() + MOTION_MS;
+    this.restyle();
+  }
+
+  private restyle() {
+    this.palette = makePalette(this.opts.theme, this.design);
     for (const w of this.walkers.values()) w.ch.setPalette(this.palette);
     this.rebuild();
     this.apply();

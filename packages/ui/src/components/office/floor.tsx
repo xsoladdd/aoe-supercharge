@@ -28,6 +28,7 @@ import { OfficeClocks } from '@/components/office/clocks';
 import { HistoryBar } from '@/components/office/history-bar';
 import { CostSummary } from '@/components/office/cost';
 import { OfficeRoster } from '@/components/office/roster';
+import { ThemePicker, useOfficeTheme } from '@/components/office/theme-picker';
 import { WhiteboardCard } from '@/components/office/whiteboard-card';
 import { WorkerCard } from '@/components/office/worker-card';
 import { Button } from '@/components/ui/button';
@@ -36,6 +37,7 @@ import type { OfficeModel } from '@/lib/office';
 import { useHistoryPlayer } from '@/lib/office-history';
 import { openOfficeWindow } from '@/lib/office-window';
 import { OfficeScene, type SceneEvents } from '@/lib/office/scene';
+import { resolveTheme } from '@/lib/office/themes';
 import { cn } from '@/lib/utils';
 
 const reducedQuery =
@@ -132,6 +134,8 @@ export interface FloorProps {
   tokenLimit?: number;
   /** The clocks, the windows and the weather at home (`snap.office`). */
   ambience?: Pick<OfficeState, 'clocks' | 'windows' | 'weather'>;
+  /** `ui.officeTheme`: the floor's theme (SPEC §14.5); unknown is Headquarters. */
+  officeTheme?: string;
 }
 
 /**
@@ -152,11 +156,13 @@ export default function OfficeFloor({
   epoch = 0,
   tokenLimit = 50_000_000,
   ambience,
+  officeTheme: savedTheme = 'headquarters',
 }: FloorProps) {
   const host = useRef<HTMLDivElement>(null);
   const [scene, setScene] = useState<OfficeScene | null>(null);
   const [renderer, setRenderer] = useState<Renderer>('loading');
   const theme = usePageTheme();
+  const [officeTheme, pickOfficeTheme] = useOfficeTheme(savedTheme);
   const prefersReduced = useReducedMotion();
   const reduced = prefersReduced || !animations;
   const [selected, setSelected] = useState<string | null>(linkWorker);
@@ -264,7 +270,7 @@ export default function OfficeFloor({
       openMr: (url) => handlers.current?.openMr(url),
       zoom: (z) => handlers.current?.zoom(z),
     };
-    OfficeScene.create(el, { theme, reducedMotion: reduced, doorLabel: door, events })
+    OfficeScene.create(el, { theme, officeTheme, reducedMotion: reduced, doorLabel: door, events })
       .then((s) => {
         if (cancelled) return s.destroy();
         made = s;
@@ -309,6 +315,7 @@ export default function OfficeFloor({
     [scene, notes, roomKey],
   );
   useEffect(() => scene?.setTheme(theme), [scene, theme]);
+  useEffect(() => scene?.setOfficeTheme(officeTheme), [scene, officeTheme]);
   useEffect(() => scene?.setDoorLabel(door), [scene, door]);
 
   // The light follows what the office is doing; the windows can show the weather at home instead.
@@ -439,6 +446,7 @@ export default function OfficeFloor({
       data-light={light.mode}
       data-history={inHistory ? (history ? 'ready' : 'loading') : undefined}
       data-windows={weatherWindows && weather ? weatherKind(weather.code).kind : 'activity'}
+      data-office-theme={resolveTheme(officeTheme).id}
       className="flex min-h-0 flex-1 flex-col"
       onKeyDown={onKey}
     >
@@ -456,6 +464,7 @@ export default function OfficeFloor({
         </p>
         <div className="ml-auto flex items-center gap-1">
           <AwaySummaryButton office={live} />
+          {!fallback && <ThemePicker value={officeTheme} mode={theme} onPick={pickOfficeTheme} />}
           {!inHistory && (
             <Button
               variant="ghost"

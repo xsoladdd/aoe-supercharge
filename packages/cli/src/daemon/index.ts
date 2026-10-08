@@ -117,6 +117,7 @@ async function runWorker(): Promise<void> {
     sound: ctx.config.ui.sound,
     displayName: ctx.config.ui.displayName,
     officeAnimations: ctx.config.ui.officeAnimations,
+    officeTheme: ctx.config.ui.officeTheme,
   };
 
   const notifier = new Notifier(() => ctx.config);
