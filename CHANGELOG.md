@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+- **Clean up finished workers, safely.** `supercharge task cleanup <task-id>` (and `--all-done`) removes a
+  done worker's AoE session, worktree and branch, but only when its work is on `origin/main`: it fetches
+  first, then accepts a branch that is an ancestor, one whose commits all have an equivalent patch there
+  (cherry-picked or rebased), or one whose pull request the watcher recorded as merged (squash merges). It
+  refuses, and says why and what to do, when commits are not on main or the worktree has uncommitted
+  changes. Done tasks get a **Clean up** button (task page, right-click menu), and the project page a
+  **Clean up all done**. Each cleanup is in the audit log (`task_cleaned_up`). `--dry-run` only checks.
+- The control skill now gives `supercharge task cleanup <id>` in a bash block instead of raw `aoe rm`
+  commands, which delete unpushed commits without asking.
+- **"Control chat replied" no longer sticks.** A chat that is open and visible in the dashboard is marked
+  read, also when a reply arrives while you watch (and after `/clear`), so its item leaves Needs you. The
+  control chat's side panel has a Dismiss button on that item too.
+- **Control chats run on Opus at xhigh effort.** New setting `agent.controlEffort` (default `xhigh`),
+  separate from the workers' `agent.effort`. Both are launch flags of that one session, so your Claude Code
+  default is never changed. The control chat's Model picker now shows what it runs on, locked; changing it
+  is refused (the one exception is switching back to the control model). An empty `agent.controlModel` no
+  longer falls back to the worker model. Control chats that already exist keep their old arguments.
+- **The right effort per worker.** The control skill now passes `--effort` along with `--model` on every
+  `task new`, by kind of task (medium for small follow-ups up to xhigh for migrations and anything that can
+  lose data).
+- **Releases are trunk and tag.** Changes go to `main` through pull requests; a release is a
+  `Release X.Y.Z` commit plus a `vX.Y.Z` tag, with no `release/X.Y` branches. When a `Release X.Y.Z` commit
+  lands on `main`, the release workflow now tests it, runs `npm pack`, and creates the GitHub Release (and
+  its tag) with the tarball attached. npm publish and the Homebrew tap are skipped until `NPM_TOKEN` and
+  `TAP_TOKEN` exist, so the workflow no longer fails on every release. `CLAUDE.md` says who does which step.
+
 ## 1.3.0 (2026-10-08)
 
 The worker queues at your door, and planning moves to the kitchen.

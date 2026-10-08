@@ -136,7 +136,7 @@ test.describe('overview', () => {
     await expect(usage.getByRole('meter', { name: '5-hour usage' })).toHaveAttribute('aria-valuenow', '38');
     await expect(usage.getByRole('meter', { name: 'Week usage' })).toHaveAttribute('aria-valuenow', '22');
     await expect(usage).toContainText(/\d+ of 4 workers active/);
-    await expect(usage).toContainText(/5-hour resets \d{1,2}:\d{2}/);
+    await expect(usage).toContainText(/5-hour resets (\w{3} )?\d{1,2}:\d{2}/);
   });
 
   test('Start fresh clears a conversation with /clear after saying what is kept', async ({
@@ -616,7 +616,8 @@ test.describe('project', () => {
     signedIn: page,
     browserName,
   }) => {
-    const id = await sessionId('northwind-web control');
+    // A worker's chat: a control chat's model and effort are locked (e2e/cleanup.spec.ts).
+    const id = await sessionId('NW-0003');
     await page.goto(`/chat/${id}`);
     const trigger = page.getByRole('button', { name: /^Model and effort: Opus 5\.5/ });
     await expect(trigger).toBeVisible();

@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { CleanupDoneButton } from '@/components/cleanup-task';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { WorkerList } from '@/components/worker-list';
@@ -177,6 +178,7 @@ export function ProjectPage({
                 Show done ({done})
               </label>
             )}
+            {done > 0 && <CleanupDoneButton project={view.project.name} count={done} />}
           </div>
         </div>
         <WorkerList

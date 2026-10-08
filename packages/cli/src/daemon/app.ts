@@ -28,6 +28,7 @@ import {
   type SlashCommand,
   type WatchResponse,
 } from '@aoe-supercharge/core/shared';
+import { checkCleanup, cleanupAllDone, cleanupTask } from '../cleanup.ts';
 import { VERSION, type Ctx } from '../context.ts';
 import { buildProjectStatus } from '../status.ts';
 import { CliError } from '../util/errors.ts';
@@ -390,6 +391,21 @@ export function createApp(deps: AppDeps) {
     return c.json({ results });
   });
 
+  // A chat that is open and visible is read. The page asks this for itself, so unlike "Mark as read" in
+  // the menu it is not audited: it would add a line for every reply someone watched arrive.
+  app.post('/api/sessions/:id/read', async (c) => {
+    const id = c.req.param('id');
+    if (!store.sessions.some((s) => s.id === id))
+      return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    try {
+      await ctx.aoe.setUnread(id, false);
+      deps.onClientConnected();
+      return c.json({ ok: true });
+    } catch (err) {
+      return sendError(c, err, 'read_failed');
+    }
+  });
+
   // Adopting an AoE parent session and its children: what would happen, then do it.
   app.get('/api/adopt/:sessionId', async (c) => {
     const id = c.req.param('sessionId');
@@ -605,6 +621,42 @@ export function createApp(deps: AppDeps) {
       return c.json({ ok: true, task });
     } catch (err) {
       return sendError(c, err, 'reply_failed');
+    }
+  });
+
+  // Clean up a finished worker (session, worktree, branch), only when its work is on origin/main.
+  // GET says whether that is so and why not; the POST checks again before it removes anything.
+  app.get('/api/tasks/:project/:id/cleanup', async (c) => {
+    const { project, id } = c.req.param();
+    try {
+      return c.json(await checkCleanup(ctx, project, id));
+    } catch (err) {
+      return sendError(c, err, 'cleanup_failed');
+    }
+  });
+  app.post('/api/tasks/:project/:id/cleanup', async (c) => {
+    const { project, id } = c.req.param();
+    const body = (await c.req.json().catch(() => ({}))) as { confirm?: boolean };
+    if (body.confirm !== true)
+      return c.json({ error: 'confirm_required', message: 'Cleaning up must be confirmed.' }, 400);
+    try {
+      const result = await cleanupTask(ctx, project, id, { actor: 'ui' });
+      deps.onClientConnected();
+      return c.json(result);
+    } catch (err) {
+      return sendError(c, err, 'cleanup_failed');
+    }
+  });
+  app.post('/api/projects/:name/cleanup-done', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { confirm?: boolean };
+    if (body.confirm !== true)
+      return c.json({ error: 'confirm_required', message: 'Cleaning up must be confirmed.' }, 400);
+    try {
+      const results = await cleanupAllDone(ctx, c.req.param('name'), { actor: 'ui' });
+      deps.onClientConnected();
+      return c.json({ results });
+    } catch (err) {
+      return sendError(c, err, 'cleanup_failed');
     }
   });
 

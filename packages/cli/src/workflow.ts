@@ -263,7 +263,7 @@ export async function initProject(
     const extraArgs = [
       '--append-system-prompt-file',
       promptFile,
-      ...modelArgs(ctx.config, { model: ctx.config.agent.controlModel || null }),
+      ...modelArgs(ctx.config, controlPick(ctx.config)),
       ...(await claudeSettingsArgs(ctx)),
       ...uploadArgs(ctx.paths),
       ...ctx.config.agent.extraArgs,
@@ -715,6 +715,18 @@ export async function setSessionModel(
       `Unknown effort "${opts.effort}". Use one of: ${EFFORT_LEVELS.join(', ')}.`,
       EXIT.usage,
     );
+  // A control chat is locked to the model and effort Supercharge started it on. The one change let
+  // through is the switch back to that model (a chat AoE started on your Claude Code default).
+  const lead = (await ctx.ledger.listProjects()).find((p) => p.controlSessionId === opts.sessionId);
+  if (lead) {
+    const { controlModel, controlEffort } = ctx.config.agent;
+    if (opts.effort !== undefined || (opts.model !== undefined && opts.model !== controlModel))
+      throw new CliError(
+        `Control chats are locked to ${controlModel || 'your Claude Code default model'} at ${controlEffort} effort.`,
+        EXIT.usage,
+        'Change agent.controlModel or agent.controlEffort in Settings; it applies to new control chats.',
+      );
+  }
   if (opts.model !== undefined) await sendToSession(ctx, { ...opts, message: `/model ${opts.model}` });
   if (opts.effort !== undefined) await sendToSession(ctx, { ...opts, message: `/effort ${opts.effort}` });
 }
@@ -1111,6 +1123,14 @@ export async function sendPlanComments(
 export function workerModel(model: string | null, permissionMode: string): string | null {
   if (permissionMode !== 'plan') return model;
   return model === null || /^(claude-)?sonnet\b/i.test(model) ? 'opusplan' : model;
+}
+
+/**
+ * What a control chat starts on: its own model and effort, never the worker fallbacks. An empty
+ * `controlModel` means no `--model` at all, so Claude Code's default applies.
+ */
+export function controlPick(config: Config): { model: string; effort: string } {
+  return { model: config.agent.controlModel, effort: config.agent.controlEffort };
 }
 
 /** An alias or a full model id; it lands on AoE's shell line, so nothing else. */

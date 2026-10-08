@@ -27,7 +27,7 @@ import { removeManagedBlock, upsertManagedBlock } from '../src/skills.ts';
 import { parseRemote } from '../src/util/git.ts';
 import { run } from '../src/util/exec.ts';
 import { redact } from '../src/util/logger.ts';
-import { modelArgs, workerModel } from '../src/workflow.ts';
+import { controlPick, modelArgs, setSessionModel, workerModel } from '../src/workflow.ts';
 
 const FIXTURES = join(import.meta.dirname, '../../../fixtures/aoe');
 
@@ -635,6 +635,40 @@ describe('model and effort for new sessions', () => {
       'medium',
     ]);
     expect(modelArgs(c, { effort: 'auto' })).toEqual(['--model', 'opus']);
+  });
+  it('control chats start on Opus at xhigh, whatever the worker fallbacks say', () => {
+    const c = defaultConfig();
+    expect(modelArgs(c, controlPick(c))).toEqual(['--model', 'opus', '--effort', 'xhigh']);
+    c.agent.model = 'sonnet';
+    c.agent.effort = 'low';
+    expect(modelArgs(c, controlPick(c))).toEqual(['--model', 'opus', '--effort', 'xhigh']);
+    c.agent.controlEffort = 'max';
+    c.agent.controlModel = 'claude-opus-5-5';
+    expect(modelArgs(c, controlPick(c))).toEqual(['--model', 'claude-opus-5-5', '--effort', 'max']);
+  });
+  it('an empty control model means no --model, not the worker fallback', () => {
+    const c = defaultConfig();
+    c.agent.model = 'sonnet';
+    c.agent.controlModel = '';
+    expect(modelArgs(c, controlPick(c))).toEqual(['--effort', 'xhigh']);
+  });
+  it('a control chat refuses /model and /effort changes except back to its own model', async () => {
+    const c = defaultConfig();
+    const sent: string[] = [];
+    const ctx = {
+      config: c,
+      ledger: { listProjects: async () => [{ name: 'p', controlSessionId: 'ctl' }] },
+      aoeCli: { send: async (_id: string, m: string) => void sent.push(m) },
+      aoe: { send: async (_id: string, m: string) => void sent.push(m) },
+      paths: resolvePaths({}, tmpdir()),
+    } as never;
+    await expect(setSessionModel(ctx, { sessionId: 'ctl', effort: 'low', actor: 'ui' })).rejects.toThrow(
+      /locked to opus at xhigh effort/,
+    );
+    await expect(setSessionModel(ctx, { sessionId: 'ctl', model: 'sonnet', actor: 'ui' })).rejects.toThrow(
+      /locked/,
+    );
+    expect(sent).toEqual([]);
   });
 });
 

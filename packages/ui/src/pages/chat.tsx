@@ -51,6 +51,7 @@ import { useSlashMenu } from '@/components/chat/slash-menu';
 import { ControlPanel } from '@/components/control-panel';
 import { shortPath, ToolCall } from '@/components/chat/tool-call';
 import { useChat } from '@/components/chat/use-chat';
+import { useMarkRead } from '@/components/chat/use-mark-read';
 import { CommandLine, copyText } from '@/components/copy';
 import { Conversation, useSessionOutput } from '@/components/session-chat';
 import { LiveStatus } from '@/components/status';
@@ -1297,6 +1298,7 @@ export function SessionChat({
   const [fresh, setFresh] = useState(false);
   const role = useMemo(() => roleOf(snap, session.id), [snap, session.id]);
   const { chat, error, refresh } = useChat(session.id);
+  useMarkRead(session.id, !!session.unread);
   const terminal = useSessionOutput(session.id, view === 'terminal' ? 2000 : 15_000);
   const [draft, setDraftState] = useState(() => drafts.get(session.id) ?? '');
   const setDraft = (v: string) => {

@@ -23,7 +23,7 @@ import {
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'wouter';
 import { watchKind } from '@/components/chat/notice';
-import { KIND } from '@/components/needs-you';
+import { DismissReply, KIND } from '@/components/needs-you';
 import { CommentablePlan, CommentList, useComments } from '@/components/plan-comments';
 import { StageBadge } from '@/components/status';
 import { Button } from '@/components/ui/button';
@@ -119,7 +119,7 @@ function StatusBrief({
               </>
             );
             return (
-              <li key={item.id}>
+              <li key={item.id} className="flex items-start gap-1">
                 {href ? (
                   <Link
                     href={href}
@@ -127,13 +127,14 @@ function StatusBrief({
                       // An answer card for it is right here in the chat: go there instead of leaving.
                       if (jump(taskId)) e.preventDefault();
                     }}
-                    className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-raised"
+                    className="flex min-w-0 flex-1 items-start gap-2 rounded-md px-2 py-1.5 hover:bg-raised"
                   >
                     {body}
                   </Link>
                 ) : (
-                  <div className="flex items-start gap-2 px-2 py-1.5">{body}</div>
+                  <div className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5">{body}</div>
                 )}
+                <DismissReply item={item} className="mt-0.5" />
               </li>
             );
           })}

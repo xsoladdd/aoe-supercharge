@@ -24,6 +24,7 @@ import {
   type SessionView,
   type UsageReport,
 } from '@aoe-supercharge/core/shared';
+import { cleanupAllDone, cleanupTask } from './cleanup.ts';
 import { checkAoeCompat, createCtx, dashboardOrigin, VERSION, type Ctx } from './context.ts';
 import { aoeUpgrade } from './commands/aoe-upgrade.ts';
 import { printDoctor, runDoctor } from './commands/doctor.ts';
@@ -45,6 +46,7 @@ import {
   initProject,
   newTask,
   replyToTask,
+  resolveProject,
   savePlan,
   stageTask,
   statusLineCommand,
@@ -495,6 +497,50 @@ export function buildProgram(): Command {
           `${t.id.padEnd(9)} ${(t.name ?? '').padEnd(11)} ${STAGE_LABEL[t.stage].padEnd(17)} ${t.title}  ${c.dim(relativeTime(t.updatedAt))}`,
         );
     });
+
+  task
+    .command('cleanup [task-id]')
+    .description(
+      'remove a finished worker: its AoE session, worktree and branch. Refuses unless its work is on origin/main',
+    )
+    .option('-p, --project <name>', 'project (default: the one for this repository)')
+    .option('--all-done', 'every done task of the project; the ones that are not safe are skipped')
+    .option('--dry-run', 'only check and say what would be removed')
+    .option('--json', 'machine-readable output')
+    .action(
+      async (
+        taskId: string | undefined,
+        o: { project?: string; allDone?: boolean; dryRun?: boolean; json?: boolean },
+      ) => {
+        if (!taskId === !o.allDone)
+          throw new CliError(
+            'Give a task id, or --all-done.',
+            EXIT.usage,
+            'supercharge task cleanup AS-0007',
+          );
+        const x = await ctx();
+        const project = (await resolveProject(x, cwd(), o.project)).name;
+        const opts = { actor: 'cli' as const, dryRun: o.dryRun };
+        const results = taskId
+          ? [await cleanupTask(x, project, taskId.toUpperCase(), opts)]
+          : await cleanupAllDone(x, project, opts);
+        if (o.json) json(results);
+        else {
+          if (!results.length) out(`${sym.info} No done tasks in ${project}.`);
+          for (const r of results) {
+            if (r.removed) out(`${sym.ok} ${r.taskId} cleaned up (${r.branch}, ${r.landedBy})`);
+            else if (r.ok) out(`${sym.info} ${r.taskId} is safe to clean up (${r.branch}, ${r.landedBy})`);
+            else {
+              out(`${sym.warn} ${r.taskId} not cleaned up: ${r.reason}`);
+              for (const d of r.detail ?? []) out(`    ${d}`);
+              if (r.hint) out(`  ${r.hint}`);
+            }
+          }
+        }
+        // One refusal makes the exit code non-zero, but never stops the others.
+        if (results.some((r) => !r.ok)) process.exitCode = EXIT.error;
+      },
+    );
 
   // ── notes and todos (SPEC §14.6): the office whiteboard, Claude's /note, /todo and /gnote ──
   const textOf = async (words: string[]) =>

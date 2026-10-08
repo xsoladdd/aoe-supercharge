@@ -13,6 +13,7 @@ const MrViewSchema = z.looseObject({
   work_in_progress: z.boolean().nullish(),
   web_url: z.string(),
   detailed_merge_status: z.string().nullish(),
+  sha: z.string().nullish(),
   head_pipeline: z.looseObject({ status: z.string() }).nullish(),
   pipeline: z.looseObject({ status: z.string() }).nullish(),
 });
@@ -69,6 +70,7 @@ export function parseMrView(
     draft: !!(v.draft ?? v.work_in_progress),
     pipeline: toPipeline(v.head_pipeline?.status ?? v.pipeline?.status),
     detailedMergeStatus: v.detailed_merge_status ?? null,
+    ...(v.sha ? { headSha: v.sha } : {}),
   };
 }
 
