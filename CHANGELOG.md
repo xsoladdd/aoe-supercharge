@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.0 (2026-10-09)
 
 - **Clean up finished workers, safely.** `supercharge task cleanup <task-id>` (and `--all-done`) removes a
   done worker's AoE session, worktree and branch, but only when its work is on `origin/main`: it fetches
