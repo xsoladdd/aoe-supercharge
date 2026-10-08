@@ -1191,6 +1191,8 @@ export async function sendToSession(
     actor: 'cli' | 'ui' | 'control' | 'daemon';
     project?: string | null;
     taskId?: string | null;
+    /** For the audit entry: how it was sent (`{ mode: 'hold', held: true }`). */
+    details?: Record<string, unknown>;
   },
 ): Promise<void> {
   const message = opts.message.trim();
@@ -1203,8 +1205,70 @@ export async function sendToSession(
     taskId: opts.taskId ?? null,
     sessionId: opts.sessionId,
     text: message,
+    ...(opts.details ? { details: opts.details } : {}),
   });
   await deliver(ctx, opts.sessionId, message);
+}
+
+/** Claude Code's banner once Escape has stopped a turn (AoE 1.17.2 reads it as idle: `interrupt_banner`). */
+const INTERRUPTED = /what should claude do instead/i;
+/** Claude Code's spinner line while a turn runs, `✽ Clauding… (4m 42s · ↓ 23.9k tokens)` (AoE: `active_spinner`). */
+const SPINNER = /^\s*[\u00B7\u2722\u2733\u2736\u273B\u273D*\u25CF]\s+\p{Lu}\S*(?:\u2026|\s+\S*\u2026)/u;
+
+/** Whether a pane shows a turn Escape has just stopped: the banner near the bottom, and no spinner. */
+export function paneInterrupted(content: string): boolean {
+  const tail = content
+    .split('\n')
+    .filter((l) => l.trim())
+    .slice(-20);
+  return tail.some((l) => INTERRUPTED.test(l)) && !tail.some((l) => SPINNER.test(l));
+}
+
+/**
+ * Interrupt and send: press Escape through AoE's live terminal (no Enter), which stops Claude's turn,
+ * wait until the screen shows it stopped, then send the message as usual (audited). Refuses over a
+ * menu, where Escape would answer it. `stopped: false` when Claude did not show it stopped within a
+ * few seconds: nothing was typed, and the caller holds the message until Claude is free.
+ */
+export async function interruptAndSend(
+  ctx: Ctx,
+  opts: {
+    sessionId: string;
+    message: string;
+    actor: 'ui' | 'cli';
+    project?: string | null;
+    taskId?: string | null;
+  },
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): Promise<{ stopped: boolean }> {
+  const message = opts.message.trim();
+  if (!message) throw new CliError('The message is empty.', EXIT.usage);
+  await refuseOverMenu(ctx, opts.sessionId, 'Escape now', 'interrupt');
+  await appendAudit(ctx.paths, {
+    actor: opts.actor,
+    action: 'session_action',
+    project: opts.project ?? null,
+    taskId: opts.taskId ?? null,
+    sessionId: opts.sessionId,
+    details: { action: 'interrupt' },
+  });
+  try {
+    await ctx.aoe.pressKeys(opts.sessionId, ['\x1b']);
+  } catch (err) {
+    if (err instanceof TerminalBusyError) throw new TerminalBusyCliError(err.message);
+    throw new CliError(`Could not interrupt Claude: ${(err as Error).message}`);
+  } finally {
+    ctx.onTyped?.(opts.sessionId);
+  }
+  for (let i = 0; i < 24; i++) {
+    await wait(250);
+    const pane = await ctx.aoe.output(opts.sessionId, 60).catch(() => null);
+    if (!pane || !paneInterrupted(pane.content)) continue;
+    if (await menuOnScreen(ctx, opts.sessionId)) continue;
+    await sendToSession(ctx, { ...opts, message, details: { mode: 'interrupt' } });
+    return { stopped: true };
+  }
+  return { stopped: false };
 }
 
 /** A new worker's first message; its brief is in its system prompt (roles/worker.md). */
@@ -1482,13 +1546,15 @@ export class MenuOpenError extends CliError {
 /** The menu someone tried to answer is no longer the one on screen. */
 export class PromptChangedError extends CliError {}
 
-/** REST first, the CLI as fallback (SPEC §8.4). */
+/** REST first, the CLI as fallback (SPEC §8.4). Tells `ctx.onTyped`, even on failure: it may have typed. */
 async function deliver(ctx: Ctx, sessionId: string, text: string) {
   try {
     await ctx.aoe.send(sessionId, text);
   } catch (err) {
     const r = await ctx.aoeCli.send(sessionId, text);
     if (r.code !== 0) throw new CliError(`Could not deliver the message: ${(err as Error).message}`);
+  } finally {
+    ctx.onTyped?.(sessionId);
   }
 }
 

@@ -15,6 +15,7 @@ import {
   safeEqual,
   updateOfficeMark,
   dismissControlReply,
+  readContext,
   readWatchLog,
   watchCapturePath,
   watchEnabled,
@@ -22,8 +23,12 @@ import {
 } from '@aoe-supercharge/core/node';
 import {
   buildOffice,
+  contextInfo,
   markChange,
+  SEND_MODES,
   type OfficeAction,
+  type SendMode,
+  type SendResult,
   type PlanComment,
   type SlashCommand,
   type WatchResponse,
@@ -54,6 +59,7 @@ import {
   sessionAction,
   SessionLockedError,
   setSessionModel,
+  interruptAndSend,
   TerminalBusyCliError,
   type QuestionAnswer,
   type SessionAction,
@@ -62,6 +68,7 @@ import type { OfficeWatcher } from './office.ts';
 import { terminalRoutes, type RunTerminals } from './run-terminals.ts';
 import type { Store } from './store.ts';
 import type { WorkerWatch } from './worker-watch.ts';
+import { HeldBusyError, type HeldMessages } from './held.ts';
 
 export interface AppDeps {
   ctx: Ctx;
@@ -79,6 +86,7 @@ export interface AppDeps {
   watch?: WorkerWatch;
   /** Terminals a chat's Run opened under its command. */
   terminals?: RunTerminals;
+  held?: HeldMessages;
 }
 
 export const SESSION_COOKIE = 'sc_session';
@@ -685,10 +693,18 @@ export function createApp(deps: AppDeps) {
     if (!session) return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
     try {
       const chat = await deps.transcripts.read(id, session.projectPath);
-      if (c.req.query('version') === chat.version) return c.json({ unchanged: true, version: chat.version });
+      // Claude Code's own context figures (its status line) change apart from the transcript.
+      const status = chat.claudeSessionId ? await readContext(ctx.paths, chat.claudeSessionId) : null;
+      const version = status ? `${chat.version}|${Math.round(status.mtimeMs)}` : chat.version;
+      if (c.req.query('version') === version) return c.json({ unchanged: true, version });
       const control = store.projects.some((p) => p.controlSessionId === id);
+      // Control chats and task workers start with Supercharge's settings (claudeSettingsArgs).
+      const ours = control || store.tasks.some((t) => t.aoeSessionId === id);
+      const autoCompact = ours ? ctx.config.agent.autoCompactWindow || null : null;
       return c.json({
         ...chat,
+        version,
+        context: contextInfo(chat, status?.context ?? null, autoCompact),
         expectedModel: control ? ctx.config.agent.controlModel || null : null,
         installedClaude: control ? await installedClaude() : null,
       });
@@ -705,27 +721,87 @@ export function createApp(deps: AppDeps) {
     }
   });
 
-  // Typing into a session from the dashboard: an explicit Send, always audited.
+  /** Sessions an interrupt is under way for: a second click must not press Escape again. */
+  const interrupting = new Set<string>();
+
+  // Typing into a session from the dashboard: an explicit Send, always audited. `hold` (the chat
+  // composer's default) keeps it in the daemon while Claude is busy; without a mode it goes now.
   app.post('/api/sessions/:id/send', async (c) => {
     const id = c.req.param('id');
     const session = store.sessions.find((s) => s.id === id);
     if (!session) return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { message?: string };
-    if (session.locked && body.message?.trim() === '/clear')
+    const body = (await c.req.json().catch(() => ({}))) as { message?: string; mode?: string };
+    const mode: SendMode = SEND_MODES.includes(body.mode as SendMode) ? (body.mode as SendMode) : 'now';
+    const message = (body.message ?? '').trim();
+    if (session.locked && message === '/clear')
       return c.json({ error: 'locked', message: 'This session is locked. Unlock it to clear it.' }, 409);
     const task = store.tasks.find((t) => t.aoeSessionId === id) ?? null;
     const project = task?.project ?? store.projects.find((p) => p.controlSessionId === id)?.name ?? null;
+    const held = deps.held;
+    const opts = { sessionId: id, message, actor: 'ui' as const, project, taskId: task?.id ?? null };
+    if (!message) return c.json({ error: 'send_failed', message: 'The message is empty.' }, 400);
     try {
-      await sendToSession(ctx, {
-        sessionId: id,
-        message: body.message ?? '',
-        actor: 'ui',
-        project,
-        taskId: task?.id ?? null,
-      });
-      return c.json({ ok: true });
+      if (mode === 'interrupt' && session.status === 'working') {
+        if (interrupting.has(id))
+          return c.json({ error: 'interrupting', message: 'Already interrupting Claude. One moment.' }, 409);
+        interrupting.add(id);
+        try {
+          const { stopped } = await interruptAndSend(ctx, opts);
+          if (stopped || !held) return c.json({ ok: true } satisfies SendResult);
+          // Claude did not show it stopped in time: first in line, typed once it is free.
+          return c.json({
+            held: await held.hold(id, message, { front: true }),
+            note: "Claude hasn't stopped yet. Your message goes first once it has.",
+          } satisfies SendResult);
+        } finally {
+          interrupting.delete(id);
+        }
+      }
+      // Busy, a menu open, others already waiting, or no status read since the last typing: hold it.
+      if (mode === 'hold' && held) {
+        const release =
+          held.has(id) || session.status === 'working' || session.prompt ? null : store.claimTyping(id);
+        if (!release) return c.json({ held: await held.hold(id, message) } satisfies SendResult);
+        try {
+          await sendToSession(ctx, { ...opts, details: { mode } });
+        } catch (err) {
+          if (err instanceof MenuOpenError) release();
+          throw err;
+        }
+        return c.json({ ok: true } satisfies SendResult);
+      }
+      await sendToSession(ctx, { ...opts, details: { mode: mode === 'hold' ? 'now' : mode } });
+      return c.json({ ok: true } satisfies SendResult);
     } catch (err) {
+      if (err instanceof TerminalBusyCliError)
+        return c.json({ error: 'terminal_busy', message: err.message }, 409);
       return sendError(c, err, 'send_failed');
+    }
+  });
+
+  // A held message: Cancel, or Edit (taken back into the composer). Answers with the message.
+  app.delete('/api/sessions/:id/held/:heldId', async (c) => {
+    if (!deps.held) return c.json({ error: 'not_found', message: 'Nothing is held' }, 404);
+    try {
+      const m = await deps.held.remove(c.req.param('id'), c.req.param('heldId'));
+      if (!m) return c.json({ error: 'not_found', message: 'That message is no longer held.' }, 404);
+      return c.json({ held: m });
+    } catch (err) {
+      if (err instanceof HeldBusyError) return c.json({ error: 'sending', message: err.message }, 409);
+      throw err;
+    }
+  });
+
+  // A held message whose sending failed: back in line.
+  app.post('/api/sessions/:id/held/:heldId/retry', async (c) => {
+    if (!deps.held) return c.json({ error: 'not_found', message: 'Nothing is held' }, 404);
+    try {
+      const m = await deps.held.retry(c.req.param('id'), c.req.param('heldId'));
+      if (!m) return c.json({ error: 'not_found', message: 'That message is no longer held.' }, 404);
+      return c.json({ held: m });
+    } catch (err) {
+      if (err instanceof HeldBusyError) return c.json({ error: 'sending', message: err.message }, 409);
+      throw err;
     }
   });
 

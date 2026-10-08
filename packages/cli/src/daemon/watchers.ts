@@ -115,6 +115,8 @@ export class AoeWatcher {
     }
 
     let sessions: AoeSession[];
+    // The statuses are as of this moment: typing gates compare against it, not the end of the poll.
+    const listedAt = Date.now();
     try {
       sessions = await this.ctx.aoe.listSessions('all');
     } catch (err) {
@@ -174,7 +176,7 @@ export class AoeWatcher {
       );
     }
     await this.readAsks(views);
-    this.store.setSessions(views);
+    this.store.setSessions(views, listedAt);
     await this.nameCrew(views).catch((err) =>
       this.ctx.logger.warn('could not name a worker', { err: (err as Error).message }),
     );

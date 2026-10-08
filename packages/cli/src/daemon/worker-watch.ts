@@ -33,11 +33,6 @@ import type { Store } from './store.ts';
 const WATCH_EVERY_MS = 30_000;
 /** Lines of a worker's pane saved for the control chat to read, as control-watch.sh saved. */
 const CAPTURE_LINES = 200;
-/**
- * After typing into a control chat, wait for an AoE poll this long after it before typing more: by
- * then the session shows it is working on them (a poll begun before the send could still say idle).
- */
-const FRESH_POLL_MS = 1_000;
 const PRUNE_EVERY_MS = 3_600_000;
 
 export interface WorkerWatchDeps {
@@ -60,7 +55,6 @@ export class WorkerWatch {
   private again = false;
   private book: WatchBook | null = null;
   private logs = new Map<string, WatchLogEntry[]>();
-  private sentAt = new Map<string, number>();
   /** When each idle worker was last seen with background shells running (ISO). */
   private busy = new Map<string, string>();
   private prunedAt = 0;
@@ -319,20 +313,20 @@ export class WorkerWatch {
     const pending = log.filter((e) => e.state === 'pending');
     if (!pending.length) return null;
     if (control.status !== 'idle' && control.status !== 'stopped') return null;
-    const lastSent = this.sentAt.get(control.id);
-    const polled = Date.parse(this.store.health.aoe.lastPollAt ?? '');
-    if (lastSent !== undefined && !(polled > lastSent + FRESH_POLL_MS)) return null;
+    // Wait for a status read after the last typing into it (held messages, too), so idle means idle.
+    const release = this.store.claimTyping(control.id, now.getTime());
+    if (!release) return null;
     try {
       await this.send(control.id, pending.map((e) => e.line).join('\n'), project.name);
     } catch (err) {
-      if (!(err instanceof MenuOpenError))
+      if (err instanceof MenuOpenError) release();
+      else
         this.ctx.logger.warn('worker watch: could not reach the control chat', {
           project: project.name,
           err: (err as Error).message,
         });
       return null;
     }
-    this.sentAt.set(control.id, now.getTime());
     const sentAt = now.toISOString();
     const ids = new Set(pending.map((e) => e.id));
     const current = await this.log(project.name);

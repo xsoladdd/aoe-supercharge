@@ -56,6 +56,25 @@
   Restart closes the shell and starts a fresh one in the same folder. The Shell tab now has a terminal of
   its own (AoE's extra paired terminal 31), since AoE won't close the terminal it shares with its TUI;
   after upgrading it starts as a new shell.
+- **Messages wait while Claude works.** In the chat, Send no longer types into a turn under way: the
+  message is held in Supercharge, shown in the chat with **Edit** (back into the box) and **Cancel**, and
+  typed in once Claude is done, one per turn, in order. Held messages keep their images and files and
+  survive a reload or a closed tab, because the daemon holds them. The caret beside Send offers **Send
+  now** (as before: Claude reads it during the turn) and **Interrupt and send** (Escape stops Claude, then
+  it goes in). A menu on screen is still never typed over, and every message is audited when it goes in.
+  A message whose sending failed is never sent again by itself: it waits with Retry, Edit and Cancel.
+- **Drafts are kept.** What you were writing in a chat, text, pasted images and files, stays with that
+  chat when you switch to another one or reload, until you send it. Files upload as you add them and are
+  not uploaded again when you send.
+- **The context ring opens.** Click it for tokens used of the window, the model, the last request's
+  input, output, cache reads and cache writes, and when Claude Code compacts, with Start fresh. The
+  figures are Claude Code's own, from its status line, when it reports them; otherwise an estimate.
+- **1M context shown right.** A 1M session no longer reads its context against 200k: the window comes
+  from Claude Code's status line, and without it, more than 200k in use means 1M. Output tokens no longer
+  count as context, as in Claude Code.
+- **What needs you stands out.** A reply's 🔴 NEEDS YOU, 🟡 WORKING and ✅ DONE sections sit on a muted
+  shade of their colour, and a "Blocked" item is marked. Watch notices, failed tool calls, session errors
+  and warnings take the same shades, in light and dark.
 
 ## 1.3.0 (2026-10-08)
 

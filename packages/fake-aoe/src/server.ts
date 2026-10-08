@@ -39,6 +39,8 @@ export interface FakeSession {
   swallow?: number;
   /** Fake only: false when AoE's hooks are missing, so no Claude id is known before the first message. */
   hooks?: boolean;
+  /** Fake only: Escape stopped its last turn, so the pane shows Claude Code's interrupt banner. */
+  interrupted?: boolean;
   /** Lifecycle marks, as AoE keeps them; REST leaves each out while it is unset. */
   pinned_at?: string | null;
   archived_at?: string | null;
@@ -180,6 +182,7 @@ function toRest(s: FakeSession) {
     extra_args: _x,
     swallow: _s,
     hooks: _h,
+    interrupted: _i,
     pinned_at: pinned,
     archived_at: archived,
     trashed_at: trashed,
@@ -257,6 +260,7 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
       s.menu = null;
       return;
     }
+    s.interrupted = false;
     if (transcripts) transcripts.converse(s.id, s.project_path, message);
   };
 
@@ -448,6 +452,9 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
       ...state.sent
         .filter((m) => m.id === s.id)
         .flatMap((m) => [`❯ ${m.message}`, '', '⏺ Got it. Working on that now.', '']),
+      // What Claude Code shows during a turn, and once Escape has stopped one.
+      ...(s.status === 'Running' ? ['✻ Working… (3s · ↓ 1.2k tokens)', ''] : []),
+      ...(s.interrupted ? ['  ⎿  Interrupted · What should Claude do instead?', ''] : []),
       ...(s.menu ? [s.menu] : ['❯ ']),
       ...(s.shells ? [`  ⏵⏵ auto mode on · ${s.shells} shells · ← for agents`] : []),
     ];
@@ -589,6 +596,9 @@ function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: F
         if (bytes.length === 1 && bytes[0] === 0x1b && s.menu) {
           s.menu = null;
           transcripts?.get(s.id)?.rejectPending();
+        } else if (bytes.length === 1 && bytes[0] === 0x1b && s.status === 'Running') {
+          // Escape stops a running turn, as Claude Code does: its banner, then idle.
+          Object.assign(s, { status: 'Idle', interrupted: true, idle_entered_at: new Date().toISOString() });
         }
       });
     });

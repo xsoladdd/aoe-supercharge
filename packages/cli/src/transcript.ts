@@ -8,6 +8,7 @@ import {
   type ChatBlock,
   type ChatMessage,
   type ChatResponse,
+  type RequestTokens,
   type UsageEntry,
 } from '@aoe-supercharge/core/shared';
 import type { AoeCli } from './aoe/cli.ts';
@@ -43,8 +44,12 @@ export class TranscriptParser {
   title: string | null = null;
   model: string | null = null;
   effort: string | null = null;
-  /** Tokens in the context at the latest reply (input, cache and output), for the context meter. */
+  /** Tokens in the context at the latest reply (input, cache writes and reads, as Claude Code counts them). */
   contextTokens: number | null = null;
+  /** The latest reply's API request, for the context popover. */
+  lastUsage: { at: string; usage: RequestTokens } | null = null;
+  /** The latest compaction: when, and the tokens it left. */
+  compacted: { at: string; tokens: number | null } | null = null;
   /** The Claude Code version that wrote the latest message (each record carries it). */
   claudeVersion: string | null = null;
   /**
@@ -73,6 +78,13 @@ export class TranscriptParser {
       return;
     }
     if (rec.isSidechain === true) return;
+    if (rec.type === 'system' && rec.subtype === 'compact_boundary' && typeof rec.timestamp === 'string') {
+      const meta = rec.compactMetadata as { postTokens?: unknown } | undefined;
+      this.compacted = {
+        at: rec.timestamp,
+        tokens: typeof meta?.postTokens === 'number' ? meta.postTokens : null,
+      };
+    }
     if ((rec.type === 'user' || rec.type === 'assistant') && typeof rec.version === 'string')
       this.claudeVersion = rec.version;
     const message = rec.message as { id?: string; content?: unknown; model?: unknown } | undefined;
@@ -112,16 +124,28 @@ export class TranscriptParser {
     message: { content?: unknown; model?: unknown } | undefined,
   ) {
     if (rec.type === 'assistant') {
-      if (typeof message?.model === 'string' && !message.model.startsWith('<')) this.model = message.model;
+      if (typeof message?.model === 'string' && !message.model.startsWith('<'))
+        // A reply's id leaves out the `[1m]` a /model chose: keep it while the model is the same.
+        this.model =
+          this.model?.endsWith('[1m]') && this.model.slice(0, -4) === message.model
+            ? this.model
+            : message.model;
       const u = (message as { usage?: Record<string, unknown> } | undefined)?.usage;
       if (u) {
         const n = (k: string) => (typeof u[k] === 'number' ? (u[k] as number) : 0);
-        const total =
-          n('input_tokens') +
-          n('cache_creation_input_tokens') +
-          n('cache_read_input_tokens') +
-          n('output_tokens');
-        if (total > 0) this.contextTokens = total;
+        const context = n('input_tokens') + n('cache_creation_input_tokens') + n('cache_read_input_tokens');
+        const total = context + n('output_tokens');
+        if (context > 0) this.contextTokens = context;
+        if (total > 0 && typeof rec.timestamp === 'string')
+          this.lastUsage = {
+            at: rec.timestamp,
+            usage: {
+              input: n('input_tokens'),
+              cacheWrite: n('cache_creation_input_tokens'),
+              cacheRead: n('cache_read_input_tokens'),
+              output: n('output_tokens'),
+            },
+          };
         const id = (message as { id?: unknown }).id;
         if (total > 0 && typeof id === 'string') {
           // Split cache writes by TTL when Claude Code records it; otherwise count them as 5-minute writes.
@@ -463,6 +487,9 @@ export class TranscriptStore {
       effort: c.parser.effort,
       contextTokens: c.parser.contextTokens,
       claudeVersion: c.parser.claudeVersion,
+      claudeSessionId: claudeId,
+      lastUsage: c.parser.lastUsage,
+      compacted: c.parser.compacted,
     };
   }
 }

@@ -6,6 +6,7 @@ import Markdown, { type Components } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
+import { rehypeAttention } from '@/components/chat/attention';
 import { copyText } from '@/components/copy';
 import { TerminalsAt } from '@/components/chat/run-terminals';
 import { cn } from '@/lib/utils';
@@ -222,11 +223,12 @@ export const ChatMarkdown = memo(function ChatMarkdown({
     <div className={cn('chat-md text-[0.9375rem] leading-7 break-words', className)}>
       <Markdown
         remarkPlugins={[remarkGfm]}
-        // Highlight after sanitising, so token classes survive.
+        // Highlight and colour report sections after sanitising, so their classes and attributes survive.
         rehypePlugins={[
           rehypeSanitize,
           [rehypeHighlight, { detect: false, ignoreMissing: true }],
           rehypeRunAnchors,
+          rehypeAttention,
         ]}
         components={components}
       >

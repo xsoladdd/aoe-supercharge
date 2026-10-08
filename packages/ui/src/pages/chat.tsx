@@ -1,7 +1,6 @@
 import {
   ArrowDownIcon,
   ArrowSquareOutIcon,
-  ArrowUpIcon,
   ChatTeardropTextIcon,
   CheckCircleIcon,
   CircleNotchIcon,
@@ -14,7 +13,6 @@ import {
   XCircleIcon,
   FileIcon,
   PaperclipIcon,
-  XIcon,
   SidebarSimpleIcon,
   BroomIcon,
   ArrowUUpLeftIcon,
@@ -31,9 +29,12 @@ import {
   type ChatBlock,
   type ChatMessage,
   type ChatResponse,
+  type ContextInfo,
+  type HeldMessage,
+  type SendMode,
+  type SendResult,
   type SessionView,
   type Snapshot,
-  contextWindow,
   splitAttachments,
   withAttachments,
 } from '@aoe-supercharge/core/shared';
@@ -42,11 +43,15 @@ import { toast } from 'sonner';
 import { Link, useLocation, useSearch } from 'wouter';
 import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
 import { AnnotateDialog } from '@/components/chat/annotate';
+import { AttachmentChips, isImage, uploads, useUploads } from '@/components/chat/attachments';
+import { ContextMeter } from '@/components/chat/context-meter';
+import { HeldBubbles } from '@/components/chat/held';
 import { ChatMarkdown } from '@/components/chat/markdown';
 import { ModelMenu } from '@/components/chat/model-menu';
 import { RunCommand } from '@/components/chat/run-command';
 import { EarlierTerminals } from '@/components/chat/run-terminals';
 import { NoticeRow } from '@/components/chat/notice';
+import { SendButton } from '@/components/chat/send-button';
 import { useSlashMenu } from '@/components/chat/slash-menu';
 import { ControlPanel } from '@/components/control-panel';
 import { shortPath, ToolCall } from '@/components/chat/tool-call';
@@ -74,7 +79,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ApiError, sendJson, uploadFile } from '@/lib/api';
+import { ApiError, sendJson } from '@/lib/api';
+import { clearSent, drafts, mergeIntoDraft, useDraft } from '@/lib/drafts';
 import { HeaderActions } from '@/lib/header-slot';
 import { useSearchParam } from '@/lib/nav';
 import { useRunTerminals } from '@/lib/run-terminals';
@@ -192,7 +198,7 @@ function ToolGroup({ tools, running, cwd }: { tools: Tool[]; running: boolean; c
             aria-label="Running"
           />
         ) : failed ? (
-          <span className="inline-flex shrink-0 items-center gap-1 text-[0.8125rem] text-st-red">
+          <span className="inline-flex shrink-0 items-center gap-1 text-[0.8125rem] text-attn-error">
             <XCircleIcon weight="fill" className="size-4" />
             {failed} failed
           </span>
@@ -360,8 +366,8 @@ function Working() {
 
 function WaitingCallout({ terminalHref }: { terminalHref: string }) {
   return (
-    <div className="flex flex-wrap items-start gap-x-3 gap-y-2 rounded-xl border border-st-yellow/40 bg-st-yellow/8 px-4 py-3">
-      <HandPalmIcon weight="fill" className="mt-0.5 size-5 shrink-0 text-st-yellow" />
+    <div className="flex flex-wrap items-start gap-x-3 gap-y-2 rounded-xl border border-attn-needs/35 bg-attn-needs/6 px-4 py-3">
+      <HandPalmIcon weight="fill" className="mt-0.5 size-5 shrink-0 text-attn-needs" />
       <div className="min-w-0 flex-1">
         <p className="text-[0.9375rem] font-medium">Claude is waiting on you</p>
         <p className="text-sm text-muted-foreground">
@@ -444,21 +450,9 @@ function ThreadSkeleton() {
   );
 }
 
-const drafts = new Map<string, string>();
-
-/** Pick, paste or drop files here; images open in the mark-up editor before they are sent. */
-interface PendingFile {
-  id: number;
-  name: string;
-  blob: Blob;
-  preview: string | null;
-}
-
-const isImage = (f: Blob) => /^image\/(png|jpe?g|gif|webp)$/.test(f.type);
-
-/** How full the session's context is, as a small ring (like Claude Code's own meter). */
 /** From here on every message resends a lot: Start fresh gets louder. */
 const LONG_CHAT_TOKENS = 150_000;
+const NO_HELD: HeldMessage[] = [];
 
 /** Start fresh, next to the context meter: there whenever there is a conversation, louder once it is long. */
 function FreshButton({ tokens, onClick }: { tokens: number | null; onClick: () => void }) {
@@ -476,46 +470,6 @@ function FreshButton({ tokens, onClick }: { tokens: number | null; onClick: () =
       <BroomIcon className="size-4" />
       {long ? 'Long chat: start fresh' : 'Start fresh'}
     </Button>
-  );
-}
-
-function ContextMeter({ tokens, model }: { tokens: number | null; model: string | null }) {
-  if (!tokens) return null;
-  const windowSize = contextWindow(model);
-  const pct = Math.min(100, Math.round((tokens / windowSize) * 100));
-  const color = pct >= 85 ? 'text-st-red' : pct >= 60 ? 'text-st-yellow' : 'text-muted-foreground';
-  const r = 6.5;
-  const c = 2 * Math.PI * r;
-  return (
-    <span
-      className={cn('inline-flex h-8 items-center gap-1.5 px-1.5 text-xs tabular', color)}
-      title={`${tokens.toLocaleString()} of ${windowSize.toLocaleString()} tokens in context`}
-    >
-      <svg viewBox="0 0 16 16" className="size-4 -rotate-90" aria-hidden>
-        <circle
-          cx="8"
-          cy="8"
-          r={r}
-          fill="none"
-          stroke="currentColor"
-          strokeOpacity="0.25"
-          strokeWidth="2.5"
-        />
-        <circle
-          cx="8"
-          cy="8"
-          r={r}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeDasharray={`${(pct / 100) * c} ${c}`}
-          strokeLinecap="round"
-        />
-      </svg>
-      <span>
-        {pct}%<span className="sr-only"> of the context window used</span>
-      </span>
-    </span>
   );
 }
 
@@ -550,7 +504,8 @@ function ChatComposer({
   inputRef,
   model,
   effort,
-  contextTokens,
+  context,
+  held,
   onStartFresh,
 }: {
   session: SessionView;
@@ -561,7 +516,9 @@ function ChatComposer({
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   model: string | null;
   effort: string | null;
-  contextTokens: number | null;
+  context: ContextInfo | null;
+  /** Messages the daemon holds for this session: while there are any, Send joins the line. */
+  held: HeldMessage[];
   onStartFresh: () => void;
 }) {
   const sessionId = session.id;
@@ -569,11 +526,14 @@ function ChatComposer({
   const slash = useSlashMenu({ sessionId, value, caret, onChange, inputRef });
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [files, setFiles] = useState<PendingFile[]>([]);
+  // Files live in the session's draft (uploaded as they are added), so they outlive this composer.
+  const [draft] = useDraft(sessionId);
+  const uploading = useUploads(sessionId);
   const [editing, setEditing] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
-  const seq = useRef(0);
+  const working = session.status === 'working';
+  const wouldHold = working || !!session.prompt || held.length > 0;
 
   useLayoutEffect(() => {
     const el = inputRef.current;
@@ -581,43 +541,53 @@ function ChatComposer({
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }, [value, inputRef]);
-  useEffect(() => () => files.forEach((f) => f.preview && URL.revokeObjectURL(f.preview)), []);
 
-  const addFile = (blob: Blob, name: string) =>
-    setFiles((fs) => [
-      ...fs,
-      { id: ++seq.current, name, blob, preview: isImage(blob) ? URL.createObjectURL(blob) : null },
-    ]);
   const take = (list: FileList | File[]) => {
     const all = [...list];
     const images = all.filter(isImage);
-    for (const f of all.filter((f) => !isImage(f))) addFile(f, f.name || 'file');
+    for (const f of all.filter((f) => !isImage(f))) uploads.add(sessionId, f, f.name || 'file');
     if (images.length) setEditing((q) => [...q, ...images]);
     setError(null);
   };
 
-  const deliver = async (text: string, extra: { blob: Blob; name: string }[] = []) => {
-    const outgoing = [...files.map((f) => ({ blob: f.blob, name: f.name })), ...extra];
-    if (!text.trim() && !outgoing.length) {
-      setError('Write a message first.');
-      inputRef.current?.focus();
-      return false;
-    }
+  /** Send what is in the box (and `extra` files), held while Claude is busy unless `mode` says otherwise. */
+  const deliver = async (
+    text: string,
+    extra: { blob: Blob; name: string }[] = [],
+    mode: SendMode = 'hold',
+  ) => {
+    if (sending) return false;
+    const typed = value;
+    for (const f of extra) uploads.add(sessionId, f.blob, f.name);
     setSending(true);
     setError(null);
     try {
-      const saved = await Promise.all(outgoing.map((f) => uploadFile(sessionId, f.blob, f.name)));
+      if (!(await uploads.settle(sessionId))) {
+        setError('An attachment did not upload. Remove it, then try again.');
+        return false;
+      }
+      const files = drafts.get(sessionId).files;
+      if (!text.trim() && !files.length) {
+        setError('Write a message first.');
+        inputRef.current?.focus();
+        return false;
+      }
       const message = withAttachments(
         text,
-        saved.map((s) => s.path),
+        files.map((f) => f.path),
       );
-      await sendJson('POST', `/api/sessions/${encodeURIComponent(sessionId)}/send`, { message });
-      onChange('');
-      onSent(
+      const res = await sendJson<SendResult>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/send`, {
         message,
-        saved.filter((s) => /\.(png|jpe?g|gif|webp)$/i.test(s.file)).map((s) => s.url),
-      );
-      setFiles([]);
+        mode,
+      });
+      drafts.update(sessionId, (d) => clearSent(d, { text: typed, paths: files.map((f) => f.path) }));
+      if ('held' in res) {
+        if (res.note) toast(res.note);
+      } else
+        onSent(
+          message,
+          files.filter((f) => f.image && f.url).map((f) => f.url!),
+        );
       return true;
     } catch (e) {
       setError(
@@ -634,7 +604,7 @@ function ChatComposer({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        void deliver(value);
+        if (!sending) void deliver(value);
       }}
       onDragOver={(e) => {
         if (!e.dataTransfer.types.includes('Files')) return;
@@ -653,42 +623,12 @@ function ChatComposer({
       <div
         className={cn(
           'relative rounded-2xl border border-border-strong bg-card shadow-float transition-shadow focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/25',
-          error && 'border-st-red/60',
+          error && 'border-attn-error/60',
           dragging && 'border-ring ring-3 ring-ring/30',
         )}
       >
         {slash.list}
-        {files.length > 0 && (
-          <ul aria-label="Attachments" className="flex flex-wrap gap-2 px-3 pt-3">
-            {files.map((f) => (
-              <li key={f.id} className="group/file relative">
-                {f.preview ? (
-                  <img
-                    src={f.preview}
-                    alt={f.name}
-                    className="h-16 rounded-lg border border-border object-cover"
-                  />
-                ) : (
-                  <span className="flex h-16 max-w-48 items-center gap-2 rounded-lg border border-border bg-background px-3 text-sm">
-                    <FileIcon className="size-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{f.name}</span>
-                  </span>
-                )}
-                <button
-                  type="button"
-                  aria-label={`Remove ${f.name}`}
-                  onClick={() => {
-                    if (f.preview) URL.revokeObjectURL(f.preview);
-                    setFiles((fs) => fs.filter((x) => x.id !== f.id));
-                  }}
-                  className="absolute -top-2 -right-2 grid size-6 cursor-pointer place-items-center rounded-full border border-border bg-card text-muted-foreground shadow-sm hover:text-foreground"
-                >
-                  <XIcon className="size-3" />
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        <AttachmentChips sessionId={sessionId} files={draft.files} />
         <label htmlFor="chat-input" className="sr-only">
           {label}
         </label>
@@ -750,33 +690,26 @@ function ChatComposer({
             <PaperclipIcon className="size-4" />
           </Button>
           <ModelMenu sessionId={sessionId} model={model} effort={effort} disabled={!!session.prompt} />
-          <ContextMeter tokens={contextTokens} model={model} />
-          <FreshButton tokens={contextTokens} onClick={onStartFresh} />
+          <ContextMeter context={context} onStartFresh={onStartFresh} />
+          <FreshButton tokens={context?.used ?? null} onClick={onStartFresh} />
           <span className="flex-1" />
-          {session.status === 'working' && <WorkingClock since={session.statusSince} />}
-          <button
-            type="submit"
-            aria-label={sending ? 'Sending' : 'Send message'}
-            title="Send. Every message is recorded in the audit log."
-            className={cn(
-              'grid size-8 shrink-0 cursor-pointer place-items-center rounded-full bg-gradient-primary text-on-gradient shadow-[inset_0_1px_0_rgb(255_255_255/0.18)] transition hover:brightness-[0.94] active:scale-95',
-              !value.trim() && !files.length && 'opacity-45',
-            )}
-          >
-            {sending ? (
-              <CircleNotchIcon className="size-4 animate-spin" />
-            ) : (
-              <ArrowUpIcon weight="bold" className="size-4" />
-            )}
-          </button>
+          {working && <WorkingClock since={session.statusSince} />}
+          <SendButton
+            sending={sending}
+            empty={!value.trim() && !draft.files.length && !uploading.length}
+            wouldHold={wouldHold}
+            working={working}
+            onSend={(mode) => void deliver(value, [], mode)}
+          />
         </div>
       </div>
       <p id="chat-help" className="sr-only">
-        Enter sends, Shift+Enter adds a line. Paste or drop images to mark them up first. Sent into the AoE
-        session as a prompt and recorded in the audit log.
+        Enter sends, Shift+Enter adds a line. While Claude is working, a message waits here until Claude is
+        done; the menu beside Send sends it now or stops Claude first. Paste or drop images to mark them up
+        first. Sent into the AoE session as a prompt and recorded in the audit log.
       </p>
       {error && (
-        <p id="chat-error" role="alert" className="mt-1.5 text-center text-sm text-st-red">
+        <p id="chat-error" role="alert" className="mt-1.5 text-center text-sm text-attn-error">
           {error}
         </p>
       )}
@@ -788,7 +721,7 @@ function ChatComposer({
           if (await deliver(text, [{ blob: png, name: 'screenshot.png' }])) setEditing((q) => q.slice(1));
         }}
         onAttach={(png, text) => {
-          addFile(png, 'screenshot.png');
+          uploads.add(sessionId, png, 'screenshot.png');
           onChange(text);
           setEditing((q) => q.slice(1));
         }}
@@ -882,7 +815,7 @@ function ControlModelNotice({ session, chat }: { session: SessionView; chat: Cha
   };
 
   return (
-    <div className="mx-auto mb-3 flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 rounded-xl border border-st-yellow/40 bg-st-yellow/5 px-4 py-3">
+    <div className="mx-auto mb-3 flex w-full max-w-3xl flex-wrap items-center justify-between gap-3 rounded-xl border border-attn-warn/35 bg-attn-warn/6 px-4 py-3">
       <p className="min-w-0 flex-1 text-[0.9375rem] text-muted-foreground">
         {wrongModel ? (
           <>
@@ -1198,11 +1131,9 @@ export function SessionChat({
   const { chat, error, refresh } = useChat(session.id);
   useMarkRead(session.id, !!session.unread);
   const terminal = useSessionOutput(session.id, view === 'terminal' ? 2000 : 15_000);
-  const [draft, setDraftState] = useState(() => drafts.get(session.id) ?? '');
-  const setDraft = (v: string) => {
-    drafts.set(session.id, v);
-    setDraftState(v);
-  };
+  const [draft, updateDraft] = useDraft(session.id);
+  const setDraft = (v: string) => updateDraft((d) => ({ ...d, text: v }));
+  const held = snap.held?.[session.id] ?? NO_HELD;
   const [pending, setPending] = useState<Pending[]>([]);
   const [run, setRun] = useState<{ command: string; anchor?: string; open: boolean }>({
     command: '',
@@ -1249,7 +1180,7 @@ export function SessionChat({
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [turns, pending, running, view, snap.tasks, snap.sessions]);
+  }, [turns, pending, held, running, view, snap.tasks, snap.sessions]);
 
   useEffect(() => {
     if (window.matchMedia('(pointer: fine)').matches) inputRef.current?.focus();
@@ -1267,6 +1198,18 @@ export function SessionChat({
     refresh();
     terminal.refresh();
   };
+  // A held message taken back to edit: into the box, before what is there, its files with the others.
+  const onEditHeld = (m: HeldMessage) => {
+    const { text, files } = splitAttachments(m.message);
+    updateDraft((d) => mergeIntoDraft(d, { text, files }));
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+  // A held message typed in: the usual "Sent" bubble until the transcript has it.
+  const onHeldSent = useCallback((m: HeldMessage) => {
+    stick.current = true;
+    const now = Date.now();
+    setPending((p) => [...p, { key: now, text: m.message, sentAt: now, previews: [] }]);
+  }, []);
   const pick = (s: string) => {
     setDraft(s);
     requestAnimationFrame(() => {
@@ -1346,7 +1289,7 @@ export function SessionChat({
             >
               <div className="mx-auto max-w-3xl space-y-7 px-4 pt-5 pb-6">
                 {error && !chat && (
-                  <p role="alert" className="text-[0.9375rem] text-st-red">
+                  <p role="alert" className="text-[0.9375rem] text-attn-error">
                     {error} It retries by itself.
                   </p>
                 )}
@@ -1406,6 +1349,9 @@ export function SessionChat({
                   ),
                 )}
                 {chat && <EarlierTerminals sessionId={session.id} />}
+                {view === 'chat' && (
+                  <HeldBubbles session={session} held={held} onEdit={onEditHeld} onDelivered={onHeldSent} />
+                )}
                 {running && <Working />}
                 {role.kind === 'control' && <WorkerAsks snap={snap} project={role.project!} />}
                 {session.status === 'waiting' && !session.prompt && (
@@ -1414,9 +1360,9 @@ export function SessionChat({
                 {session.status === 'error' && (
                   <div
                     role="alert"
-                    className="flex items-start gap-3 rounded-xl border border-st-red/40 bg-st-red/8 px-4 py-3"
+                    className="flex items-start gap-3 rounded-xl border border-attn-error/35 bg-attn-error/8 px-4 py-3"
                   >
-                    <WarningCircleIcon weight="fill" className="mt-0.5 size-5 shrink-0 text-st-red" />
+                    <WarningCircleIcon weight="fill" className="mt-0.5 size-5 shrink-0 text-attn-error" />
                     <div className="min-w-0 flex-1">
                       <p className="text-[0.9375rem] font-medium">AoE reports an error for this session</p>
                       <p className="text-sm break-words text-muted-foreground">
@@ -1467,13 +1413,14 @@ export function SessionChat({
               <ChatComposer
                 session={session}
                 label={`Message ${title}`}
-                value={draft}
+                value={draft.text}
                 onChange={setDraft}
                 onSent={onSent}
                 inputRef={inputRef}
                 model={chat?.model ?? null}
                 effort={chat?.effort ?? null}
-                contextTokens={chat?.contextTokens ?? null}
+                context={chat?.context ?? null}
+                held={held}
                 onStartFresh={() => setFresh(true)}
               />
             </>

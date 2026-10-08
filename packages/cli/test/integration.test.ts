@@ -875,6 +875,67 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(empty.status).toBe(400);
   });
 
+  it('holds a message while Claude works, sends it once Claude is done; Send now and Interrupt go at once', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const json = { ...auth, 'content-type': 'application/json' };
+    const snapshot = async () =>
+      (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const control = (await snapshot()).projects[0]!.controlSessionId!;
+    const status = async (st: string) => {
+      await fetch(`${fake.url}/__fake/sessions/${control}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status: st }),
+      });
+      const want = st === 'Running' ? 'working' : 'idle';
+      await until(async () => (await snapshot()).sessions.find((x) => x.id === control)?.status === want);
+    };
+    const send = (message: string, mode?: string) =>
+      fetch(`${base()}/api/sessions/${control}/send`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify({ message, mode }),
+      });
+    const sentTexts = () => fake.state.sent.filter((m) => m.id === control).map((m) => m.message);
+
+    await status('Running');
+    const held = (await (await send('Held one.', 'hold')).json()) as { held: { id: string } };
+    expect(held.held.id).toBeTruthy();
+    expect(sentTexts()).not.toContain('Held one.');
+    expect((await snapshot()).held[control]?.map((m) => m.message)).toEqual(['Held one.']);
+    // Cancel hands it back; held again, it waits its turn.
+    const taken = await fetch(`${base()}/api/sessions/${control}/held/${held.held.id}`, {
+      method: 'DELETE',
+      headers: auth,
+    });
+    expect(await taken.json()).toMatchObject({ held: { message: 'Held one.' } });
+    expect((await snapshot()).held[control]).toBeUndefined();
+    await send('Held one.', 'hold');
+
+    // Send now goes in mid-turn, as before.
+    await send('Now one.', 'now');
+    expect(sentTexts().at(-1)).toBe('Now one.');
+
+    await status('Idle');
+    await until(async () => sentTexts().includes('Held one.'), 30_000);
+    expect((await snapshot()).held[control]).toBeUndefined();
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"action":"prompt_sent".*Held one\..*"details":\{"mode":"hold","held":true\}/);
+
+    // Interrupt: Escape stops the turn, then it goes in.
+    await status('Running');
+    const keysBefore = fake.state.keys.length;
+    const r = await send('Stop: use the other file.', 'interrupt');
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ ok: true });
+    expect(fake.state.keys.slice(keysBefore).map((k) => k.hex)).toEqual(['1b']);
+    expect(sentTexts().at(-1)).toBe('Stop: use the other file.');
+    expect(await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8')).toMatch(
+      /"action":"session_action".*"details":\{"action":"interrupt"\}/,
+    );
+    await status('Idle');
+  });
+
   it("runs a command from Claude's shell block in the session's shell mode (audited)", async () => {
     const auth = { authorization: `Bearer ${bearer}` };
     const snap = (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;

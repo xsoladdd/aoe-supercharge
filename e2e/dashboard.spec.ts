@@ -465,36 +465,46 @@ test.describe('project', () => {
     signedIn: page,
     browserName,
   }) => {
-    await page.goto('/p/apollo-api');
-    await page
-      .getByRole('link', { name: /Control chat/ })
-      .first()
-      .click();
-    await expect(page).toHaveURL(/\/chat\/[0-9a-f]{16}$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'apollo-api control' })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'breadcrumb' })).toContainText(
-      'apollo-apiControl chat',
-    );
-    await expect(page.getByRole('link', { name: 'Open on claude.ai' })).toBeVisible();
-    const message = `What is blocked right now? (${browserName})`;
-    const box = page.getByLabel(/^Message /);
-    await box.fill(message);
-    await box.press('Enter');
-    const log = page.getByRole('log', { name: /^Conversation with/ });
-    await expect(log.getByText(message, { exact: true }).first()).toBeVisible();
-    await expect(box).toHaveValue('');
-    // The fake agent answers through the transcript, rendered as markdown (a blockquote of the prompt).
-    await expect(log.locator('blockquote', { hasText: message })).toBeVisible({ timeout: 15_000 });
-    // A message of several lines arrives as a paste, which Claude Code records wrapped: shown once, as typed.
-    const second = `second line ${browserName}`;
-    await box.fill(`Two lines (${browserName})\n${second}`);
-    await box.press('Enter');
-    await expect(log.locator('blockquote', { hasText: `Two lines (${browserName})` })).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(log.getByText(second)).toHaveCount(1);
-    await expect(log.getByText('pasted_content')).toHaveCount(0);
-    await axe(page, 'control chat');
+    // Idle, so Send types it in at once (while Claude works, it would hold it: e2e/composer.spec.ts).
+    const control = await sessionId('apollo-api control');
+    await fake(`/__fake/sessions/${control}`, { method: 'PATCH', body: JSON.stringify({ status: 'Idle' }) });
+    try {
+      await page.goto('/p/apollo-api');
+      await page
+        .getByRole('link', { name: /Control chat/ })
+        .first()
+        .click();
+      await expect(page).toHaveURL(/\/chat\/[0-9a-f]{16}$/);
+      await expect(page.getByRole('heading', { level: 1, name: 'apollo-api control' })).toBeVisible();
+      await expect(page.getByRole('navigation', { name: 'breadcrumb' })).toContainText(
+        'apollo-apiControl chat',
+      );
+      await expect(page.getByRole('link', { name: 'Open on claude.ai' })).toBeVisible();
+      const message = `What is blocked right now? (${browserName})`;
+      const box = page.getByLabel(/^Message /);
+      await box.fill(message);
+      await box.press('Enter');
+      const log = page.getByRole('log', { name: /^Conversation with/ });
+      await expect(log.getByText(message, { exact: true }).first()).toBeVisible();
+      await expect(box).toHaveValue('');
+      // The fake agent answers through the transcript, rendered as markdown (a blockquote of the prompt).
+      await expect(log.locator('blockquote', { hasText: message })).toBeVisible({ timeout: 15_000 });
+      // A message of several lines arrives as a paste, which Claude Code records wrapped: shown once, as typed.
+      const second = `second line ${browserName}`;
+      await box.fill(`Two lines (${browserName})\n${second}`);
+      await box.press('Enter');
+      await expect(log.locator('blockquote', { hasText: `Two lines (${browserName})` })).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(log.getByText(second)).toHaveCount(1);
+      await expect(log.getByText('pasted_content')).toHaveCount(0);
+      await axe(page, 'control chat');
+    } finally {
+      await fake(`/__fake/sessions/${control}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'Running' }),
+      });
+    }
   });
 
   test('the chat renders markdown, tables, code and folded tool calls', async ({ signedIn: page }) => {
@@ -789,49 +799,54 @@ test.describe('project', () => {
     browserName,
   }) => {
     const id = await sessionId('apollo-api control');
-    await page.goto(`/chat/${id}`);
-    const png = await page.evaluate(() => {
-      const c = document.createElement('canvas');
-      c.width = 320;
-      c.height = 200;
-      const x = c.getContext('2d')!;
-      x.fillStyle = '#e5e7eb';
-      x.fillRect(0, 0, 320, 200);
-      x.fillStyle = '#111827';
-      x.fillRect(40, 40, 120, 60);
-      return c.toDataURL('image/png').split(',')[1]!;
-    });
-    await page
-      .locator('input[type="file"]')
-      .setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
-    const dialog = page.getByRole('dialog', { name: 'Mark up the image' });
-    const canvas = dialog.getByLabel('Image to mark up');
-    await expect(canvas).toBeVisible();
-    const box = (await canvas.boundingBox())!;
-    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.7, { steps: 6 });
-    await page.mouse.up();
-    await expect(dialog.getByRole('button', { name: 'Undo' })).toBeEnabled();
-    const message = `The dark box is in the wrong place (${browserName})`;
-    const field = dialog.getByLabel('Message with the image');
-    await field.fill(message);
-    await field.press('Enter');
-    await expect(dialog).toHaveCount(0, { timeout: 15_000 });
-    await expect
-      .poll(async () => {
-        const state = (await fake('/__fake/state')) as { sent: { id: string; message: string }[] };
-        return state.sent.filter((m) => m.id === id).at(-1)?.message ?? '';
-      })
-      .toMatch(
-        new RegExp(
-          `^${message.replace(/[()]/g, '\\$&')}\\n\\nAttached: /\\S+/uploads/${id}/\\S+-screenshot\\.png$`,
-        ),
-      );
-    const log = page.getByRole('log', { name: /^Conversation with/ });
-    await expect(log.getByRole('img', { name: 'screenshot.png' }).first()).toBeVisible({ timeout: 15_000 });
-    // The context meter reads the latest reply's token usage.
-    await expect(page.getByTitle(/tokens in context$/)).toBeVisible();
+    await fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Idle' }) });
+    try {
+      await page.goto(`/chat/${id}`);
+      const png = await page.evaluate(() => {
+        const c = document.createElement('canvas');
+        c.width = 320;
+        c.height = 200;
+        const x = c.getContext('2d')!;
+        x.fillStyle = '#e5e7eb';
+        x.fillRect(0, 0, 320, 200);
+        x.fillStyle = '#111827';
+        x.fillRect(40, 40, 120, 60);
+        return c.toDataURL('image/png').split(',')[1]!;
+      });
+      await page
+        .locator('input[type="file"]')
+        .setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+      const dialog = page.getByRole('dialog', { name: 'Mark up the image' });
+      const canvas = dialog.getByLabel('Image to mark up');
+      await expect(canvas).toBeVisible();
+      const box = (await canvas.boundingBox())!;
+      await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.7, { steps: 6 });
+      await page.mouse.up();
+      await expect(dialog.getByRole('button', { name: 'Undo' })).toBeEnabled();
+      const message = `The dark box is in the wrong place (${browserName})`;
+      const field = dialog.getByLabel('Message with the image');
+      await field.fill(message);
+      await field.press('Enter');
+      await expect(dialog).toHaveCount(0, { timeout: 15_000 });
+      await expect
+        .poll(async () => {
+          const state = (await fake('/__fake/state')) as { sent: { id: string; message: string }[] };
+          return state.sent.filter((m) => m.id === id).at(-1)?.message ?? '';
+        })
+        .toMatch(
+          new RegExp(
+            `^${message.replace(/[()]/g, '\\$&')}\\n\\nAttached: /\\S+/uploads/${id}/\\S+-screenshot\\.png$`,
+          ),
+        );
+      const log = page.getByRole('log', { name: /^Conversation with/ });
+      await expect(log.getByRole('img', { name: 'screenshot.png' }).first()).toBeVisible({ timeout: 15_000 });
+      // The context meter reads the latest reply's token usage.
+      await expect(page.getByRole('button', { name: /^Context: \d+% of the window used/ })).toBeVisible();
+    } finally {
+      await fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Running' }) });
+    }
   });
 
   test('the control chat panel: comment on a plan, then send the comments in one go', async ({
