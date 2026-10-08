@@ -348,9 +348,7 @@ export function SessionMenu({
           )}
         </ContextMenuContent>
       </ContextMenu>
-      {cleaning && (
-        <CleanupTaskDialog task={cleaning} open onOpenChange={(o) => !o && setCleaning(null)} />
-      )}
+      {cleaning && <CleanupTaskDialog task={cleaning} open onOpenChange={(o) => !o && setCleaning(null)} />}
       <DeleteSessions
         targets={deleting}
         onClose={() => setDeleting(null)}
