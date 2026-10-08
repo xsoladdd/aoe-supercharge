@@ -49,6 +49,9 @@ async function setup(branch = 'sc/as-0001-t') {
   await commit(wt, 'b.txt');
   await commit(wt, 'c.txt');
   const head = await g(wt, 'rev-parse', 'HEAD');
+  // Main moves on, so a cherry-pick has another parent and never lands as the very same commit.
+  await commit(repo, 'm.txt');
+  await g(repo, 'push', '-q', 'origin', 'main');
   return { root, origin, repo, wt, branch, head, commit };
 }
 
@@ -86,9 +89,9 @@ async function world(over: Partial<TaskRecord> = {}, branch?: string) {
 }
 
 describe('checkCleanup: only when the work is on origin/main', () => {
-  it('merged (fast-forward): ok, as an ancestor', async () => {
+  it('merged (merge commit): ok, as an ancestor', async () => {
     const w = await world();
-    await g(w.repo, 'merge', '-q', '--ff-only', w.branch);
+    await g(w.repo, 'merge', '-q', '--no-ff', '--no-edit', w.branch);
     await g(w.repo, 'push', '-q', 'origin', 'main');
     const c = await checkCleanup(w.ctx, 'alpha', 'AS-0001');
     expect(c).toMatchObject({ ok: true, landedBy: 'ancestor', head: w.head });
@@ -96,7 +99,7 @@ describe('checkCleanup: only when the work is on origin/main', () => {
 
   it('merged only locally, not pushed: refused (origin is what counts)', async () => {
     const w = await world();
-    await g(w.repo, 'merge', '-q', '--ff-only', w.branch);
+    await g(w.repo, 'merge', '-q', '--no-ff', '--no-edit', w.branch);
     const c = await checkCleanup(w.ctx, 'alpha', 'AS-0001');
     expect(c.ok).toBe(false);
     expect(c.reason).toMatch(/not on origin\/main/);
@@ -171,7 +174,7 @@ describe('checkCleanup: only when the work is on origin/main', () => {
 
   it('dirty worktree: refused even when merged (modified, then untracked)', async () => {
     const w = await world();
-    await g(w.repo, 'merge', '-q', '--ff-only', w.branch);
+    await g(w.repo, 'merge', '-q', '--no-ff', '--no-edit', w.branch);
     await g(w.repo, 'push', '-q', 'origin', 'main');
     await writeFile(join(w.wt, 'b.txt'), 'edited\n');
     let c = await checkCleanup(w.ctx, 'alpha', 'AS-0001');
@@ -209,7 +212,7 @@ describe('checkCleanup: only when the work is on origin/main', () => {
 describe('cleanupTask', () => {
   it('removes the AoE session with worktree and branch, the task, and audits it', async () => {
     const w = await world();
-    await g(w.repo, 'merge', '-q', '--ff-only', w.branch);
+    await g(w.repo, 'merge', '-q', '--no-ff', '--no-edit', w.branch);
     await g(w.repo, 'push', '-q', 'origin', 'main');
     const dry = await cleanupTask(w.ctx, 'alpha', 'AS-0001', { actor: 'cli', dryRun: true });
     expect(dry).toMatchObject({ ok: true, removed: false });
@@ -235,7 +238,7 @@ describe('cleanupTask', () => {
 
   it('AoE keeping the session is an error and leaves the task alone', async () => {
     const w = await world();
-    await g(w.repo, 'merge', '-q', '--ff-only', w.branch);
+    await g(w.repo, 'merge', '-q', '--no-ff', '--no-edit', w.branch);
     await g(w.repo, 'push', '-q', 'origin', 'main');
     w.deleteSession.mockResolvedValueOnce({ status: 'kept' });
     await expect(cleanupTask(w.ctx, 'alpha', 'AS-0001', { actor: 'cli' })).rejects.toThrow(/did not remove/);
@@ -244,7 +247,7 @@ describe('cleanupTask', () => {
 
   it('--all-done cleans the merged ones and skips the rest, with reasons', async () => {
     const w = await world();
-    await g(w.repo, 'merge', '-q', '--ff-only', w.branch);
+    await g(w.repo, 'merge', '-q', '--no-ff', '--no-edit', w.branch);
     await g(w.repo, 'push', '-q', 'origin', 'main');
     // A second done task whose branch holds work that is not on main, and an unfinished one.
     await g(w.repo, 'worktree', 'add', '-q', '-b', 'sc/as-0002-u', join(w.root, 'wt2'));
