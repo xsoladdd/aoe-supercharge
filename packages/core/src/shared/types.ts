@@ -55,6 +55,8 @@ export interface MrState {
   pipeline: PipelineStatus | null;
   unresolvedThreads: number;
   detailedMergeStatus: string | null;
+  /** The head commit of the pull request: how a squash merge is matched to a worktree. Absent on older records. */
+  headSha?: string | null;
   checkedAt: string | null;
   error: string | null;
 }

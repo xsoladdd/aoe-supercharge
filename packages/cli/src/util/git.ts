@@ -79,3 +79,45 @@ export async function hasLanded(cwd: string, base: string, head: string): Promis
   const lines = cherry.split('\n').filter(Boolean);
   return lines.length > 0 && lines.every((l) => l.startsWith('-'));
 }
+
+// ── cleanup checks ───────────────────────────────────────────────────────────
+
+/** `git fetch origin <branch>`: the one place Supercharge reaches the network for git. False when it fails. */
+export async function fetchBranch(cwd: string, branch: string, remote = 'origin'): Promise<boolean> {
+  const r = await run('git', ['fetch', '--quiet', remote, branch], { cwd, timeoutMs: 60_000 });
+  return r.code === 0;
+}
+
+/** Paths with uncommitted changes, untracked files included; null when git cannot say. */
+export async function dirtyPaths(cwd: string): Promise<string[] | null> {
+  // Not through git(): its trim() would eat the leading space of " M path".
+  const r = await run('git', ['status', '--porcelain'], { cwd, timeoutMs: 10_000 });
+  return r.code === 0 ? r.stdout.split('\n').filter(Boolean).map((l) => l.slice(3)) : null;
+}
+
+/** `head` is `base` or reachable from it (fast-forward or merge commit). */
+export async function isAncestor(cwd: string, head: string, base: string): Promise<boolean> {
+  const r = await run('git', ['merge-base', '--is-ancestor', head, base], { cwd, timeoutMs: 10_000 });
+  return r.code === 0;
+}
+
+/** Every commit of `head` not on `base` has an equivalent patch there (cherry-picked or rebased). */
+export async function isCherried(cwd: string, base: string, head: string): Promise<boolean> {
+  const cherry = await git(cwd, ['cherry', base, head]);
+  if (cherry === null) return false;
+  const lines = cherry.split('\n').filter(Boolean);
+  return lines.length > 0 && lines.every((l) => l.startsWith('-'));
+}
+
+/** One-line subjects of the commits on `head` that are not on `base` (ones with an equivalent patch there left out), newest first. */
+export async function unlandedCommits(cwd: string, base: string, head: string): Promise<string[]> {
+  const out = await git(cwd, [
+    'log',
+    '--oneline',
+    '--no-decorate',
+    '--right-only',
+    '--cherry-pick',
+    `${base}...${head}`,
+  ]);
+  return out ? out.split('\n').filter(Boolean) : [];
+}

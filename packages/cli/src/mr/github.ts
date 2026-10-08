@@ -34,7 +34,7 @@ export function rollupToPipeline(state: string | null | undefined): PipelineStat
 const PR_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
-      number url state isDraft mergeStateStatus
+      number url state isDraft mergeStateStatus headRefOid
       commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       reviewThreads(first: 100) { nodes { isResolved } }
     }
@@ -47,6 +47,7 @@ const PrSchema = z.looseObject({
   state: z.string(),
   isDraft: z.boolean().nullish(),
   mergeStateStatus: z.string().nullish(),
+  headRefOid: z.string().nullish(),
   commits: z
     .looseObject({
       nodes: z
@@ -88,6 +89,7 @@ export function parseGhPr(
     pipeline: rollupToPipeline(rollup),
     unresolvedThreads: (pr.reviewThreads?.nodes ?? []).filter((t) => !t.isResolved).length,
     detailedMergeStatus: pr.mergeStateStatus ?? null,
+    ...(pr.headRefOid ? { headSha: pr.headRefOid } : {}),
   };
 }
 

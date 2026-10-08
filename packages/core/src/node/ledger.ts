@@ -349,6 +349,7 @@ export interface AuditEntry {
     | 'session_action'
     | 'task_removed'
     | 'task_restored'
+    | 'task_cleaned_up'
     | 'aoe_upgrade';
   project?: string | null;
   taskId?: string | null;
