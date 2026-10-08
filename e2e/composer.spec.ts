@@ -83,6 +83,8 @@ test.describe('chat composer', () => {
       await page.getByRole('menuitem', { name: /Send now/ }).click();
       await expect.poll(() => sentTo(id)).toContain(`Also check the footer (${browserName})`);
       await expect(box).toHaveValue('');
+      // Gone, not just closing: a click on the caret while the menu still fades out leaves it shut.
+      await expect(page.getByRole('menu')).toHaveCount(0);
 
       const keysBefore = ((await fake('/__fake/state')) as { keys: unknown[] }).keys.length;
       await box.fill(`Stop: wrong file (${browserName})`);
@@ -116,7 +118,7 @@ test.describe('chat composer', () => {
         .locator('input[type="file"]')
         .setInputFiles({ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('some notes') });
       const chips = page.getByRole('list', { name: 'Attachments' });
-      await expect(chips.getByText('notes.txt')).toBeVisible();
+      await expect(chips.getByText('notes.txt', { exact: true })).toBeVisible();
       await expect(chips.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 15_000 });
 
       // Another chat, in the app: its box is its own.
@@ -129,11 +131,11 @@ test.describe('chat composer', () => {
       await page.goBack();
       await expect(page.getByRole('heading', { level: 1, name: `draft a ${browserName}` })).toBeVisible();
       await expect(box).toHaveValue(`Half a thought (${browserName})`);
-      await expect(chips.getByText('notes.txt')).toBeVisible();
+      await expect(chips.getByText('notes.txt', { exact: true })).toBeVisible();
 
       await page.reload();
       await expect(box).toHaveValue(`Half a thought (${browserName})`, { timeout: 15_000 });
-      await expect(chips.getByText('notes.txt')).toBeVisible();
+      await expect(chips.getByText('notes.txt', { exact: true })).toBeVisible();
 
       await box.press('Enter');
       await expect
