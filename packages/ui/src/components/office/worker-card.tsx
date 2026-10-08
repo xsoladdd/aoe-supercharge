@@ -6,6 +6,7 @@ import {
   GitMergeIcon,
   KanbanIcon,
   PaperPlaneRightIcon,
+  PhoneCallIcon,
   XIcon,
 } from '@phosphor-icons/react';
 import { useId, useState } from 'react';
@@ -15,13 +16,14 @@ import {
   DRESS_CODE_LABEL,
   formatTokens,
   formatUsd,
+  isRelayed,
   relativeTime,
   ZONE_LABEL,
   mrLabel,
 } from '@aoe-supercharge/core/shared';
 import { CostLine, ESTIMATE_NOTE } from '@/components/office/cost';
 import { GoHome, RestoreButton } from '@/components/office/go-home';
-import { DismissReply } from '@/components/needs-you';
+import { DismissReply, hrefFor } from '@/components/needs-you';
 import { PromptCard, TaskAsks } from '@/components/answer';
 import { Avatar } from '@/components/office/avatar';
 import { Reason } from '@/components/office/roster';
@@ -122,6 +124,63 @@ function LeadMessage({ sessionId, project }: { sessionId: string; project: strin
 }
 
 /**
+ * What a lead is on the phone about: what it listed for workers who wait at your door themselves.
+ * Each points to its worker; they clear once that worker has nothing waiting on you.
+ */
+function Calls({
+  w,
+  office,
+  onPick,
+}: {
+  w: OfficeWorker;
+  office: OfficeModel;
+  onPick?: (key: string) => void;
+}) {
+  const calls = w.items.filter(isRelayed);
+  if (!calls.length) return null;
+  return (
+    <div className="space-y-2" data-calls={calls.length}>
+      <h3 className="flex items-center gap-1.5 text-sm font-medium">
+        <PhoneCallIcon weight="bold" className="size-4 text-st-cyan" aria-hidden />
+        Calling for your workers
+      </h3>
+      <ul className="space-y-2 text-sm">
+        {calls.map((i) => {
+          const sid = i.relay?.sessionId;
+          const worker = office.everyone.find((x) => x.session?.id === sid || x.task?.aoeSessionId === sid);
+          const who = i.relay?.label ?? i.title;
+          return (
+            <li key={i.id} className="flex items-start gap-2">
+              <span className="min-w-0 flex-1 break-words">{i.detail}</span>
+              {worker && onPick ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="shrink-0 px-2.5"
+                  aria-label={`Show ${who}, ${where(worker, office).toLowerCase()}`}
+                  onClick={() => onPick(worker.key)}
+                >
+                  {worker.name}
+                </Button>
+              ) : (
+                <Button asChild size="sm" variant="outline" className="shrink-0 px-2.5">
+                  <Link href={hrefFor(i)} aria-label={`Open ${who}`}>
+                    {i.relay?.name ?? who}
+                  </Link>
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <p className="text-sm text-muted-foreground">
+        They wait at your door themselves. Each clears once its worker has nothing waiting on you.
+      </p>
+    </div>
+  );
+}
+
+/**
  * The card for the worker you picked on the floor: who it is, why it is where it is, and what you
  * can do about it. A worker at your door brings its question, so you can answer without leaving.
  */
@@ -133,6 +192,7 @@ export function WorkerCard({
   called,
   onFollow,
   onClose,
+  onPick,
 }: {
   w: OfficeWorker;
   office: OfficeModel;
@@ -142,6 +202,8 @@ export function WorkerCard({
   called: boolean;
   onFollow: () => void;
   onClose: () => void;
+  /** Pick another character: a worker a lead is calling for. */
+  onPick?: (key: string) => void;
 }) {
   const sessionId = w.session?.id ?? w.task?.aoeSessionId ?? null;
   const mr = w.mr;
@@ -251,6 +313,7 @@ export function WorkerCard({
         {w.zone === 'door' && !w.task && w.role === 'worker' && w.session?.prompt && (
           <PromptCard session={w.session} />
         )}
+        {w.role === 'lead' && <Calls w={w} office={office} onPick={onPick} />}
         {w.zone === 'door' && w.role === 'lead' && (
           <div className="space-y-2">
             {(() => {

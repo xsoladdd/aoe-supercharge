@@ -259,6 +259,39 @@ describe('office: where a worker stands (SPEC §14.5)', () => {
     expect(line.sort(byQueue).map((x) => x.id)).toEqual(['boss', 'asker', 'lead', 'lost']);
   });
 
+  it('a lead whose workers wait on you for what it listed is on the phone at its desk, not in line', () => {
+    const call = (name: string, since = ago(60_000)): NeedsYouItem => ({
+      ...item('control_relayed', since),
+      id: `control_relayed:${name}`,
+      taskId: null,
+      relay: { name, label: name, taskId: null, sessionId: `s-${name}` },
+    });
+    expect(leadSpot(session('idle'), [call('Aldric')])).toMatchObject({
+      zone: 'desk',
+      pose: 'phone',
+      prop: 'phone',
+      reason: 'Calling for Aldric',
+      kind: null,
+    });
+    // Working on its next reply, it stays on the phone.
+    expect(leadSpot(session('working'), [call('Aldric'), call('Gareth')])).toMatchObject({
+      pose: 'phone',
+      reason: 'Calling for Aldric and Gareth',
+    });
+    expect(leadSpot(session('idle'), [call('Aldric'), call('Gareth'), call('Osric')]).reason).toBe(
+      'Calling for 3 workers',
+    );
+    // An ask of its own still takes it to the door, with no phone in line; only its own count.
+    expect(leadSpot(session('idle'), [call('Aldric'), item('control_needs', ago(60_000))])).toMatchObject({
+      zone: 'door',
+      prop: 'clipboard',
+      reason: 'Needs you',
+    });
+    // All cleared: back to its usual pose; stopped or archived, away as before.
+    expect(leadSpot(session('idle'), [])).toMatchObject({ zone: 'desk', pose: 'reading', prop: null });
+    expect(leadSpot(session('stopped'), [call('Aldric')]).zone).toBe('away');
+  });
+
   it('the door reads your name once it is set', () => {
     expect(doorLabel('Ericson')).toBe('Ericson’s office');
     expect(doorLabel('  ')).toBe('Your office');

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **One line at your door per thing.** When a control chat lists something a worker asked you under
+  NEEDS YOU, the worker waits at your door for it and the control chat no longer queues behind it. It
+  stays at its desk on the phone, ringing, calling for that worker ("Calling for Aldric"); hover it to
+  see who for, click it for the list, each with a button to that worker. In Needs you the item shows as
+  **Passed on**, links to the worker, and is not counted, sounded or notified twice.
+- **Answer the worker, and the control chat's mention goes too.** Once the worker has moved on (you
+  answered it, granted the permission, approved the plan, it got back to work), the item clears by
+  itself: no new reply, nothing typed into the control chat. A stall, or anything else the control chat
+  asks itself, still puts it in line until you reply.
+- The control skill now starts each worker item under NEEDS YOU with `Name (TASK-ID):`, one worker per
+  item, its own asks apart. Replies that don't are still matched by task id, worker name or session
+  title.
+
 ## 1.2.0 (2026-10-08)
 
 A whiteboard in every room, and fewer false alarms from the worker watch.

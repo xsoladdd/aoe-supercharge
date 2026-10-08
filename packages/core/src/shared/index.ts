@@ -6,6 +6,7 @@ export * from './needs-you.ts';
 export * from './util.ts';
 export * from './chat.ts';
 export * from './control-asks.ts';
+export * from './control-relay.ts';
 export * from './prompt.ts';
 export * from './usage.ts';
 export * from './names.ts';

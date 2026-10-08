@@ -478,6 +478,13 @@ describe('Notifier', () => {
     await n.onNeedsYou([item('b', 'mr_ready')]);
     expect(send).toHaveBeenCalledTimes(1);
   });
+  it("does not notify what a control chat passes on: the worker's own item already did", async () => {
+    const send = vi.fn(async (_title: string, _body: string) => true);
+    const n = new Notifier(() => defaultConfig(), send);
+    n.arm([]);
+    await n.onNeedsYou([item('q', 'question'), item('r', 'control_relayed')]);
+    expect(send.mock.calls.map((c) => c[0])).toEqual(['Question from a worker']);
+  });
 });
 
 describe('service files', () => {

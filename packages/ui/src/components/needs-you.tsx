@@ -4,6 +4,7 @@ import {
   CheckCircleIcon,
   GitPullRequestIcon,
   HandPalmIcon,
+  PhoneCallIcon,
   QuestionIcon,
   ShieldCheckIcon,
   SmileyIcon,
@@ -11,7 +12,7 @@ import {
   XIcon,
   type Icon,
 } from '@phosphor-icons/react';
-import { relativeTime, type NeedsYouItem, type NeedsYouKind } from '@aoe-supercharge/core/shared';
+import { isRelayed, relativeTime, type NeedsYouItem, type NeedsYouKind } from '@aoe-supercharge/core/shared';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
@@ -29,6 +30,7 @@ export const KIND: Record<NeedsYouKind, { icon: Icon; label: string; color: stri
   control_replied: { icon: ChatCircleDotsIcon, label: 'Control chat replied', color: 'text-st-violet' },
   control_blocker: { icon: HandPalmIcon, label: 'Blocked on you', color: 'text-st-red' },
   control_needs: { icon: ClipboardTextIcon, label: 'Control chat needs you', color: 'text-st-yellow' },
+  control_relayed: { icon: PhoneCallIcon, label: 'Passed on', color: 'text-st-cyan' },
   session_error: { icon: WarningOctagonIcon, label: 'Session error', color: 'text-st-red' },
   session_missing: { icon: WarningOctagonIcon, label: 'Session missing', color: 'text-st-red' },
   mr_ready: { icon: CheckCircleIcon, label: 'Ready for review', color: 'text-st-green' },
@@ -38,6 +40,11 @@ export const KIND: Record<NeedsYouKind, { icon: Icon; label: string; color: stri
 export function hrefFor(item: NeedsYouItem): string {
   // Task items open the task page, whose first tab shows its question or menu with the answer.
   if (item.project && item.taskId) return `/p/${item.project}/t/${item.taskId}`;
+  // Passed on by a control chat: the worker it is about, who has the answer cards.
+  if (item.relay)
+    return item.project && item.relay.taskId
+      ? `/p/${item.project}/t/${item.relay.taskId}`
+      : chatHref(item.relay.sessionId);
   if (item.sessionId && item.kind.startsWith('control_')) return chatHref(item.sessionId);
   if (item.project) return `/p/${item.project}`;
   if (item.sessionId) return chatHref(item.sessionId);
@@ -79,15 +86,17 @@ export function DismissReply({ item, className }: { item: NeedsYouItem; classNam
 
 export function NeedsYouStrip({ items }: { items: NeedsYouItem[] }) {
   const now = useNow();
+  // What a control chat passes on is shown, but counted once: as its worker's own item.
+  const count = items.filter((i) => !isRelayed(i)).length;
   return (
     <section aria-labelledby="needs-you-heading" className="px-5 pt-4 pb-1 lg:px-7">
       <div className="mb-2.5 flex items-center gap-2">
         <h2 id="needs-you-heading" className="text-[0.9375rem] font-semibold">
           Needs you
         </h2>
-        {items.length > 0 ? (
+        {count > 0 ? (
           <span className="tabular grid h-6 min-w-6 place-items-center rounded-full bg-gradient-primary px-2 text-[0.8125rem] font-semibold text-on-gradient">
-            {items.length}
+            {count}
           </span>
         ) : null}
       </div>

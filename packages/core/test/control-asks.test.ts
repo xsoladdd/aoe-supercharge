@@ -89,7 +89,10 @@ describe('asksFromChat: a notice never counts as your reply', () => {
       msg('2', 'assistant', 'Looking…'),
       msg('3', 'assistant', NEEDS('Pick a db')),
     ];
-    expect(asksFromChat(chat)).toEqual({ at: chat[2]!.at, items: [{ text: 'Pick a db', blocker: false }] });
+    expect(asksFromChat(chat)).toEqual({
+      at: chat[2]!.at,
+      items: [{ text: 'Pick a db', blocker: false, since: chat[2]!.at }],
+    });
     expect(
       asksFromChat([...chat, msg('4', 'user', 'Postgres'), msg('5', 'assistant', 'Done, passed it on.')]),
     ).toBeNull();
@@ -102,7 +105,10 @@ describe('asksFromChat: a notice never counts as your reply', () => {
       msg('3', 'notice', WATCH),
       msg('4', 'assistant', 'fix-1989-ci finished; nothing for you.'),
     ];
-    expect(asksFromChat(chat)).toEqual({ at: chat[1]!.at, items: [{ text: 'Pick a db', blocker: false }] });
+    expect(asksFromChat(chat)).toEqual({
+      at: chat[1]!.at,
+      items: [{ text: 'Pick a db', blocker: false, since: chat[1]!.at }],
+    });
   });
 
   it('adds what a notice brings to the list, and keeps when it started', () => {
@@ -115,10 +121,32 @@ describe('asksFromChat: a notice never counts as your reply', () => {
     expect(asksFromChat(chat)).toEqual({
       at: chat[1]!.at,
       items: [
-        { text: 'Pick a db', blocker: false },
-        { text: 'fix-1989-ci asks: deploy now? Blocked until you say', blocker: true },
+        { text: 'Pick a db', blocker: false, since: chat[1]!.at },
+        { text: 'fix-1989-ci asks: deploy now? Blocked until you say', blocker: true, since: chat[3]!.at },
       ],
     });
+  });
+
+  it('keeps when each item was first listed while the replies after it repeat it', () => {
+    const chat = [
+      msg('1', 'user', 'status?'),
+      msg('2', 'assistant', NEEDS('Aldric (AS-0018): which db?')),
+      msg('3', 'user', 'and the deploy?'),
+      msg('4', 'assistant', NEEDS('Aldric (AS-0018): which db?', 'Staging or prod?')),
+    ];
+    expect(asksFromChat(chat)?.items.map((i) => [i.text, i.since])).toEqual([
+      ['Aldric (AS-0018): which db?', chat[1]!.at],
+      ['Staging or prod?', chat[3]!.at],
+    ]);
+    // Left out of a reply, then listed again: it starts again.
+    const again = [
+      ...chat,
+      msg('5', 'user', 'thanks'),
+      msg('6', 'assistant', NEEDS('Staging or prod?')),
+      msg('7', 'user', 'and Aldric?'),
+      msg('8', 'assistant', NEEDS('Aldric (AS-0018): which db?', 'Staging or prod?')),
+    ];
+    expect(asksFromChat(again)?.items.map((i) => i.since)).toEqual([again[7]!.at, chat[3]!.at]);
   });
 
   it('changes nothing while a reply is still to come', () => {

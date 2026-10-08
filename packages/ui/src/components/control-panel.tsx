@@ -10,6 +10,7 @@ import {
   type Icon,
 } from '@phosphor-icons/react';
 import {
+  isRelayed,
   relativeTime,
   type NeedsYouItem,
   type PlanComment,
@@ -54,6 +55,8 @@ function StatusBrief({
   const active = tasks.filter((t) => t.stage !== 'done');
   const blocked = active.filter((t) => t.stage === 'blocked').length;
   const ready = active.filter((t) => t.stage === 'ready_for_review').length;
+  // What it passes on about a worker is listed, but counted once: as the worker's own item.
+  const count = items.filter((i) => !isRelayed(i)).length;
   const jump = (taskId: string | null) => {
     const card = taskId ? document.getElementById(`ask-${taskId}`) : null;
     const log = card?.closest<HTMLElement>('[role=log]');
@@ -70,17 +73,17 @@ function StatusBrief({
       aria-labelledby="brief-heading"
       className={cn(
         'border-b border-border px-4 py-3 transition-colors',
-        items.length && 'bg-st-yellow/6',
+        count && 'bg-st-yellow/6',
         flash && 'nudge',
       )}
     >
       <div className="flex items-center gap-2">
         <h2 id="brief-heading" className="text-sm font-semibold">
-          {items.length ? 'Needs you' : 'All clear'}
+          {count ? 'Needs you' : 'All clear'}
         </h2>
-        {items.length > 0 && (
+        {count > 0 && (
           <span className="tabular rounded-full bg-st-yellow/15 px-1.5 text-xs font-semibold text-st-yellow">
-            {items.length}
+            {count}
           </span>
         )}
         <span className="ml-auto text-xs text-muted-foreground">
@@ -97,7 +100,9 @@ function StatusBrief({
         <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
           {items.map((item) => {
             const { icon: I, label, color } = KIND[item.kind];
-            const href = item.taskId ? `/p/${item.project}/t/${item.taskId}` : null;
+            // Passed on about a worker: its task, where the answer cards are.
+            const taskId = item.taskId ?? item.relay?.taskId ?? null;
+            const href = taskId ? `/p/${item.project}/t/${taskId}` : null;
             const body = (
               <>
                 <I weight="fill" className={cn('mt-0.5 size-4 shrink-0', color)} />
@@ -120,7 +125,7 @@ function StatusBrief({
                     href={href}
                     onClick={(e) => {
                       // An answer card for it is right here in the chat: go there instead of leaving.
-                      if (jump(item.taskId)) e.preventDefault();
+                      if (jump(taskId)) e.preventDefault();
                     }}
                     className="flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-raised"
                   >

@@ -645,6 +645,7 @@ export default function OfficeFloor({
                   close();
                   host.current?.focus();
                 }}
+                onPick={(key) => pick(key, 'roster')}
               />
             </div>
           )}

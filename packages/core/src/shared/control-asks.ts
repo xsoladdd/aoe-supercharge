@@ -9,6 +9,11 @@ export interface ControlAsk {
   text: string;
   /** Work is stopped until you answer (the item says it blocks). */
   blocker: boolean;
+  /**
+   * When a reply first listed it, kept while the replies after it list it again (`asksFromChat`): a
+   * repeat of something already answered stays as old as it was.
+   */
+  since?: string;
 }
 
 const MAX_ASKS = 8;
@@ -97,7 +102,8 @@ const replyText = (m: ChatMessage) => m.blocks.map((b) => (b.kind === 'text' ? b
 /**
  * What a control chat's NEEDS YOU list is after a conversation. Its last reply to each of your
  * messages sets the list. A reply to a watch notice only adds to it: you answered nothing, so what
- * was waiting on you still is. The list keeps the time it first had something on it.
+ * was waiting on you still is. The list keeps the time it first had something on it, and each item
+ * the time it was first listed.
  */
 export function asksFromChat(messages: ChatMessage[]): ControlAskList | null {
   let list: ControlAskList | null = null;
@@ -105,8 +111,11 @@ export function asksFromChat(messages: ChatMessage[]): ControlAskList | null {
   let reply: ChatMessage | null = null;
   const settle = () => {
     if (!reply) return;
-    const items = controlAsks(replyText(reply));
-    const at = list?.items.length ? list.at : reply.at;
+    const repliedAt = reply.at;
+    const at = list?.items.length ? list.at : repliedAt;
+    // An item the list already had keeps the time it was first listed.
+    const first = new Map(list?.items.map((i) => [i.text, i.since]));
+    const items = controlAsks(replyText(reply)).map((i) => ({ ...i, since: first.get(i.text) ?? repliedAt }));
     if (!fromNotice) list = items.length ? { at, items } : null;
     else if (items.length) {
       const known = new Set(list?.items.map((i) => i.text));

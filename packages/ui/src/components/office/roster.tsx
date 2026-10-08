@@ -11,6 +11,7 @@ import {
   EyeIcon,
   FolderIcon,
   HourglassMediumIcon,
+  PhoneCallIcon,
   StopIcon,
   WarningOctagonIcon,
   XCircleIcon,
@@ -19,7 +20,14 @@ import {
 } from '@phosphor-icons/react';
 import { useEffect, useRef } from 'react';
 import { Link } from 'wouter';
-import { blocksWork, DRESS_CODE_LABEL, mrLabel, relativeTime, type Prop } from '@aoe-supercharge/core/shared';
+import {
+  blocksWork,
+  DRESS_CODE_LABEL,
+  isRelayed,
+  mrLabel,
+  relativeTime,
+  type Prop,
+} from '@aoe-supercharge/core/shared';
 import { Avatar } from '@/components/office/avatar';
 import { CostLine } from '@/components/office/cost';
 import { GoHome, RestoreButton } from '@/components/office/go-home';
@@ -39,11 +47,23 @@ const PROP_META: Partial<Record<Exclude<Prop, null>, { icon: Icon; color: string
   folder_red: { icon: XCircleIcon, color: 'text-st-red' },
   letter: { icon: EnvelopeOpenIcon, color: 'text-st-cyan' },
   mug: { icon: CoffeeIcon, color: MUTED },
+  phone: { icon: PhoneCallIcon, color: 'text-st-cyan' },
 };
 
-function Pill({ icon: I, color, children }: { icon: Icon; color: string; children: React.ReactNode }) {
+function Pill({
+  icon: I,
+  color,
+  title,
+  children,
+}: {
+  icon: Icon;
+  color: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
   return (
     <span
+      title={title}
       className={cn(
         'inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full px-2 text-[0.8125rem] font-medium whitespace-nowrap',
         // Grey on its own 14% tint falls under 4.5:1, so neutral reasons get an outline instead.
@@ -64,6 +84,19 @@ export function Reason({ w }: { w: OfficeWorker }) {
     return (
       <Pill icon={k.icon} color={k.color}>
         {k.label}
+      </Pill>
+    );
+  }
+  if (w.zone === 'desk' && w.spot.prop === 'phone') {
+    // A lead on the phone: its workers wait on you for what it listed. The title lists them.
+    const calls = w.items.filter(isRelayed);
+    return (
+      <Pill
+        icon={PhoneCallIcon}
+        color="text-st-cyan"
+        title={calls.map((i) => `${i.relay?.label ?? i.title}: ${i.detail}`).join('\n')}
+      >
+        {w.spot.reason}
       </Pill>
     );
   }
@@ -244,6 +277,7 @@ function WorkerRow({
       data-zone={w.zone}
       data-since={w.since ?? undefined}
       data-blocks={w.zone === 'door' ? String(blocksWork(w.spot)) : undefined}
+      data-relayed={w.role === 'lead' ? w.items.filter(isRelayed).length || undefined : undefined}
       className={
         extra
           ? 'flex items-center gap-2 pr-3 [&>:first-child]:min-w-0 [&>:first-child]:flex-1'
