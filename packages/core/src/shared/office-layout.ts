@@ -127,9 +127,8 @@ const ROPED = 6;
 const TURN = 6;
 /** Tiles of wall the whiteboard takes, just west of your corner. */
 const BOARD_W = 4;
-/** Tiles of glass a room's whiteboard covers, starting this far below the room's back row. */
+/** Tiles of glass a room's whiteboard covers. */
 const ROOM_BOARD_W = 2.2;
-const ROOM_BOARD_AT = 0.4;
 
 export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   const teams = input.length ? input : [];
@@ -181,7 +180,7 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
     floors.push({ kind: 'carpet', rect: area, team: t.project });
     areas[t.project] = area;
     put({ kind: 'lead_desk', x: bx + 1, y: by + 1, w: 2, h: 1, team: t.project });
-    put({ kind: 'team_sign', x: bx + blockW - 2, y: by, w: 1, h: 1, team: t.project });
+    put({ kind: 'team_sign', x: bx + 2, y: by, w: 1, h: 1, team: t.project });
     // The room's glass: all round, but for a doorway two tiles wide in the middle of the front.
     const roomWalls: Edge[] = [];
     const doorX0 = bx + Math.floor((blockW - 2) / 2);
@@ -209,8 +208,10 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
       put({ kind: 'desk', x: desk.x, y: desk.y, w: 1, h: 1, team: t.project, desk: n });
       desks.push({ n, seat, desk });
     }
-    const roomBoard = { x: bx, y0: by + ROOM_BOARD_AT, y1: by + ROOM_BOARD_AT + ROOM_BOARD_W };
-    areas[roomBoardId(t.project)] = { x: bx, y: by, w: 3, h: 4 };
+    // Half way down the glass, so it is nowhere near the sign of the room behind it on screen.
+    const boardAt = by + (area.h - ROOM_BOARD_W) / 2;
+    const roomBoard = { x: bx, y0: boardAt, y1: boardAt + ROOM_BOARD_W };
+    areas[roomBoardId(t.project)] = { x: bx, y: Math.floor(boardAt) - 1, w: 3, h: 4 };
     plans.push({
       project: t.project,
       area,

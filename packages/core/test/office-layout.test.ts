@@ -131,6 +131,18 @@ describe('office layout', () => {
     }
   });
 
+  it("keeps a room board clear of the neighbouring room: half way down the glass, its sign at the room's west end", () => {
+    const l = officeLayout(['a', 'b', 'c', 'd'].map((project) => ({ project, desks: 4 })));
+    for (const t of l.teams) {
+      // Centred on the glass, not up at the back row where the room behind it stands on screen.
+      expect((t.board.y0 + t.board.y1) / 2).toBeCloseTo(t.area.y + t.area.h / 2);
+      // The room's sign stands at its own west end, not against the next room's board.
+      const sign = l.furniture.find((f) => f.kind === 'team_sign' && f.team === t.project)!;
+      expect(sign.x).toBe(t.area.x + 2);
+      expect(sign.y).toBe(t.area.y);
+    }
+  });
+
   it('puts your door at the far east end of the back wall, with the line standing out from it', () => {
     const l = officeLayout([
       { project: 'a', desks: 4 },

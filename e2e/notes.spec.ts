@@ -147,6 +147,26 @@ test.describe('notes', () => {
       .click();
   });
 
+  test('a room’s whiteboard stays open when you click its link before the floor has finished starting', async ({
+    signedIn: page,
+  }) => {
+    await page.goto('/office');
+    const link = page
+      .locator('[data-team="northwind-web"]')
+      .getByRole('button', { name: 'northwind-web whiteboard' });
+    // As early as the link exists: the renderer is usually still starting.
+    await link.click();
+    const card = page.locator('[data-whiteboard-card]');
+    await expect(card.getByRole('heading', { name: 'northwind-web whiteboard' })).toBeVisible();
+    const floor = page.locator('[data-office-floor]');
+    await expect(floor).toHaveAttribute('data-renderer', /^(webgl|webgpu|canvas)$/);
+    await expect(floor).toHaveAttribute('data-camera-focus', 'board:northwind-web');
+    // It stays: nothing closes it behind your back.
+    await page.waitForTimeout(3_000);
+    await expect(card.getByRole('heading', { name: 'northwind-web whiteboard' })).toBeVisible();
+    await expect(floor).toHaveAttribute('data-camera-focus', 'board:northwind-web');
+  });
+
   test('a room’s whiteboard opens from a link, and fits a phone', async ({ signedIn: page }) => {
     await page.setViewportSize({ width: 390, height: 780 });
     await page.goto('/office?focus=board:northwind-web');

@@ -182,6 +182,8 @@ export class OfficeScene {
   private boardHits = new Map<string, Pt[]>();
   /** Screen px the whiteboard card covers on the left, kept clear when flying to the board. */
   private boardCover = 0;
+  /** A fly to a board asked for before its place was drawn: done once it is. */
+  private boardWanted: { id: string; cover: number; instant: boolean } | null = null;
   private walkers = new Map<string, Walker>();
   /** Where each character was when the model last came in, to tell a finish from a walk. */
   private zones = new Map<string, Zone>();
@@ -830,7 +832,13 @@ export class OfficeScene {
     if (JSON.stringify(lines) === JSON.stringify(this.boardLines)) return;
     this.boardLines = lines;
     this.drawBoards();
+    this.flyToWantedBoard();
     this.wake();
+  }
+
+  private flyToWantedBoard() {
+    const want = this.boardWanted;
+    if (want && this.boardHits.has(want.id)) this.focusBoard(want.id, want.cover, want.instant);
   }
 
   /**
@@ -969,7 +977,11 @@ export class OfficeScene {
   focusBoard(id = DOOR_BOARD, cover = this.boardCover, instant = false) {
     this.boardCover = cover;
     const pts = this.boardHits.get(id);
-    if (!pts) return;
+    if (!pts) {
+      this.boardWanted = { id, cover, instant };
+      return;
+    }
+    this.boardWanted = null;
     const minX = Math.min(...pts.map((p) => p.x));
     const maxX = Math.max(...pts.map((p) => p.x));
     const minY = Math.min(...pts.map((p) => p.y));
