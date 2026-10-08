@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 (2026-10-08)
+
+The worker queues at your door, and planning moves to the kitchen.
 
 - **One line at your door per thing.** When a control chat lists something a worker asked you under
   NEEDS YOU, the worker waits at your door for it and the control chat no longer queues behind it. It
