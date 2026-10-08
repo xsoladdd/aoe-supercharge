@@ -5,7 +5,6 @@ import {
   CheckCircleIcon,
   ClipboardTextIcon,
   EyeIcon,
-  NotePencilIcon,
   TerminalIcon,
   type Icon,
 } from '@phosphor-icons/react';
@@ -20,7 +19,7 @@ import {
   type WatchLogEntry,
   type WatchResponse,
 } from '@aoe-supercharge/core/shared';
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'wouter';
 import { watchKind } from '@/components/chat/notice';
 import { DismissReply, KIND } from '@/components/needs-you';
@@ -28,14 +27,14 @@ import { CommentablePlan, CommentList, useComments } from '@/components/plan-com
 import { StageBadge } from '@/components/status';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getJson, sendJson } from '@/lib/api';
+import { getJson } from '@/lib/api';
 import { chatHref } from '@/lib/nav';
 import { useNudgeFlash } from '@/lib/nudge';
 import { hasShellRuns, useShellRunVersion } from '@/lib/shell-runs';
 import { useNow } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
-type Tab = 'plans' | 'comments' | 'notes' | 'watch' | 'shell';
+type Tab = 'plans' | 'comments' | 'watch' | 'shell';
 
 // xterm.js loads only when the Shell tab opens.
 const ShellTerminal = lazy(() => import('@/components/chat/shell-terminal'));
@@ -269,51 +268,6 @@ function TaskComments({ task }: { task: TaskRecord }) {
   );
 }
 
-/** Your scratch notes for the project, saved as you type (to notes.md next to the project's ledger). */
-function NotesTab({ project }: { project: string }) {
-  const [text, setText] = useState<string | null>(null);
-  const [state, setState] = useState<'saved' | 'saving' | 'error'>('saved');
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  useEffect(() => {
-    getJson<{ text: string }>(`/api/projects/${encodeURIComponent(project)}/notes`)
-      .then((r) => setText(r.text))
-      .catch(() => setText(''));
-  }, [project]);
-  const save = (v: string) => {
-    setState('saving');
-    clearTimeout(timer.current);
-    timer.current = setTimeout(() => {
-      sendJson('PUT', `/api/projects/${encodeURIComponent(project)}/notes`, { text: v })
-        .then(() => setState('saved'))
-        .catch(() => setState('error'));
-    }, 700);
-  };
-  if (text === null) return <Skeleton className="h-40 w-full" />;
-  return (
-    <div className="flex h-full min-h-64 flex-col gap-1.5">
-      <label htmlFor="project-notes" className="sr-only">
-        Notes for {project}
-      </label>
-      <textarea
-        id="project-notes"
-        value={text}
-        onChange={(e) => {
-          setText(e.target.value);
-          save(e.target.value);
-        }}
-        placeholder="Drafts, answers to come back to, things to compare…"
-        className="min-h-0 w-full flex-1 resize-none rounded-lg border border-input bg-background p-3 font-mono text-[0.8125rem] leading-relaxed placeholder:font-sans placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none"
-      />
-      <span
-        className={cn('text-xs', state === 'error' ? 'text-st-red' : 'text-muted-foreground')}
-        role="status"
-      >
-        {state === 'saving' ? 'Saving…' : state === 'error' ? 'Not saved. Check the daemon.' : 'Saved'}
-      </span>
-    </div>
-  );
-}
-
 const ENTRY_STATE: Record<WatchLogEntry['state'], { label: string; className: string }> = {
   sent: { label: 'Sent', className: 'text-muted-foreground' },
   pending: { label: 'Waiting for the control chat', className: 'text-st-yellow' },
@@ -435,14 +389,13 @@ function WatchTab({ snap, project }: { snap: Snapshot; project: string }) {
 }
 
 const TABS: { key: Tab; label: string; icon: Icon }[] = [
-  { key: 'notes', label: 'Notes', icon: NotePencilIcon },
   { key: 'plans', label: 'Plans', icon: ClipboardTextIcon },
   { key: 'comments', label: 'Comments', icon: ChatCenteredTextIcon },
   { key: 'watch', label: 'Watch', icon: EyeIcon },
   { key: 'shell', label: 'Shell', icon: TerminalIcon },
 ];
 
-/** The control chat's side panel: what needs you, then the active plans, your comments and notes. */
+/** The control chat's side panel: what needs you, then the active plans, your comments, the watch and the shell. */
 export function ControlPanel({
   snap,
   project,
@@ -453,10 +406,10 @@ export function ControlPanel({
   /** Close the panel (the chat header's Panel button opens it again). */
   onHide?: () => void;
 }) {
-  // Every control chat opens on your notes.
-  const [tab, setTab] = useState<Tab>('notes');
-  // The control chat's own shell: Run in terminal sends commands there.
+  // The control chat's own shell: Run in control shell sends commands there.
   const controlId = snap.projects.find((p) => p.name === project)?.controlSessionId ?? null;
+  // It opens on the shell, or on the plans in a project without a control chat.
+  const [tab, setTab] = useState<Tab>(controlId ? 'shell' : 'plans');
   const runs = useShellRunVersion();
   useEffect(() => {
     if (controlId && hasShellRuns(controlId)) setTab('shell');
@@ -536,7 +489,6 @@ export function ControlPanel({
             </p>
           ))}
         {tab === 'comments' && <CommentsTab tasks={active} />}
-        {tab === 'notes' && <NotesTab project={project} />}
         {tab === 'watch' && <WatchTab snap={snap} project={project} />}
       </div>
     </div>

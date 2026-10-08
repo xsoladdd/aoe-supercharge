@@ -27,6 +27,8 @@ export interface Paths {
   auditFile: string;
   compatLocalFile: string;
   daemonStateFile: string;
+  /** The terminals a chat's Run opened, so they reconnect after a reload or a daemon restart. */
+  runTerminalsFile: string;
   localFixturesDir: string;
   claudeDir: string;
   claudeSkillsDir: string;
@@ -67,6 +69,7 @@ export function resolvePaths(
     auditFile: join(stateDir, 'audit.jsonl'),
     compatLocalFile: join(stateDir, 'compat.local.json'),
     daemonStateFile: join(stateDir, 'daemon.json'),
+    runTerminalsFile: join(stateDir, 'terminals.json'),
     localFixturesDir: join(stateDir, 'fixtures'),
     claudeDir,
     claudeSkillsDir: join(claudeDir, 'skills'),

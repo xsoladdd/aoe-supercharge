@@ -36,6 +36,26 @@
   the look changes: rooms, desks, your line and every path stay put, and status colours, bubbles and
   nameplates read the same in every theme. The choice is saved as `ui.officeTheme`, so every device
   shows the same; a theme it doesn't know shows Headquarters.
+- **Run in a new terminal.** Run now offers three ways to run a command: in the chat (shell mode, as
+  before), in the control shell (the side panel's Shell tab; it was "Run in terminal"), and in a new
+  terminal of its own that opens right under the command. You see its output there, scroll back through
+  it and answer its prompts, and it stays until you close it, across reloads too. It is one of AoE's
+  extra paired terminals for the session, so it runs in the session's folder and needs nothing new
+  installed. A terminal whose command the chat no longer shows (after Start fresh) is listed at the end
+  of the chat. Every run is audited.
+- **A red warning on commands that lose work.** Before you run `aoe rm` with `--purge`,
+  `--delete-worktree` or `--delete-branch`, `aoe session empty-trash`, `rm -rf`, `git reset --hard`,
+  `git push --force`, `git branch -D`, `git clean -f` and similar, the Run dialog says in red what the
+  command deletes, and keeps the focus on Cancel.
+- **Enter confirms.** In the Run dialog Enter runs the highlighted choice (the one you used last; Run in
+  chat at first) and Escape cancels; for a command that loses work, Enter cancels. In Start fresh,
+  Enter clears the conversation.
+- **A slimmer side panel.** The control chat's panel has Plans, Comments, Watch and Shell, and opens on
+  Shell. Its Notes tab is gone; notes and todos stay on the Notes page.
+- **Clear and Restart in the Shell tab.** Clear clears the screen (Ctrl-L; the scrollback stays).
+  Restart closes the shell and starts a fresh one in the same folder. The Shell tab now has a terminal of
+  its own (AoE's extra paired terminal 31), since AoE won't close the terminal it shares with its TUI;
+  after upgrading it starts as a new shell.
 
 ## 1.3.0 (2026-10-08)
 

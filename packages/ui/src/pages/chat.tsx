@@ -18,10 +18,8 @@ import {
   SidebarSimpleIcon,
   BroomIcon,
   ArrowUUpLeftIcon,
-  PlayIcon,
   CpuIcon,
   ArrowClockwiseIcon,
-  TerminalIcon,
 } from '@phosphor-icons/react';
 import {
   LIVE_STATUS_LABEL,
@@ -46,6 +44,8 @@ import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
 import { AnnotateDialog } from '@/components/chat/annotate';
 import { ChatMarkdown } from '@/components/chat/markdown';
 import { ModelMenu } from '@/components/chat/model-menu';
+import { RunCommand } from '@/components/chat/run-command';
+import { EarlierTerminals } from '@/components/chat/run-terminals';
 import { NoticeRow } from '@/components/chat/notice';
 import { useSlashMenu } from '@/components/chat/slash-menu';
 import { ControlPanel } from '@/components/control-panel';
@@ -77,7 +77,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { ApiError, sendJson, uploadFile } from '@/lib/api';
 import { HeaderActions } from '@/lib/header-slot';
 import { useSearchParam } from '@/lib/nav';
-import { hasShellRuns, requestShellRun, useShellRunVersion } from '@/lib/shell-runs';
+import { useRunTerminals } from '@/lib/run-terminals';
+import { hasShellRuns, useShellRunVersion } from '@/lib/shell-runs';
 import { cn } from '@/lib/utils';
 
 type Tool = Extract<ChatBlock, { kind: 'tool' }>;
@@ -215,22 +216,24 @@ function ToolGroup({ tools, running, cwd }: { tools: Tool[]; running: boolean; c
 }
 
 const AssistantTurn = memo(function AssistantTurn({
+  turnId,
   blocks,
   running,
   cwd,
   onRun,
 }: {
+  turnId: string;
   blocks: ChatBlock[];
   running: boolean;
   cwd: string | null;
-  onRun: (command: string) => void;
+  onRun: (command: string, anchor?: string) => void;
 }) {
   const segments = useMemo(() => toSegments(blocks), [blocks]);
   return (
     <div className="space-y-3">
       {segments.map((s) =>
         s.kind === 'text' ? (
-          <ChatMarkdown key={s.key} text={s.text} onRun={onRun} />
+          <ChatMarkdown key={s.key} text={s.text} onRun={onRun} anchorKey={`${turnId}:${s.key}`} />
         ) : (
           <ToolGroup key={s.key} tools={s.tools} running={running} cwd={cwd} />
         ),
@@ -335,120 +338,6 @@ function ShellRun({
       </div>
       {note && <span className="pr-1 text-[0.8125rem] text-muted-foreground">{note}</span>}
     </div>
-  );
-}
-
-/**
- * Run a command from Claude's reply, once you confirm it, in one of two ways. In the chat: Supercharge
- * types `!` and the command into the session, so Claude Code runs it as you, in the session's folder
- * (shell mode), and Claude reads the output. In the terminal (control chats): it goes into the session's
- * own shell in the side panel, where you see the output and can answer its prompts.
- */
-function RunCommand({
-  session,
-  command,
-  open,
-  onOpenChange,
-  onRan,
-  terminal = false,
-}: {
-  session: SessionView;
-  command: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onRan: (command: string) => void;
-  /** Offer Run in terminal: the session has a Shell tab in its side panel. */
-  terminal?: boolean;
-}) {
-  const [busy, setBusy] = useState(false);
-  const working = session.status === 'working';
-  const run = async () => {
-    setBusy(true);
-    try {
-      await sendJson('POST', `/api/sessions/${encodeURIComponent(session.id)}/run`, { command });
-      onRan(command);
-      onOpenChange(false);
-    } catch (e) {
-      toast.error('Command not run', { description: e instanceof ApiError ? e.message : undefined });
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent className="data-[size=default]:sm:max-w-xl">
-        <AlertDialogHeader>
-          <AlertDialogTitle>Run this command?</AlertDialogTitle>
-          <AlertDialogDescription>
-            It runs as you in{' '}
-            {session.projectPath ? (
-              <span translate="no" className="font-mono text-[0.8125rem] break-all">
-                {session.projectPath}
-              </span>
-            ) : (
-              "the session's folder"
-            )}
-            . Recorded in the audit log.
-          </AlertDialogDescription>
-        </AlertDialogHeader>
-        <pre
-          translate="no"
-          className="max-h-72 min-w-0 overflow-auto rounded-lg border border-border bg-background p-3 font-mono text-[0.8125rem] leading-relaxed break-words whitespace-pre-wrap"
-        >
-          {command}
-        </pre>
-        <ul className="space-y-1.5 text-sm text-muted-foreground">
-          {terminal && (
-            <li>
-              <span className="font-medium text-foreground">Run in terminal:</span> in this chat's shell, in
-              the Shell tab of the side panel. You see the output there and can answer its prompts; Claude
-              doesn't see it.
-            </li>
-          )}
-          <li>
-            <span className="font-medium text-foreground">{terminal ? 'Run in chat' : 'Run'}:</span> through
-            Claude Code's shell mode, like typing <span className="font-mono">!</span> and the command in its
-            terminal. Claude reads the output and replies.
-          </li>
-        </ul>
-        <AlertDialogFooter className="sm:flex-wrap">
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          {terminal ? (
-            <>
-              <Button
-                variant="outline"
-                disabled={busy || working}
-                onClick={() => void run()}
-                title={working ? 'Wait until Claude is done' : undefined}
-              >
-                {busy ? <CircleNotchIcon className="animate-spin" /> : <ChatTeardropTextIcon />}
-                Run in chat
-              </Button>
-              <AlertDialogAction
-                onClick={() => {
-                  requestShellRun(session.id, command);
-                  onOpenChange(false);
-                }}
-              >
-                <TerminalIcon />
-                Run in terminal
-              </AlertDialogAction>
-            </>
-          ) : (
-            <AlertDialogAction
-              disabled={busy || working}
-              onClick={(e) => {
-                e.preventDefault();
-                void run();
-              }}
-            >
-              {busy ? <CircleNotchIcon className="animate-spin" /> : <PlayIcon weight="fill" />}
-              {working ? 'Wait until Claude is done' : 'Run'}
-            </AlertDialogAction>
-          )}
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
   );
 }
 
@@ -1068,6 +957,7 @@ function StartFresh({
   onOpenChange: (open: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const confirm = useRef<HTMLButtonElement>(null);
   const clear = async () => {
     setBusy(true);
     try {
@@ -1090,7 +980,14 @@ function StartFresh({
         : 'Nothing is kept for this session: it is not part of a Supercharge project.';
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
+      <AlertDialogContent
+        // Enter clears, Escape cancels; while it can't clear, Cancel keeps the focus.
+        onOpenAutoFocus={(e) => {
+          if (confirm.current?.disabled !== false) return;
+          e.preventDefault();
+          confirm.current.focus();
+        }}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle>Start a fresh conversation?</AlertDialogTitle>
           <AlertDialogDescription>
@@ -1101,6 +998,7 @@ function StartFresh({
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
+            ref={confirm}
             disabled={busy || session.status === 'working' || session.locked}
             onClick={(e) => {
               e.preventDefault();
@@ -1306,9 +1204,16 @@ export function SessionChat({
     setDraftState(v);
   };
   const [pending, setPending] = useState<Pending[]>([]);
-  const [run, setRun] = useState<{ command: string; open: boolean }>({ command: '', open: false });
-  const askToRun = useCallback((command: string) => setRun({ command, open: true }), []);
-  // Run in terminal opens the side panel, whose Shell tab runs it.
+  const [run, setRun] = useState<{ command: string; anchor?: string; open: boolean }>({
+    command: '',
+    open: false,
+  });
+  const askToRun = useCallback(
+    (command: string, anchor?: string) => setRun({ command, anchor, open: true }),
+    [],
+  );
+  useRunTerminals(session.id);
+  // Run in control shell opens the side panel, whose Shell tab runs it.
   const shellRuns = useShellRunVersion();
   useEffect(() => {
     if (role.kind === 'control' && hasShellRuns(session.id)) setPanelOpen(true);
@@ -1402,10 +1307,11 @@ export function SessionChat({
         <RunCommand
           session={session}
           command={run.command}
+          anchor={run.anchor}
           open={run.open}
           onOpenChange={(open) => setRun((r) => ({ ...r, open }))}
           onRan={(command) => onSent(`!${command}`, [], true)}
-          terminal={role.kind === 'control'}
+          controlShell={role.kind === 'control'}
         />
 
         {view === 'terminal' ? (
@@ -1480,6 +1386,7 @@ export function SessionChat({
                   ) : (
                     <AssistantTurn
                       key={t.id}
+                      turnId={t.id}
                       blocks={t.blocks}
                       running={running && t === lastTurn}
                       cwd={session.projectPath}
@@ -1498,6 +1405,7 @@ export function SessionChat({
                     />
                   ),
                 )}
+                {chat && <EarlierTerminals sessionId={session.id} />}
                 {running && <Working />}
                 {role.kind === 'control' && <WorkerAsks snap={snap} project={role.project!} />}
                 {session.status === 'waiting' && !session.prompt && (

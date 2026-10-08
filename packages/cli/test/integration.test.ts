@@ -7,7 +7,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
-import type { ChatResponse, NoteRecord, Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
+import type {
+  ChatResponse,
+  NoteRecord,
+  RunTerminal,
+  Snapshot,
+  TaskRecord,
+} from '@aoe-supercharge/core/shared';
 import type { HistoryRange } from '@aoe-supercharge/core/node';
 import { KICKOFF_MESSAGE } from '../src/workflow.ts';
 import {
@@ -1367,7 +1373,12 @@ describe('daemon: security, live state and the MR watcher', () => {
     await until(async () => got.some((m) => m.type === 'size_owner' && m.is_owner));
     ws.send(JSON.stringify({ type: 'run', command: 'aoe session empty-trash' }));
     await until(async () => fake.state.shellRan.some((x) => x.id === control));
-    expect(fake.state.shellRan.at(-1)).toMatchObject({ id: control, command: 'aoe session empty-trash' });
+    // The Shell tab is Supercharge's own paired terminal of the session, which Restart can close.
+    expect(fake.state.shellRan.at(-1)).toMatchObject({
+      id: control,
+      index: 31,
+      command: 'aoe session empty-trash',
+    });
     await until(async () =>
       got.some((m) => m.type === 'frame' && m.content?.includes('ran: aoe session empty-trash')),
     );
@@ -1386,6 +1397,138 @@ describe('daemon: security, live state and the MR watcher', () => {
     big.send(Buffer.alloc((1 << 20) + 1));
     expect(await closed).toBe(1009);
     expect((await fetch(`${base()}/healthz`)).status).toBe(200);
+  });
+
+  it('opens a terminal of its own for a Run, types the command once, keeps it across reloads, and closes it', async () => {
+    const r = await sc(['open', '--print']);
+    const url = new URL(r.stdout.trim());
+    const cb = await fetch(`${base()}${url.pathname}${url.search}`, { redirect: 'manual' });
+    const jar = (cb.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const origin = `http://127.0.0.1:${port}`;
+    const { token: csrf } = (await (
+      await fetch(`${base()}/api/csrf`, { headers: { cookie: jar } })
+    ).json()) as { token: string };
+    const api = (path: string, init: { method?: string; body?: unknown } = {}) =>
+      fetch(`${base()}${path}`, {
+        method: init.method ?? 'GET',
+        headers: { cookie: jar, 'content-type': 'application/json', 'x-csrf-token': csrf, origin },
+        body: init.body === undefined ? undefined : JSON.stringify(init.body),
+      });
+    const control = (
+      (await (await fetch(`${base()}/api/snapshot`, { headers: { cookie: jar } })).json()) as Snapshot
+    ).projects[0]!.controlSessionId!;
+    const command = 'git status --short';
+
+    expect(
+      (await api(`/api/sessions/${control}/terminals`, { method: 'POST', body: { command: ' ' } })).status,
+    ).toBe(400);
+    const opened = await api(`/api/sessions/${control}/terminals`, {
+      method: 'POST',
+      body: { command, anchor: 'turn-1:t0:12' },
+    });
+    expect(opened.status).toBe(201);
+    const { terminal } = (await opened.json()) as { terminal: RunTerminal };
+    // The highest free index below the Shell tab's, out of the way of AoE's own extra tabs.
+    expect(terminal).toMatchObject({
+      sessionId: control,
+      index: 30,
+      command,
+      anchor: 'turn-1:t0:12',
+      ran: false,
+    });
+    const second = (await (
+      await api(`/api/sessions/${control}/terminals`, {
+        method: 'POST',
+        body: { command: 'ls', anchor: 'x' },
+      })
+    ).json()) as { terminal: RunTerminal };
+    expect(second.terminal.index).toBe(29);
+
+    const wsUrl = `${base().replace(/^http/, 'ws')}/api/sessions/${control}/terminals/${terminal.id}/ws`;
+    const status = (u: string, headers: Record<string, string>) =>
+      new Promise<number>((resolve) => {
+        const ws = new WebSocket(u, { headers });
+        ws.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+        ws.on('open', () => {
+          resolve(101);
+          ws.close();
+        });
+        ws.on('error', () => {});
+      });
+    // The same checks as the Shell tab's: the cookie, a dashboard Origin, a known Host, a real terminal.
+    expect(await status(wsUrl, { origin })).toBe(401);
+    expect(await status(wsUrl, { origin: 'http://evil.example', cookie: jar })).toBe(403);
+    expect(await status(wsUrl, { origin, cookie: jar, host: 'evil.example' })).toBe(421);
+    expect(await status(wsUrl.replace(terminal.id, 'nope'), { origin, cookie: jar })).toBe(404);
+
+    const connect = async () => {
+      const ws = new WebSocket(wsUrl, { headers: { origin, cookie: jar } });
+      const got: { type: string; content?: string; is_owner?: boolean; message?: string }[] = [];
+      ws.on('message', (d) => got.push(JSON.parse(String(d))));
+      await new Promise((resolve, reject) => {
+        ws.on('open', resolve);
+        ws.on('error', reject);
+      });
+      ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 12 }));
+      return { ws, got };
+    };
+    const ranHere = () => fake.state.shellRan.filter((x) => x.id === control && x.index === 30);
+    const first = await connect();
+    await until(async () =>
+      first.got.some((m) => m.type === 'frame' && m.content?.includes(`ran: ${command}`)),
+    );
+    expect(ranHere().map((x) => x.command)).toEqual([command]);
+    // Run messages are for the Shell tab only.
+    first.ws.send(JSON.stringify({ type: 'run', command: 'echo sneaky' }));
+    first.ws.close();
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(
+      new RegExp(
+        `"action":"command_run".*"text":"${command}".*"where":"new_terminal","index":30,"terminal":"${terminal.id}"`,
+      ),
+    );
+
+    // A reload lists it as run and reconnects to its output, without typing the command again.
+    const listed = (await (await api(`/api/sessions/${control}/terminals`)).json()) as {
+      terminals: RunTerminal[];
+    };
+    expect(listed.terminals.map((t) => [t.id, t.ran])).toEqual([
+      [terminal.id, true],
+      [second.terminal.id, false],
+    ]);
+    const again = await connect();
+    await until(async () =>
+      again.got.some((m) => m.type === 'frame' && m.content?.includes(`ran: ${command}`)),
+    );
+    expect(again.got.some((m) => m.type === 'sc_note')).toBe(false);
+    again.ws.close();
+    expect(ranHere().map((x) => x.command)).toEqual([command]);
+    const saved = JSON.parse(await readFile(join(home, '.local/state/supercharge/terminals.json'), 'utf8'));
+    expect(saved.map((t: RunTerminal) => t.id)).toEqual([terminal.id, second.terminal.id]);
+
+    // Its shell went away behind AoE's back: AoE starts a fresh one, and the page is told.
+    delete fake.state.shells[`${control}#30`];
+    const fresh = await connect();
+    await until(async () => fresh.got.find((m) => m.type === 'sc_note'));
+    fresh.ws.close();
+
+    // Closing kills its shell in AoE and lets it go.
+    expect(
+      (await api(`/api/sessions/${control}/terminals/${terminal.id}`, { method: 'DELETE' })).status,
+    ).toBe(200);
+    expect(fake.state.killedTerminals.at(-1)).toMatchObject({ id: control, index: 30 });
+    expect(
+      (await api(`/api/sessions/${control}/terminals/${terminal.id}`, { method: 'DELETE' })).status,
+    ).toBe(404);
+    await api(`/api/sessions/${control}/terminals/${second.terminal.id}`, { method: 'DELETE' });
+    expect(
+      ((await (await api(`/api/sessions/${control}/terminals`)).json()) as { terminals: [] }).terminals,
+    ).toEqual([]);
+
+    // Restart gives the Shell tab a fresh shell: its terminal is closed and opened again.
+    expect((await api(`/api/sessions/${control}/shell/restart`, { method: 'POST' })).status).toBe(200);
+    expect(fake.state.killedTerminals.at(-1)).toMatchObject({ id: control, index: 31 });
+    expect(fake.state.shells[`${control}#31`]).toBeTruthy();
   });
 
   it('keeps notes and todos: Claude adds them from a session; the dashboard ticks and archives them', async () => {

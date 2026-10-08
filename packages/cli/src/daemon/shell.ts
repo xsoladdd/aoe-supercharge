@@ -3,16 +3,19 @@ import type { Duplex } from 'node:stream';
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { ServerType } from '@hono/node-server';
 import { appendAudit, hmac, safeEqual } from '@aoe-supercharge/core/node';
+import { CONTROL_SHELL_INDEX, type RunTerminal } from '@aoe-supercharge/core/shared';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import type { Ctx } from '../context.ts';
 import { hostsFor, originsFor, SESSION_COOKIE } from './app.ts';
+import type { RunTerminals } from './run-terminals.ts';
 import type { Store } from './store.ts';
 
 /** Same limit as a command run through Claude Code's shell mode. */
 const MAX_COMMAND = 20_000;
 /** Control messages a browser may send on to AoE (src/server/live_ws.rs, AoE 1.17.2). No `caps`: frames stay JSON text. */
 const PASSED_ON = new Set(['resize', 'claim', 'claim_if_vacant', 'cadence', 'window', 'resync']);
-const PATH = /^\/api\/sessions\/([^/?#]+)\/shell\/ws(?:[?#]|$)/;
+/** The Shell tab's terminal, or a terminal a Run opened in the chat. */
+const PATH = /^\/api\/sessions\/([^/?#]+)\/(?:shell|terminals\/([^/?#]+))\/ws(?:[?#]|$)/;
 
 function refuse(socket: Duplex, status: string) {
   socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
@@ -27,17 +30,25 @@ function cookieOf(req: IncomingMessage, name: string): string | null {
 }
 
 /**
- * A session's paired shell in the dashboard: the plain terminal AoE keeps next to each session, in its
- * folder (AoE's own Terminal tab). The daemon relays AoE's live view so its token never reaches the
- * browser. The browser types into it as you would in AoE; a command run from a chat's Run button comes
- * as a `run` message, which is recorded in the audit log, then pasted (bracketed, so a multi-line
- * command waits whole at the prompt) and entered.
+ * A session's shells in the dashboard: plain terminals AoE keeps next to each session, in its folder. The
+ * daemon relays AoE's live view so its token never reaches the browser, and the browser types into it as
+ * you would in AoE.
  *
- * Only the dashboard's own pages may connect: the signed-in cookie, a known Host (DNS rebinding) and a
- * dashboard Origin (no other site can open it with your cookie).
+ * - `/shell/ws` is the control chat's Shell tab: Supercharge's own paired terminal of the session
+ *   (`CONTROL_SHELL_INDEX`), so Restart can close it. A command from Run in control shell comes as a
+ *   `run` message.
+ * - `/terminals/<id>/ws` is a terminal Run in a new terminal opened under the command; its command is
+ *   typed in once, the first time a browser shows it.
+ *
+ * Each command is recorded in the audit log, then pasted (bracketed, so a multi-line command waits whole
+ * at the prompt) and entered. Only the dashboard's own pages may connect: the signed-in cookie, a known
+ * Host (DNS rebinding) and a dashboard Origin (no other site can open it with your cookie).
  */
-export function attachShellSockets(server: ServerType, deps: { ctx: Ctx; store: Store; token: string }) {
-  const { ctx, store } = deps;
+export function attachShellSockets(
+  server: ServerType,
+  deps: { ctx: Ctx; store: Store; token: string; terminals?: RunTerminals },
+) {
+  const { ctx, store, terminals } = deps;
   const sessionValue = hmac(deps.token, 'ui-session');
   const wss = new WebSocketServer({ noServer: true, maxPayload: 1 << 20 });
   server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
@@ -53,10 +64,16 @@ export function attachShellSockets(server: ServerType, deps: { ctx: Ctx; store: 
     const id = decodeURIComponent(m[1]!);
     const session = store.sessions.find((s) => s.id === id && !s.archived);
     if (!session) return refuse(socket, '404 Not Found');
-    wss.handleUpgrade(req, socket, head, (client) => void relay(client, id));
+    if (!m[2]) return wss.handleUpgrade(req, socket, head, (client) => void relay(client, id, null));
+    const tid = decodeURIComponent(m[2]);
+    void (terminals?.get(id, tid) ?? Promise.resolve(null)).then((record) => {
+      if (!record) return refuse(socket, '404 Not Found');
+      wss.handleUpgrade(req, socket, head, (client) => void relay(client, id, record));
+    });
   });
 
-  async function relay(client: WebSocket, id: string) {
+  async function relay(client: WebSocket, id: string, record: RunTerminal | null) {
+    const index = record?.index ?? CONTROL_SHELL_INDEX;
     const toClient = (m: object) => {
       if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify(m));
     };
@@ -75,8 +92,11 @@ export function attachShellSockets(server: ServerType, deps: { ctx: Ctx; store: 
     // A frame over `maxPayload` or a broken one: ws closes the connection, and the relay with it.
     client.on('error', () => upstream?.close());
     try {
-      await ctx.aoe.ensureTerminal(id);
-      const { url, headers } = await ctx.aoe.terminalSocket(id);
+      const { created } = await ctx.aoe.ensureTerminal(id, index);
+      // Its shell had gone (AoE was restarted, or someone typed `exit`), so AoE started another.
+      if (record?.ran && created)
+        toClient({ type: 'sc_note', message: 'The earlier shell had ended, so this is a fresh one.' });
+      const { url, headers } = await ctx.aoe.terminalSocket(id, index);
       if (closed) return;
       upstream = new WebSocket(url, { headers });
     } catch (err) {
@@ -98,6 +118,9 @@ export function attachShellSockets(server: ServerType, deps: { ctx: Ctx; store: 
         if (m.type === 'size_owner') {
           owner = m.is_owner === true;
           if (owner) for (const w of ownerWaits.splice(0)) w();
+          // The browser has sized the terminal: type in the command it was opened for.
+          const command = record && terminals?.takeRun(record);
+          if (command) enqueue(command);
         }
       } catch {
         return;
@@ -128,15 +151,17 @@ export function attachShellSockets(server: ServerType, deps: { ctx: Ctx; store: 
         up.send(data.toString());
         return;
       }
-      if (m.type === 'run' && typeof m.command === 'string') {
-        const command = m.command.replace(/^\s*\n+/, '').replace(/\s+$/, '');
-        queue = queue
-          .then(() => run(command))
-          .catch((err: Error) => {
-            ctx.logger.warn('shell relay: run failed', { session: id, err: err.message });
-            toClient({ type: 'sc_error', message: `Could not run that: ${err.message}` });
-          });
-      }
+      if (m.type === 'run' && typeof m.command === 'string' && !record) enqueue(m.command);
+    }
+
+    function enqueue(raw: string) {
+      const command = raw.replace(/^\s*\n+/, '').replace(/\s+$/, '');
+      queue = queue
+        .then(() => run(command))
+        .catch((err: Error) => {
+          ctx.logger.warn('shell relay: run failed', { session: id, err: err.message });
+          toClient({ type: 'sc_error', message: `Could not run that: ${err.message}` });
+        });
     }
 
     async function run(command: string) {
@@ -155,7 +180,7 @@ export function attachShellSockets(server: ServerType, deps: { ctx: Ctx; store: 
         taskId: store.tasks.find((t) => t.aoeSessionId === id)?.id ?? null,
         sessionId: id,
         text: command,
-        details: { where: 'terminal' },
+        details: record ? { where: 'new_terminal', index, terminal: record.id } : { where: 'terminal' },
       });
       if (!owner) {
         // Someone has this shell open in AoE: take the typing lock over, as AoE's Take over does.
