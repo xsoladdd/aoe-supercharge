@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 (2026-10-08)
+
+The built-in worker watch, and `[WATCH]` notices shown as notices in chat.
 
 - **Worker watch.** Each project's control chat hears about its workers by itself: when a task's
   worker, or a session the control chat started with `aoe add -P`, asks a question, is done, waits on
