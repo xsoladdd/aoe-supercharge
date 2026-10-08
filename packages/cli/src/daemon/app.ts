@@ -59,6 +59,7 @@ import {
   type SessionAction,
 } from '../workflow.ts';
 import type { OfficeWatcher } from './office.ts';
+import { terminalRoutes, type RunTerminals } from './run-terminals.ts';
 import type { Store } from './store.ts';
 import type { WorkerWatch } from './worker-watch.ts';
 
@@ -76,6 +77,8 @@ export interface AppDeps {
   transcripts: TranscriptStore;
   office?: OfficeWatcher;
   watch?: WorkerWatch;
+  /** Terminals a chat's Run opened under its command. */
+  terminals?: RunTerminals;
 }
 
 export const SESSION_COOKIE = 'sc_session';
@@ -749,6 +752,9 @@ export function createApp(deps: AppDeps) {
       return sendError(c, err, 'run_failed');
     }
   });
+
+  // Run in a new terminal: one of AoE's extra paired terminals, under the command in the chat.
+  if (deps.terminals) terminalRoutes(app, { ctx, store, terminals: deps.terminals });
 
   // A file you attach in a chat: saved outside the repo, under the session's uploads folder. The chat
   // then sends its path in the message, and Claude opens it (the Read tool shows images to the model).

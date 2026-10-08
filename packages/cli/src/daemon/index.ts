@@ -8,6 +8,7 @@ import { checkAoeCompat, createCtx, SHIPPED_COMPAT, VERSION } from '../context.t
 import { notify, Notifier } from '../notify.ts';
 import { mrProviders } from '../mr/index.ts';
 import { createApp } from './app.ts';
+import { RunTerminals } from './run-terminals.ts';
 import { attachShellSockets } from './shell.ts';
 import { PromptReader } from '../prompt.ts';
 import { transcriptStore } from '../transcript.ts';
@@ -161,6 +162,7 @@ async function runWorker(): Promise<void> {
     process.exit(code);
   };
 
+  const terminals = new RunTerminals(ctx, store);
   const app = createApp({
     ctx,
     store,
@@ -176,6 +178,7 @@ async function runWorker(): Promise<void> {
     transcripts,
     office: officeWatcher,
     watch: workerWatch,
+    terminals,
   });
 
   await ledgerWatcher.start();
@@ -199,7 +202,7 @@ async function runWorker(): Promise<void> {
   await new Promise<void>((resolveListen, rejectListen) => {
     server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port }, () => resolveListen());
     server.on('error', rejectListen);
-    attachShellSockets(server, { ctx, store, token });
+    attachShellSockets(server, { ctx, store, token, terminals });
   }).catch(async (err: NodeJS.ErrnoException) => {
     const msg = err.code === 'EADDRINUSE' ? `Port ${port} is already in use.` : err.message;
     logger.error('could not listen', { port, err: msg });

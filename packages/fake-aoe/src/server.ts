@@ -121,10 +121,22 @@ export interface FakeState {
   viewers: Record<string, boolean | 'stuck'>;
   /** Claims made through the live-terminal websocket, in order. */
   claims: { id: string; type: string; owner: boolean }[];
-  /** Fake only: each session's paired shell: what it printed and the line being typed. */
+  /**
+   * Fake only: each session's paired shells (`shellKey`): what they printed and the line being typed.
+   * Index 0 is the session's own; 1 to 31 are extra ones.
+   */
   shells: Record<string, { lines: string[]; input: string }>;
   /** Commands entered in a paired shell, in order. */
-  shellRan: { id: string; command: string; at: string }[];
+  shellRan: { id: string; index: number; command: string; at: string }[];
+  /** Extra paired shells closed through `DELETE /api/sessions/{id}/terminal?index=N`, in order. */
+  killedTerminals: { id: string; index: number; at: string }[];
+}
+
+/** AoE 1.17.2 keeps paired terminals 0 to 31 for each session (src/server/pane.rs). */
+const MAX_TERMINAL_INDEX = 31;
+
+export function shellKey(id: string, index: number): string {
+  return index ? `${id}#${index}` : id;
 }
 
 export function newId(): string {
@@ -373,13 +385,28 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     if (bearer !== state.token) return c.json({ error: 'unauthorized' }, 401);
     await next();
   });
-  // The paired shell (src/server/api/sessions/ensure.rs): created once, then it exists.
+  // The paired shells (src/server/api/sessions/ensure.rs): created once, then they exist. Only the
+  // extra ones (`?index=1` to 31) can be closed; AoE keeps index 0 for its TUI.
   app.post('/api/sessions/:id/terminal', (c) => {
     const s = state.sessions.find((x) => x.id === c.req.param('id'));
     if (!s) return c.json({ error: 'not_found' }, 404);
-    if (state.shells[s.id]) return c.json({ status: 'exists' }, 200);
-    state.shells[s.id] = { lines: ['Last login: today on ttys001'], input: '' };
+    const index = Number(c.req.query('index') ?? 0);
+    if (!Number.isInteger(index) || index < 0 || index > MAX_TERMINAL_INDEX)
+      return c.json({ error: 'index_out_of_range' }, 400);
+    const key = shellKey(s.id, index);
+    if (state.shells[key]) return c.json({ status: 'exists' }, 200);
+    state.shells[key] = { lines: ['Last login: today on ttys001'], input: '' };
     return c.json({ status: 'created' }, 201);
+  });
+  app.delete('/api/sessions/:id/terminal', (c) => {
+    const s = state.sessions.find((x) => x.id === c.req.param('id'));
+    if (!s) return c.json({ error: 'not_found' }, 404);
+    const index = Number(c.req.query('index') ?? 0);
+    if (!Number.isInteger(index) || index < 1 || index > MAX_TERMINAL_INDEX)
+      return c.json({ error: 'index_out_of_range' }, 400);
+    delete state.shells[shellKey(s.id, index)];
+    state.killedTerminals.push({ id: s.id, index, at: new Date().toISOString() });
+    return c.json({ status: 'killed' }, 200);
   });
   app.get('/api/sessions', (c) =>
     c.json({
@@ -503,6 +530,7 @@ export async function startFakeAoe(
     claims: [],
     shells: {},
     shellRan: [],
+    killedTerminals: [],
   };
   const transcripts = opts.transcripts ? new FakeTranscripts(opts.transcripts) : null;
   const app = createFakeApp(state, transcripts);
@@ -532,15 +560,17 @@ export async function startFakeAoe(
 function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: FakeTranscripts | null) {
   const wss = new WebSocketServer({ noServer: true });
   server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
-    const m = /^\/sessions\/([^/]+)\/(terminal\/)?live-ws$/.exec(new URL(req.url ?? '', 'http://x').pathname);
+    const url = new URL(req.url ?? '', 'http://x');
+    const m = /^\/sessions\/([^/]+)\/(terminal\/)?live-ws$/.exec(url.pathname);
     const shell = !!m?.[2];
+    const index = Number(url.searchParams.get('index') ?? 0);
     const s = m ? state.sessions.find((x) => x.id === m[1]) : undefined;
     if (!s || req.headers.authorization !== `Bearer ${state.token}`) {
       socket.end('HTTP/1.1 401 Unauthorized\r\n\r\n');
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => {
-      if (shell) return fakeShell(ws, s.id, state);
+      if (shell) return fakeShell(ws, s.id, index, state);
       let owner = false;
       ws.on('message', (data, isBinary) => {
         if (!isBinary) {
@@ -567,12 +597,20 @@ function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: F
 
 /**
  * A session's paired shell, reduced to a prompt: `resize` and `claim` make you the owner, binary
- * frames type (bracketed paste markers dropped), Enter runs the line, which prints `ran: <line>`.
- * Frames are the whole window, history first, like AoE's.
+ * frames type (bracketed paste markers dropped), Enter runs the line, which prints `ran: <line>`, and
+ * Ctrl-L clears the screen. Frames are the whole window, history first, like AoE's. Connecting starts
+ * a missing shell, as AoE's does.
  */
-function fakeShell(ws: import('ws').WebSocket, id: string, state: FakeState) {
-  // Each connection types on its own line, so tests in parallel browsers do not garble each other's.
-  const shell = { lines: [...(state.shells[id]?.lines ?? [])], input: '' };
+function fakeShell(ws: import('ws').WebSocket, id: string, index: number, state: FakeState) {
+  const key = shellKey(id, index);
+  state.shells[key] ??= { lines: ['Last login: today on ttys001'], input: '' };
+  // A session's own shells are shared by every test browser, so each connection types on its own line
+  // and they do not garble each other's. A terminal a Run opened belongs to one chat, and keeps what it
+  // printed for the next connection, as a real one does.
+  const shell =
+    index >= 1 && index < MAX_TERMINAL_INDEX
+      ? state.shells[key]
+      : { lines: [...state.shells[key].lines], input: '' };
   let owner = false;
   let rows = 24;
   let seq = 0;
@@ -622,9 +660,10 @@ function fakeShell(ws: import('ws').WebSocket, id: string, state: FakeState) {
         const command = shell.input;
         shell.lines.push(`$ ${command.split('\n').join('\n> ')}`.split('\n').join('\n'));
         for (const line of command.split('\n')) if (line.trim()) shell.lines.push(`ran: ${line}`);
-        state.shellRan.push({ id, command, at: new Date().toISOString() });
+        state.shellRan.push({ id, index, command, at: new Date().toISOString() });
         shell.input = '';
-      } else if (ch === '\x7f') shell.input = shell.input.slice(0, -1);
+      } else if (ch === '\x0c') shell.lines = [];
+      else if (ch === '\x7f') shell.input = shell.input.slice(0, -1);
       else shell.input += ch;
     }
     frame();

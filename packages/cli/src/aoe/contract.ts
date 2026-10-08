@@ -3,7 +3,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseAoeVersion } from '@aoe-supercharge/core/node';
-import { normalizeAoeStatus } from '@aoe-supercharge/core/shared';
+import { CONTROL_SHELL_INDEX, normalizeAoeStatus } from '@aoe-supercharge/core/shared';
 import { run } from '../util/exec.ts';
 import { AoeCli } from './cli.ts';
 import { AoeClient } from './client.ts';
@@ -247,6 +247,42 @@ export async function runLiveContract(
       !(trap.headers.get('content-type') ?? '').includes('application/json') || trap.status === 404,
       `${trap.status} ${trap.headers.get('content-type')}`,
     );
+
+    // Extra paired terminals (src/server/api/sessions/ensure.rs): the Shell tab and Run in a new terminal.
+    const made = await client.ensureTerminal(control!.id, CONTROL_SHELL_INDEX);
+    const again = await client.ensureTerminal(control!.id, CONTROL_SHELL_INDEX);
+    check(
+      'POST /api/sessions/{id}/terminal?index=N',
+      made.created && !again.created,
+      `created ${made.created}, then ${again.created ? 'created again' : 'exists'}`,
+    );
+    const live = await client.terminalSocket(control!.id, CONTROL_SHELL_INDEX);
+    const frame = await new Promise<string>((resolve) => {
+      const ws = new WebSocket(live.url, { headers: live.headers } as unknown as string[]);
+      const done = (detail: string) => {
+        clearTimeout(timer);
+        ws.close();
+        resolve(detail);
+      };
+      const timer = setTimeout(() => done('no frame in 10s'), 10_000);
+      ws.onopen = () => ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }));
+      ws.onmessage = (e) => {
+        if (typeof e.data === 'string' && (JSON.parse(e.data) as { type?: string }).type === 'frame')
+          done('frame');
+      };
+      ws.onerror = () => done('could not connect');
+    });
+    check('live-ws ?index=N', frame === 'frame', frame);
+    const killed = await client.killTerminal(control!.id, CONTROL_SHELL_INDEX).then(
+      () => 'killed',
+      (err: Error) => err.message,
+    );
+    check('DELETE /api/sessions/{id}/terminal?index=N', killed === 'killed', killed);
+    const zero = await fetch(`${origin}/api/sessions/${control!.id}/terminal?index=0`, {
+      method: 'DELETE',
+      headers: token ? { authorization: `Bearer ${token}` } : {},
+    });
+    check('DELETE …/terminal?index=0 refused', zero.status === 400, `${zero.status}`);
 
     const sent = await client.send(worker.id, 'echo supercharge-contract');
     check('POST /api/sessions/{id}/send', sent.sent === true, JSON.stringify(sent));

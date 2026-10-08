@@ -170,22 +170,41 @@ export class AoeClient {
   }
 
   /**
-   * Start the session's paired shell if it is not running: the plain terminal AoE keeps next to each
-   * session in its folder (its web view's Terminal tab). 201 when it was created, 200 when it was
-   * already up (src/server/api/sessions/ensure.rs, AoE 1.17.2).
+   * Start one of the session's paired shells if it is not running: the plain terminals AoE keeps next to
+   * each session in its folder (its web view's Terminal tabs). Index 0 is the session's own; 1 to 31 are
+   * extra ones. 201 when it was created (or a dead one respawned), 200 when it was already up
+   * (src/server/api/sessions/ensure.rs, AoE 1.17.2).
    */
-  async ensureTerminal(id: string): Promise<void> {
-    await this.request('POST', `/api/sessions/${encodeURIComponent(id)}/terminal`, z.unknown());
+  async ensureTerminal(id: string, index = 0): Promise<{ created: boolean }> {
+    const res = await this.request(
+      'POST',
+      `/api/sessions/${encodeURIComponent(id)}/terminal${index ? `?index=${index}` : ''}`,
+      z.object({ status: z.string().optional() }).loose(),
+    );
+    return { created: res.status === 'created' };
   }
 
   /**
-   * Where to connect to the paired shell's live view, with the auth AoE wants. Same protocol as the
-   * agent pane's (see `pressKeys`): JSON frames down, binary input and JSON control messages up.
+   * Close an extra paired shell and whatever runs in it. AoE refuses index 0, which its TUI shares
+   * (`kill_terminal`, #2437); a shell that is already gone counts as closed.
    */
-  async terminalSocket(id: string): Promise<{ url: string; headers: Record<string, string> }> {
+  async killTerminal(id: string, index: number): Promise<void> {
+    await this.request(
+      'DELETE',
+      `/api/sessions/${encodeURIComponent(id)}/terminal?index=${index}`,
+      z.unknown(),
+    );
+  }
+
+  /**
+   * Where to connect to a paired shell's live view, with the auth AoE wants. Same protocol as the agent
+   * pane's (see `pressKeys`): JSON frames down, binary input and JSON control messages up. Connecting
+   * starts the shell if it is missing, or respawns it if it died (`respawn_paired_if_dead`).
+   */
+  async terminalSocket(id: string, index = 0): Promise<{ url: string; headers: Record<string, string> }> {
     if (!this.origin) await this.discover();
     return {
-      url: `${this.origin!.replace(/^http/, 'ws')}/sessions/${encodeURIComponent(id)}/terminal/live-ws`,
+      url: `${this.origin!.replace(/^http/, 'ws')}/sessions/${encodeURIComponent(id)}/terminal/live-ws${index ? `?index=${index}` : ''}`,
       headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
     };
   }
