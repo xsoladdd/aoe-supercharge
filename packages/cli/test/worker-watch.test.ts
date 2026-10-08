@@ -48,10 +48,11 @@ describe('WorkerWatch: notices for a control chat', () => {
     store.sessions = list;
     store.recomputeNeedsYou();
   };
-  /** One pass, a minute later than the last, after a fresh AoE poll. */
+  /** One pass, a minute later than the last, after a fresh AoE poll (its list taken then). */
   const tick = async (w: WorkerWatch) => {
     clock += 60_000;
     store.health.aoe.lastPollAt = new Date(clock).toISOString();
+    store.sessionsListedAt = clock;
     await w.tick();
   };
   const ctl = (status: SessionView['status'] = 'idle', extra: Partial<SessionView> = {}) =>

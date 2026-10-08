@@ -297,6 +297,12 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - MR status,
   - `aoe session attach` command and Open in AoE,
   - an explicit, confirmed **Reply**.
+- **Chat** (`/chat/<session>`, and a task's Chat tab): the conversation, read from Claude Code's transcript, and a box to write in.
+  - While Claude is working, **Send holds** your message in Supercharge instead of typing it into the turn. It shows in the chat as held, with **Edit** (it goes back into the box) and **Cancel**, and the daemon types it in once Claude is done: one per turn, in order. Held messages, with their images and files, survive a reload and a closed tab.
+  - The caret beside Send has **Send now** (Claude reads it during this turn, as Claude Code does) and **Interrupt and send** (Escape stops Claude, then it goes in). A menu on screen is never typed over. Every message is audited when it is typed in.
+  - What you were writing stays with its chat, text and attachments, when you switch chats or reload, until you send it. It is kept in your browser's storage. Files upload as you add them.
+  - The **context ring** opens the figures behind it: tokens used of the window, the model, the last request's input, output and cache, and when Claude Code compacts. They are Claude Code's own when its status line reports them (Supercharge's status line, `agent.statusLine`), and otherwise an estimate from the transcript.
+  - What needs you stands out: a report's 🔴 NEEDS YOU, 🟡 WORKING and ✅ DONE sections, watch notices, and errors each sit on a shade of their colour.
 - **Office** (`/office`): every worker stands where its status puts it.
   - Everyone who needs you stands in line at your door, in single file between brass posts and ropes, blockers first, then oldest first, with the reason over their heads.
   - Every project has a room of its own, behind low glass with its name over the doorway. Working workers sit at their own desk in their project's room; the control chat is the team lead at the head desk.
@@ -387,7 +393,8 @@ To go back to a tested AoE, reinstall that release: `curl -fsSL …/scripts/inst
 ```
 ~/.config/supercharge/            config.toml, auth.token (0600)
 ~/.local/share/supercharge/       projects/<p>/project.json, tasks/<id>/{task.json, plan.md, session-prompt.md}, notes/{<p>,_global}.json, office/office.json
-~/.local/state/supercharge/       logs/daemon.log (rotated), audit.jsonl, daemon.json, compat.local.json, history/YYYY-MM-DD.jsonl
+~/.local/state/supercharge/       logs/daemon.log (rotated), audit.jsonl, daemon.json, compat.local.json, history/YYYY-MM-DD.jsonl,
+                                  held.json (held messages), context/<conversation>.json (Claude Code's context figures, 7 days)
 ~/.claude/skills/supercharge-*    user-level skills, and note, todo, gnote (marker-owned; your own edits are never overwritten)
 ~/Library/LaunchAgents/com.github.xsoladdd.aoe-supercharge.plist     (macOS)
 ~/.config/systemd/user/aoe-supercharge.service                       (Linux)

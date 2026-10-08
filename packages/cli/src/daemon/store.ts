@@ -1,6 +1,7 @@
 import {
   computeNeedsYou,
   type Health,
+  type HeldMessage,
   type NeedsYouItem,
   type NoteRecord,
   type OfficeState,
@@ -19,6 +20,11 @@ export type SeqEvent = SnapshotEvent & { seq: number };
 type Listener = (e: SeqEvent) => void;
 
 const RING_SIZE = 500;
+/**
+ * After typing into a session, a status read at least this long after it before typing more: by then
+ * AoE shows the session working on it (a status read before the typing could still say idle).
+ */
+export const FRESH_LIST_MS = 1_000;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /**
@@ -40,6 +46,7 @@ export class Store {
   costs: Record<string, SessionCost> = {};
   sessionMrs: Record<string, MrState> = {};
   watch: Record<string, WatchSummary> = {};
+  held: Record<string, HeldMessage[]> = {};
   ui: Snapshot['ui'] = {
     theme: 'dark',
     density: 'comfortable',
@@ -76,6 +83,7 @@ export class Store {
       costs: this.costs,
       sessionMrs: this.sessionMrs,
       watch: this.watch,
+      held: this.held,
       ui: this.ui,
     };
   }
@@ -106,7 +114,14 @@ export class Store {
     }
   }
 
-  setSessions(sessions: SessionView[]) {
+  /** When the session list the store holds was asked of AoE (ms): its statuses are from then. */
+  sessionsListedAt = 0;
+  /** When the daemon last typed into each session (ms): a send, a key press. */
+  private typedAt = new Map<string, number>();
+
+  /** `listedAt`: when AoE was asked for this list (before the slow work that follows a poll). */
+  setSessions(sessions: SessionView[], listedAt?: number) {
+    if (listedAt !== undefined) this.sessionsListedAt = Math.max(this.sessionsListedAt, listedAt);
     this.sessionsLoaded = true;
     if (same(sessions, this.sessions)) return;
     this.sessions = sessions;
@@ -177,6 +192,40 @@ export class Store {
     if (same(sessionMrs, this.sessionMrs)) return;
     this.sessionMrs = sessionMrs;
     this.emit({ type: 'session_mrs', data: sessionMrs });
+  }
+
+  /** Something was typed into a session just now. */
+  noteTyped(id: string, at = Date.now()) {
+    this.typedAt.set(id, Math.max(at, this.typedAt.get(id) ?? 0));
+  }
+
+  /** Whether the status held for a session was read after the last typing into it, so idle means idle. */
+  settledAfterTyping(id: string): boolean {
+    const t = this.typedAt.get(id);
+    return t === undefined || this.sessionsListedAt > t + FRESH_LIST_MS;
+  }
+
+  /**
+   * Claim a session to type into, in one step so two senders can't both pass: when its status was read
+   * after the last typing, mark it typed now and return a release for when nothing got typed (a menu
+   * was open); otherwise null.
+   */
+  claimTyping(id: string, now = Date.now()): (() => void) | null {
+    if (!this.settledAfterTyping(id)) return null;
+    const prev = this.typedAt.get(id);
+    this.typedAt.set(id, now);
+    return () => {
+      if (this.typedAt.get(id) !== now) return;
+      if (prev === undefined) this.typedAt.delete(id);
+      else this.typedAt.set(id, prev);
+    };
+  }
+
+  setHeld(held: Record<string, HeldMessage[]>) {
+    const kept = Object.fromEntries(Object.entries(held).filter(([, list]) => list.length));
+    if (same(kept, this.held)) return;
+    this.held = kept;
+    this.emit({ type: 'held', data: kept });
   }
 
   setWatch(watch: Record<string, WatchSummary>) {

@@ -518,7 +518,13 @@ export function TaskPage({
         (session ? (
           <div className="flex min-h-0 flex-1 flex-col">
             <Suspense fallback={<Skeleton className="m-6 h-40" />}>
-              <SessionChat snap={snap} session={session} basePath={`${base}/chat`} embedded />
+              <SessionChat
+                key={session.id}
+                snap={snap}
+                session={session}
+                basePath={`${base}/chat`}
+                embedded
+              />
             </Suspense>
           </div>
         ) : (

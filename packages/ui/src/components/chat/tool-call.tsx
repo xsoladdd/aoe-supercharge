@@ -64,7 +64,12 @@ export function ToolCall({
   const pending = tool.result === null;
   const input = inputCode(tool);
   return (
-    <details className="group/tool rounded-lg border border-border bg-card/60 open:bg-card">
+    <details
+      className={cn(
+        'group/tool rounded-lg border',
+        tool.isError ? 'border-attn-error/35 bg-attn-error/6' : 'border-border bg-card/60 open:bg-card',
+      )}
+    >
       <summary className="flex cursor-pointer list-none items-center gap-2.5 rounded-lg px-3 py-2 text-sm select-none hover:bg-raised/70 [&::-webkit-details-marker]:hidden">
         <CaretRightIcon className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/tool:rotate-90" />
         <I className="size-4 shrink-0 text-muted-foreground" />

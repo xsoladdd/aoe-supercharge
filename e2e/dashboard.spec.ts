@@ -448,6 +448,9 @@ test.describe('project', () => {
     signedIn: page,
     browserName,
   }) => {
+    // Idle, so Send types it in at once (while Claude works, it would hold it: e2e/composer.spec.ts).
+    const control = await sessionId('apollo-api control');
+    await fake(`/__fake/sessions/${control}`, { method: 'PATCH', body: JSON.stringify({ status: 'Idle' }) });
     await page.goto('/p/apollo-api');
     await page
       .getByRole('link', { name: /Control chat/ })
@@ -478,6 +481,10 @@ test.describe('project', () => {
     await expect(log.getByText(second)).toHaveCount(1);
     await expect(log.getByText('pasted_content')).toHaveCount(0);
     await axe(page, 'control chat');
+    await fake(`/__fake/sessions/${control}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'Running' }),
+    });
   });
 
   test('the chat renders markdown, tables, code and folded tool calls', async ({ signedIn: page }) => {
@@ -657,6 +664,7 @@ test.describe('project', () => {
     browserName,
   }) => {
     const id = await sessionId('apollo-api control');
+    await fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Idle' }) });
     await page.goto(`/chat/${id}`);
     const png = await page.evaluate(() => {
       const c = document.createElement('canvas');
@@ -699,7 +707,8 @@ test.describe('project', () => {
     const log = page.getByRole('log', { name: /^Conversation with/ });
     await expect(log.getByRole('img', { name: 'screenshot.png' }).first()).toBeVisible({ timeout: 15_000 });
     // The context meter reads the latest reply's token usage.
-    await expect(page.getByTitle(/tokens in context$/)).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Context: \d+% of the window used/ })).toBeVisible();
+    await fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Running' }) });
   });
 
   test('the control chat panel: comment on a plan, then send the comments in one go', async ({

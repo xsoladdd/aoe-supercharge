@@ -73,6 +73,62 @@ describe('TranscriptParser: token usage for the office meter', () => {
     });
   });
 
+  it('keeps the latest request for the context popover, without output in the context count', () => {
+    const p = new TranscriptParser();
+    p.push(
+      reply('msg_1', {
+        input_tokens: 10,
+        cache_creation_input_tokens: 300,
+        cache_read_input_tokens: 1000,
+        output_tokens: 50,
+      }),
+    );
+    expect(p.contextTokens).toBe(1310);
+    expect(p.lastUsage).toEqual({
+      at: '2026-10-01T10:00:01.000Z',
+      usage: { input: 10, cacheWrite: 300, cacheRead: 1000, output: 50 },
+    });
+  });
+
+  it('notes a compaction and what it left', () => {
+    // As Claude Code 2.1.285 writes it after /compact.
+    const p = new TranscriptParser();
+    p.push(
+      line({
+        type: 'system',
+        subtype: 'compact_boundary',
+        content: 'Conversation compacted',
+        compactMetadata: { trigger: 'manual', preTokens: 197541, postTokens: 16243 },
+        timestamp: '2026-10-07T14:27:46.226Z',
+      }),
+    );
+    expect(p.compacted).toEqual({ at: '2026-10-07T14:27:46.226Z', tokens: 16243 });
+  });
+
+  it('keeps the 1M a /model chose while replies name the same model without it', () => {
+    const p = new TranscriptParser();
+    p.push(user('<local-command-stdout>Set model to \x1b[1mOpus 5.5 (1M)\x1b[22m</local-command-stdout>'));
+    expect(p.model).toBe('claude-opus-5-5[1m]');
+    p.push(reply('msg_1', { input_tokens: 1, output_tokens: 1 }));
+    expect(p.model).toBe('claude-opus-5-5[1m]');
+    p.push(
+      reply(
+        'msg_2',
+        { input_tokens: 1, output_tokens: 1 },
+        {
+          message: {
+            id: 'msg_2',
+            role: 'assistant',
+            model: 'claude-sonnet-5-5',
+            content: [],
+            usage: { input_tokens: 1 },
+          },
+        },
+      ),
+    );
+    expect(p.model).toBe('claude-sonnet-5-5');
+  });
+
   it('notes when Claude last changed a file', () => {
     const p = new TranscriptParser();
     p.push(

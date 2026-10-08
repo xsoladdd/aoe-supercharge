@@ -2,7 +2,13 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { serve, type ServerType } from '@hono/node-server';
-import { ensureToken, readDismissed, readJson, writeJsonAtomic } from '@aoe-supercharge/core/node';
+import {
+  ensureToken,
+  pruneContext,
+  readDismissed,
+  readJson,
+  writeJsonAtomic,
+} from '@aoe-supercharge/core/node';
 import type { Health } from '@aoe-supercharge/core/shared';
 import { checkAoeCompat, createCtx, SHIPPED_COMPAT, VERSION } from '../context.ts';
 import { notify, Notifier } from '../notify.ts';
@@ -17,6 +23,7 @@ import { CostWatcher, OfficeWatcher, WeatherWatcher } from './office.ts';
 import { Store } from './store.ts';
 import { AoeWatcher, ConfigWatcher, LedgerWatcher, NotesWatcher } from './watchers.ts';
 import { WorkerWatch } from './worker-watch.ts';
+import { HeldMessages } from './held.ts';
 
 export const RESTART_EXIT_CODE = 75;
 
@@ -131,6 +138,16 @@ async function runWorker(): Promise<void> {
   const costWatcher = new CostWatcher(ctx, store, officeWatcher, transcripts);
   const weatherWatcher = new WeatherWatcher(ctx, store);
   const workerWatch = new WorkerWatch(ctx, store, transcripts);
+  const heldMessages = new HeldMessages(ctx, store);
+  // Every typing into a session (sends, replies, answers, runs, key presses) feeds the typing gate.
+  ctx.onTyped = (id) => store.noteTyped(id);
+  // Claude Code's context figures for conversations not touched in a week go.
+  const pruneContextFiles = () =>
+    void pruneContext(ctx.paths).catch((err: unknown) =>
+      logger.warn('could not prune context figures', { err: (err as Error).message }),
+    );
+  const pruneTimer = setInterval(pruneContextFiles, 86_400_000);
+  pruneTimer.unref();
   const configWatcher = new ConfigWatcher(ctx, store, () => {
     aoeWatcher.nudge();
     workerWatch.nudge();
@@ -156,6 +173,8 @@ async function runWorker(): Promise<void> {
     costWatcher.stop();
     weatherWatcher.stop();
     workerWatch.stop();
+    heldMessages.stop();
+    clearInterval(pruneTimer);
     await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
     setTimeout(() => process.exit(code), 50).unref();
     process.exit(code);
@@ -176,6 +195,7 @@ async function runWorker(): Promise<void> {
     transcripts,
     office: officeWatcher,
     watch: workerWatch,
+    held: heldMessages,
   });
 
   await ledgerWatcher.start();
@@ -195,6 +215,8 @@ async function runWorker(): Promise<void> {
   costWatcher.start();
   weatherWatcher.reload();
   workerWatch.start();
+  heldMessages.start();
+  pruneContextFiles();
 
   await new Promise<void>((resolveListen, rejectListen) => {
     server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port }, () => resolveListen());

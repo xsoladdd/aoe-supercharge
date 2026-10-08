@@ -16,20 +16,54 @@ import { copyText } from '@/components/copy';
 import { chatHref } from '@/lib/nav';
 import { cn } from '@/lib/utils';
 
-export const WATCH_KIND: Record<WatchKind, { icon: Icon; label: string; color: string }> = {
-  question: { icon: QuestionIcon, label: 'Question', color: 'text-st-red' },
-  done: { icon: CheckCircleIcon, label: 'Done', color: 'text-st-green' },
-  permission: { icon: ShieldCheckIcon, label: 'Permission prompt', color: 'text-st-yellow' },
-  error: { icon: WarningOctagonIcon, label: 'Error', color: 'text-st-red' },
-  stalled: { icon: HourglassMediumIcon, label: 'Stalled', color: 'text-st-orange' },
+/** How a kind of notice looks: its icon and label colour, and the shade its row sits on in the chat. */
+interface KindStyle {
+  icon: Icon;
+  label: string;
+  color: string;
+  surface: string;
+}
+
+export const WATCH_KIND: Record<WatchKind, KindStyle> = {
+  question: {
+    icon: QuestionIcon,
+    label: 'Question',
+    color: 'text-st-red',
+    surface: 'border-attn-needs/35 bg-attn-needs/6',
+  },
+  done: {
+    icon: CheckCircleIcon,
+    label: 'Done',
+    color: 'text-st-green',
+    surface: 'border-attn-done/35 bg-attn-done/6',
+  },
+  permission: {
+    icon: ShieldCheckIcon,
+    label: 'Permission prompt',
+    color: 'text-st-yellow',
+    surface: 'border-attn-needs/35 bg-attn-needs/6',
+  },
+  error: {
+    icon: WarningOctagonIcon,
+    label: 'Error',
+    color: 'text-st-red',
+    surface: 'border-attn-error/35 bg-attn-error/6',
+  },
+  stalled: {
+    icon: HourglassMediumIcon,
+    label: 'Stalled',
+    color: 'text-st-orange',
+    surface: 'border-attn-warn/35 bg-attn-warn/6',
+  },
 };
 
-export function watchKind(kind: string): { icon: Icon; label: string; color: string } {
+export function watchKind(kind: string): KindStyle {
   return (
     WATCH_KIND[kind as WatchKind] ?? {
       icon: EyeIcon,
       label: kind.replace(/[_-]+/g, ' '),
       color: 'text-st-blue',
+      surface: 'border-dashed border-border bg-card/40',
     }
   );
 }
@@ -83,7 +117,10 @@ export function NoticeRow({
       role="note"
       aria-label={`Watch notice: ${label}, ${kind.label.toLowerCase()}`}
       data-watch-kind={n.kind}
-      className="flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border border-dashed border-border bg-card/40 px-3 py-1.5 text-[0.8125rem] text-muted-foreground"
+      className={cn(
+        'flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-lg border px-3 py-1.5 text-[0.8125rem] text-muted-foreground',
+        kind.surface,
+      )}
     >
       <KindIcon weight="fill" aria-hidden className={cn('size-4 shrink-0', kind.color)} />
       <span className="text-[0.6875rem] font-semibold tracking-wide uppercase">Watch</span>
