@@ -909,29 +909,50 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(fake.state.sent.length).toBe(sent);
   });
 
-  it('switches a running session’s model and effort by typing /model and /effort (audited)', async () => {
+  it('switches a worker’s model and effort by typing /model and /effort (audited); a control chat is locked', async () => {
     const auth = { authorization: `Bearer ${bearer}` };
     const snap = (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
     const control = snap.projects[0]!.controlSessionId!;
-    const post = (body: unknown) =>
-      fetch(`${base()}/api/sessions/${control}/model`, {
+    const worker = snap.tasks.find((t) => t.aoeSessionId)!.aoeSessionId!;
+    const post = (id: string, body: unknown) =>
+      fetch(`${base()}/api/sessions/${id}/model`, {
         method: 'POST',
         headers: { ...auth, 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
-    expect((await post({ model: 'sonnet' })).status).toBe(200);
-    expect(fake.state.sent.at(-1)).toMatchObject({ id: control, message: '/model sonnet' });
-    expect((await post({ effort: 'max' })).status).toBe(200);
-    expect(fake.state.sent.at(-1)).toMatchObject({ id: control, message: '/effort max' });
+    expect((await post(worker, { model: 'sonnet' })).status).toBe(200);
+    expect(fake.state.sent.at(-1)).toMatchObject({ id: worker, message: '/model sonnet' });
+    expect((await post(worker, { effort: 'max' })).status).toBe(200);
+    expect(fake.state.sent.at(-1)).toMatchObject({ id: worker, message: '/effort max' });
     // Only the listed aliases: anything else never reaches the session.
-    const bad = await post({ model: 'sonnet; rm -rf ~' });
+    const bad = await post(worker, { model: 'sonnet; rm -rf ~' });
     expect(bad.status).toBe(400);
     expect(fake.state.sent.at(-1)!.message).toBe('/effort max');
+
+    // The control chat keeps the model and effort it started on: nothing is typed into it, so your
+    // Claude Code default is never changed from here. The switch back to its own model goes through.
+    const sent = fake.state.sent.length;
+    for (const body of [{ model: 'sonnet' }, { effort: 'low' }, { model: 'opus', effort: 'max' }]) {
+      const locked = await post(control, body);
+      expect(locked.status).toBe(400);
+      expect(((await locked.json()) as { message: string }).message).toMatch(
+        /locked to opus at xhigh effort/,
+      );
+    }
+    expect(fake.state.sent.length).toBe(sent);
+    expect((await post(control, { model: 'opus' })).status).toBe(200);
+    expect(fake.state.sent.at(-1)).toMatchObject({ id: control, message: '/model opus' });
+
+    // A chat that was moved to Sonnet some other way is flagged, with the model it should be on.
+    await fetch(`${base()}/api/sessions/${control}/send`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ message: '/model sonnet' }),
+    });
     const chat = (await (
       await fetch(`${base()}/api/sessions/${control}/chat`, { headers: auth })
     ).json()) as ChatResponse;
-    expect([chat.model, chat.effort]).toEqual(['claude-sonnet-5', 'max']);
-    // A control chat says which model Supercharge starts control chats on, so the dashboard can flag Sonnet.
+    expect(chat.model).toBe('claude-sonnet-5');
     expect(chat.expectedModel).toBe('opus');
     expect(chat.claudeVersion).toBe('2.1.285');
     const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
@@ -1189,6 +1210,34 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(audit).toMatch(/"action":"session_action".*"action":"lock"/);
     expect(audit).toMatch(new RegExp(`"action":"task_restored","project":"northwind","taskId":"${made.id}"`));
     expect((await sc(['stage', 'done'], { cwd: made.worktree })).code).toBe(0);
+  }, 60_000);
+
+  it('a control chat you have read clears "Control chat replied", and the read is not audited', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const snapshot = async () =>
+      (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const control = (await snapshot()).projects.find((p) => p.name === 'northwind')!.controlSessionId!;
+    await fetch(`${fake.url}/__fake/sessions/${control}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ unread: true, status: 'Idle' }),
+    });
+    await until(async () => (await snapshot()).needsYou.some((n) => n.kind === 'control_replied'));
+    const auditFile = join(home, '.local/state/supercharge/audit.jsonl');
+    const before = (await readFile(auditFile, 'utf8').catch(() => '')).split('\n').length;
+
+    const r = await fetch(`${base()}/api/sessions/${control}/read`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: '{}',
+    });
+    expect(r.status).toBe(200);
+    expect(fake.state.sessions.find((s) => s.id === control)?.unread).toBe(false);
+    await until(async () => !(await snapshot()).needsYou.some((n) => n.kind === 'control_replied'));
+    expect((await readFile(auditFile, 'utf8').catch(() => '')).split('\n').length).toBe(before);
+    expect((await fetch(`${base()}/api/sessions/nope/read`, { method: 'POST', headers: auth })).status).toBe(
+      404,
+    );
   }, 60_000);
 
   it('a worker whose session is trashed in AoE leaves the dashboard (kept under removed/)', async () => {

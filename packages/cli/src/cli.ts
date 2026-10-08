@@ -513,7 +513,11 @@ export function buildProgram(): Command {
         o: { project?: string; allDone?: boolean; dryRun?: boolean; json?: boolean },
       ) => {
         if (!taskId === !o.allDone)
-          throw new CliError('Give a task id, or --all-done.', EXIT.usage, 'supercharge task cleanup AS-0007');
+          throw new CliError(
+            'Give a task id, or --all-done.',
+            EXIT.usage,
+            'supercharge task cleanup AS-0007',
+          );
         const x = await ctx();
         const project = (await resolveProject(x, cwd(), o.project)).name;
         const opts = { actor: 'cli' as const, dryRun: o.dryRun };

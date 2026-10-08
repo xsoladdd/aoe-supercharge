@@ -4,14 +4,7 @@ import { join } from 'node:path';
 import { appendAudit } from '@aoe-supercharge/core/node';
 import type { TaskRecord } from '@aoe-supercharge/core/shared';
 import type { Ctx } from './context.ts';
-import {
-  dirtyPaths,
-  fetchBranch,
-  isAncestor,
-  isCherried,
-  revParse,
-  unlandedCommits,
-} from './util/git.ts';
+import { dirtyPaths, fetchBranch, isAncestor, isCherried, revParse, unlandedCommits } from './util/git.ts';
 import { CliError, EXIT } from './util/errors.ts';
 
 /** How a finished task's work reached origin/<base>. */
@@ -34,12 +27,7 @@ export interface CleanupCheck {
 
 const SHOWN = 5;
 
-function refuse(
-  t: TaskRecord,
-  reason: string,
-  hint: string,
-  detail?: string[],
-): CleanupCheck {
+function refuse(t: TaskRecord, reason: string, hint: string, detail?: string[]): CleanupCheck {
   return { taskId: t.id, project: t.project, branch: t.branch, ok: false, reason, hint, detail };
 }
 
@@ -55,12 +43,20 @@ function refuse(
 export async function checkCleanup(ctx: Ctx, project: string, taskId: string): Promise<CleanupCheck> {
   const task = await ctx.ledger.getTask(project, taskId);
   if (!task)
-    throw new CliError(`No task ${taskId} in project ${project}.`, EXIT.usage, 'Check "supercharge task list".');
+    throw new CliError(
+      `No task ${taskId} in project ${project}.`,
+      EXIT.usage,
+      'Check "supercharge task list".',
+    );
   const rec = await ctx.ledger.getProject(project);
   if (!rec) throw new CliError(`No project ${project}.`, EXIT.usage);
 
   if (task.stage !== 'done')
-    return refuse(task, `${task.id} is ${task.stage}, not done.`, 'Clean up only after its work has been merged.');
+    return refuse(
+      task,
+      `${task.id} is ${task.stage}, not done.`,
+      'Clean up only after its work has been merged.',
+    );
   if (!task.aoeSessionId)
     return refuse(task, `${task.id} has no AoE session.`, 'There is nothing to clean up.');
   if ((await ctx.ledger.readLocks()).includes(task.aoeSessionId))
@@ -72,8 +68,7 @@ export async function checkCleanup(ctx: Ctx, project: string, taskId: string): P
   // The worktree first: a dirty one is the cheapest, and the most common, reason to stop.
   if (cwd === task.worktreePath) {
     const dirty = await dirtyPaths(cwd);
-    if (dirty === null)
-      return refuse(task, 'Could not read the worktree with git.', `Check ${cwd} by hand.`);
+    if (dirty === null) return refuse(task, 'Could not read the worktree with git.', `Check ${cwd} by hand.`);
     if (dirty.length > 0)
       return refuse(
         task,
@@ -110,7 +105,9 @@ export async function checkCleanup(ctx: Ctx, project: string, taskId: string): P
   return refuse(
     task,
     `${open.length} commit${open.length === 1 ? '' : 's'} on ${task.branch} ${open.length === 1 ? 'is' : 'are'} not on ${onBase}` +
-      (merged ? ', and the merged pull request does not cover them' : ', and no merged pull request covers them') +
+      (merged
+        ? ', and the merged pull request does not cover them'
+        : ', and no merged pull request covers them') +
       '.',
     merged
       ? 'Push them in a new pull request, or leave this worker as it is.'

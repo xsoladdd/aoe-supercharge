@@ -66,7 +66,13 @@ export const ConfigSchema = z.strictObject({
         .regex(/^[A-Za-z0-9._-]*$/, 'An alias like opus or sonnet, or a full model id')
         .default('opus')
         .describe(
-          'Model for new control chats: they split and judge the work, so Opus by default. An alias (fable, opus, opusplan, sonnet, haiku) or a full id. Empty uses your Claude Code default.',
+          'Model for new control chats: they split and judge the work, so Opus by default. The opus alias is Opus 5.5 on the current Claude Code and follows the next Opus; pin a full id to stop that. An alias (fable, opus, opusplan, sonnet, haiku) or a full id. Empty uses your Claude Code default.',
+        ),
+      controlEffort: z
+        .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+        .default('xhigh')
+        .describe(
+          'Effort for new control chats (claude --effort), separate from the workers. xhigh by default: they split and judge the work. It applies to that chat only, and your Claude Code default is not touched.',
         ),
       model: z
         .string()
@@ -78,7 +84,9 @@ export const ConfigSchema = z.strictObject({
       effort: z
         .enum(['default', 'low', 'medium', 'high', 'xhigh', 'max'])
         .default('default')
-        .describe('Effort for new sessions (claude --effort). Applies to that session only.'),
+        .describe(
+          'Effort for workers started without --effort (claude --effort). Applies to that session only.',
+        ),
       autoCompactWindow: z
         .number()
         .int()

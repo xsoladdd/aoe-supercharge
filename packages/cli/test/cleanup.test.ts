@@ -127,7 +127,11 @@ describe('checkCleanup: only when the work is on origin/main', () => {
     await g(w.repo, 'commit', '-q', '-m', 'Squashed (#12)');
     await g(w.repo, 'push', '-q', 'origin', 'main');
     const task = (await w.ledger.getTask('alpha', 'AS-0001'))!;
-    await w.ledger.updateTask('alpha', 'AS-0001', (t) => ({ ...t, mr: mr({ headSha: w.head }), rev: task.rev }));
+    await w.ledger.updateTask('alpha', 'AS-0001', (t) => ({
+      ...t,
+      mr: mr({ headSha: w.head }),
+      rev: task.rev,
+    }));
     const c = await checkCleanup(w.ctx, 'alpha', 'AS-0001');
     expect(c).toMatchObject({ ok: true, landedBy: 'merged_pr' });
   });
@@ -215,7 +219,10 @@ describe('cleanupTask', () => {
     expect(r).toMatchObject({ ok: true, removed: true, landedBy: 'ancestor' });
     expect(w.deleteSession).toHaveBeenCalledWith('sess-1', { deleteWorktree: true, deleteBranch: true });
     expect(await w.ledger.getTask('alpha', 'AS-0001')).toBeNull();
-    const audit = (await readFile(w.paths.auditFile, 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+    const audit = (await readFile(w.paths.auditFile, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
     expect(audit.at(-1)).toMatchObject({
       actor: 'ui',
       action: 'task_cleaned_up',

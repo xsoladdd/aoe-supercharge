@@ -92,7 +92,12 @@ export async function fetchBranch(cwd: string, branch: string, remote = 'origin'
 export async function dirtyPaths(cwd: string): Promise<string[] | null> {
   // Not through git(): its trim() would eat the leading space of " M path".
   const r = await run('git', ['status', '--porcelain'], { cwd, timeoutMs: 10_000 });
-  return r.code === 0 ? r.stdout.split('\n').filter(Boolean).map((l) => l.slice(3)) : null;
+  return r.code === 0
+    ? r.stdout
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => l.slice(3))
+    : null;
 }
 
 /** `head` is `base` or reachable from it (fast-forward or merge commit). */

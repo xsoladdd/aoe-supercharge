@@ -1,4 +1,4 @@
-import { CaretDownIcon, CpuIcon } from '@phosphor-icons/react';
+import { CaretDownIcon, CpuIcon, LockSimpleIcon } from '@phosphor-icons/react';
 import {
   EFFORT_LEVELS,
   MODEL_ALIASES,
@@ -29,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { ApiError, sendJson } from '@/lib/api';
+import { useLive } from '@/lib/live';
 
 const MODEL_LABEL: Record<ModelAlias, string> = {
   fable: 'Fable',
@@ -68,6 +69,9 @@ export function ModelMenu({
   const [change, setChange] = useState<Change | null>(null);
   const [sending, setSending] = useState(false);
   const label = model ? prettyModel(model) : 'Model';
+  // A project's control chat keeps the model and effort it was started on (Settings, Agent).
+  const { snapshot } = useLive();
+  const locked = !!snapshot?.projects.some((p) => p.controlSessionId === sessionId);
 
   const apply = async () => {
     if (!change) return;
@@ -101,6 +105,23 @@ export function ModelMenu({
       ? `${MODEL_LABEL[change.model]} model`
       : `${EFFORT_LABEL[change.effort].toLowerCase()} effort`
     : '';
+
+  if (locked)
+    return (
+      <span
+        tabIndex={0}
+        title="Control chats are locked to the model and effort they start on. Change them in Settings (Agent: control chat model and effort); it applies to new control chats."
+        aria-label={`Model and effort, locked: ${label}${effort ? `, ${effort}` : ''}`}
+        className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs text-muted-foreground"
+      >
+        <CpuIcon className="size-4" />
+        <span className="max-w-40 truncate">
+          {label}
+          {effort && <span> · {effort}</span>}
+        </span>
+        <LockSimpleIcon className="size-3" />
+      </span>
+    );
 
   return (
     <>
