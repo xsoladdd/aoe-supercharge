@@ -193,8 +193,11 @@ test.describe('office', () => {
       await expect(attention).toBeVisible({ timeout: 30_000 });
       await expect(attention).toContainText(/\d+ needs? attention/);
       await expect(page.getByText(/may be a runaway/).first()).toBeVisible();
+      // A control chat is never flagged, however far over the limit it is.
+      await expect(page.getByText(/control chat may be a runaway/)).toHaveCount(0);
       await page.goto('/office?view=list');
       await expect(row.locator('[data-runaway="tokens"]')).toContainText('Over the token limit');
+      await expect(page.locator('li[data-role="lead"] [data-runaway]')).toHaveCount(0);
       await axe(page, 'office list with a runaway');
     } finally {
       expect(await setTokenLimit(50_000_000)).toBe(200);

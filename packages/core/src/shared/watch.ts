@@ -214,6 +214,50 @@ export interface WatchEvent {
 /** Stages where an idle worker is expected to be working, so idling there long is a stall. */
 const WORKING_STAGES: readonly Stage[] = ['planning', 'implementing', 'verifying'];
 
+/**
+ * How many background shells or tasks a Claude Code pane's footer says are running ("auto mode on · 2
+ * shells · ← for agents"), 0 when none. Only the footer under the last prompt line counts: the turn
+ * summary above it ("2 shells still running") goes stale.
+ */
+export function backgroundShells(pane: string): number {
+  const lines = pane.replace(/\r/g, '').split('\n');
+  let from = 0;
+  for (let i = lines.length - 1; i >= 0; i--)
+    if (/^\s*❯/.test(lines[i]!)) {
+      from = i + 1;
+      break;
+    }
+  for (const line of lines.slice(from)) {
+    const m = /\b(\d+) (?:shells?|background tasks?)\b(?! still)/i.exec(line);
+    if (m) return Number(m[1]);
+  }
+  return 0;
+}
+
+/** Whether a worker has been idle long enough, by AoE's clock, to be called stalled (given no marker). */
+function stallIdleMs(w: WatchWorker, now: Date, stallMinutes: number, busyAt?: string): number | null {
+  const s = w.session;
+  if (s?.status !== 'idle' || (w.task && !WORKING_STAGES.includes(w.task.stage))) return null;
+  const since = s.statusSince ? Date.parse(s.statusSince) : NaN;
+  // Background shells running count as work: the idle clock starts when they were last seen.
+  const from = Math.max(since, busyAt ? Date.parse(busyAt) : NaN);
+  const idleMs = now.getTime() - (Number.isFinite(from) ? from : since);
+  return Number.isFinite(idleMs) && idleMs >= stallMinutes * 60_000 ? idleMs : null;
+}
+
+/**
+ * Workers idle long enough to be stalled and not yet told so (`told` says whether a key was): the ones
+ * whose pane is worth reading for background shells before calling it a stall.
+ */
+export function stallCandidates(
+  workers: WatchWorker[],
+  now: Date,
+  stallMinutes: number,
+  told: (key: string) => boolean,
+): WatchWorker[] {
+  return workers.filter((w) => !told(`stalled:${w.sessionId}`) && stallIdleMs(w, now, stallMinutes) !== null);
+}
+
 /** AoE's word for a session status, as control-watch.sh reported it. */
 function aoeStatus(s: SessionView | null): string | null {
   if (!s) return null;
@@ -246,6 +290,8 @@ export interface WatchEventsInput {
   markers: Record<string, WatchMarker | null | undefined>;
   now: Date;
   stallMinutes: number;
+  /** When each session was last seen with background shells running; the stall clock starts then. */
+  busy?: Record<string, string>;
 }
 
 /**
@@ -325,16 +371,8 @@ export function watchEvents(input: WatchEventsInput): WatchEvent[] {
         kind: marker.kind,
         detail: marker.text,
       });
-    const s = w.session;
-    const since = s?.statusSince ? Date.parse(s.statusSince) : NaN;
-    const idleMs = input.now.getTime() - since;
-    if (
-      s?.status === 'idle' &&
-      !marker &&
-      (!w.task || WORKING_STAGES.includes(w.task.stage)) &&
-      Number.isFinite(idleMs) &&
-      idleMs >= input.stallMinutes * 60_000
-    )
+    const idleMs = marker ? null : stallIdleMs(w, input.now, input.stallMinutes, input.busy?.[w.sessionId]);
+    if (idleMs !== null)
       events.push({
         ...base,
         key: `stalled:${w.sessionId}`,

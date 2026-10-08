@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  backgroundShells,
   computeNeedsYou,
+  stallCandidates,
   formatWatchNotice,
   markerOf,
   parseWatchLine,
@@ -139,7 +141,10 @@ function world(over: { sessions?: SessionView[]; tasks?: TaskRecord[] } = {}): O
   return { sessions, tasks, projects, needsYou };
 }
 
-function eventsOf(input: OfficeInput, opts: { markers?: Record<string, WatchMarker>; stall?: number } = {}) {
+function eventsOf(
+  input: OfficeInput,
+  opts: { markers?: Record<string, WatchMarker>; stall?: number; busy?: Record<string, string> } = {},
+) {
   const p = input.projects.find((x) => x.name === 'alpha')!;
   const workers = watchWorkers(input, p);
   return watchEvents({
@@ -149,8 +154,33 @@ function eventsOf(input: OfficeInput, opts: { markers?: Record<string, WatchMark
     markers: opts.markers ?? {},
     now,
     stallMinutes: opts.stall ?? 15,
+    busy: opts.busy,
   });
 }
+
+describe('backgroundShells', () => {
+  const pane = (footer: string, above = '') =>
+    `${above}\n────────\n❯ \n────────\n  Sonnet 5.5 · context 17%\n  ${footer}\n`;
+
+  it('reads the count from the footer', () => {
+    expect(backgroundShells(pane('⏵⏵ auto mode on · 2 shells · ← for agents'))).toBe(2);
+    expect(backgroundShells(pane('⏵⏵ auto mode on · 1 shell · ← for agents'))).toBe(1);
+    expect(backgroundShells(pane('⏵⏵ auto mode on · 3 background tasks'))).toBe(3);
+  });
+
+  it('is 0 without shells, and ignores the turn summary above the prompt', () => {
+    expect(backgroundShells(pane('⏵⏵ auto mode on (shift+tab to cycle) · ← for agents'))).toBe(0);
+    expect(
+      backgroundShells(
+        pane(
+          '⏵⏵ auto mode on (shift+tab to cycle) · ← for agents',
+          '✻ Sautéed for 30m 20s · done 12:35 PM · 2 shells still running',
+        ),
+      ),
+    ).toBe(0);
+    expect(backgroundShells('')).toBe(0);
+  });
+});
 
 describe('watchWorkers', () => {
   it("takes a project's tasks and its control chat's crew, never the control chat", () => {
@@ -262,6 +292,27 @@ describe('watchEvents', () => {
       { key: 'stalled:s1', hold: 'idle:s1', kind: 'stalled', detail: 'Idle for 16 min' },
     ]);
     expect(eventsOf(idle(16), { stall: 30 })).toEqual([]);
+  });
+
+  it('does not call a worker stalled while its background shells run, and counts from when they end', () => {
+    const w = world({
+      sessions: [session('ctl', 'idle'), session('s1', 'idle', { statusSince: minutesAgo(40) })],
+    });
+    // Last seen with shells 5 minutes ago: 5 idle minutes by that clock.
+    expect(eventsOf(w, { busy: { s1: minutesAgo(5) } })).toEqual([]);
+    expect(eventsOf(w, { busy: { s1: minutesAgo(16) } })).toMatchObject([
+      { key: 'stalled:s1', kind: 'stalled', detail: 'Idle for 16 min' },
+    ]);
+  });
+
+  it('picks the idle workers worth a pane read, leaving out those already told', () => {
+    const input = world({
+      sessions: [session('ctl', 'idle'), session('s1', 'idle', { statusSince: minutesAgo(40) })],
+    });
+    const workers = watchWorkers(input, input.projects[0]!);
+    expect(stallCandidates(workers, now, 15, () => false).map((w) => w.sessionId)).toEqual(['s1']);
+    expect(stallCandidates(workers, now, 15, (k) => k === 'stalled:s1')).toEqual([]);
+    expect(stallCandidates(workers, now, 60, () => false)).toEqual([]);
   });
 
   it("reads a plain worker's QUESTION: or DONE: instead of calling it stalled", () => {

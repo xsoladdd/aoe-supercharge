@@ -24,6 +24,8 @@ describe('WorkerWatch: notices for a control chat', () => {
   let refuse: boolean;
   let clock: number;
   let replies: Record<string, ChatMessage[]>;
+  let footer: string;
+  let captures: string[];
 
   const make = () =>
     new WorkerWatch(
@@ -35,7 +37,10 @@ describe('WorkerWatch: notices for a control chat', () => {
           if (refuse) throw new MenuOpenError('menu open', 'answer it');
           sent.push({ id, message });
         },
-        capture: async (id) => `pane of ${id}\n❯ `,
+        capture: async (id) => {
+          captures.push(id);
+          return `pane of ${id}\n❯ \n  Sonnet 5.5\n  ${footer}\n`;
+        },
         now: () => new Date(clock),
       },
     );
@@ -72,6 +77,8 @@ describe('WorkerWatch: notices for a control chat', () => {
     refuse = false;
     clock = Date.now();
     replies = {};
+    footer = '⏵⏵ auto mode on (shift+tab to cycle) · ← for agents';
+    captures = [];
   });
   afterEach(async () => {
     await rm(home, { recursive: true, force: true });
@@ -184,6 +191,40 @@ describe('WorkerWatch: notices for a control chat', () => {
     sessions(ctl(), s1('idle', { statusSince: ago(16) }));
     await tick(make());
     expect(sent).toHaveLength(1);
+  });
+
+  it('does not call a worker stalled while its background shells run, then once after they end', async () => {
+    footer = '⏵⏵ auto mode on · 2 shells · ← for agents';
+    sessions(ctl(), s1('working'));
+    const w = make();
+    await tick(w);
+    sessions(ctl(), s1('idle', { statusSince: ago(20) }));
+    await tick(w);
+    await tick(w);
+    expect(sent).toEqual([]);
+    // The shells end: 15 minutes of idling from then on is a stall, not before.
+    footer = '⏵⏵ auto mode on (shift+tab to cycle) · ← for agents';
+    clock += 10 * 60_000;
+    await tick(w);
+    expect(sent).toEqual([]);
+    clock += 6 * 60_000;
+    await tick(w);
+    expect(sent.map((x) => parseWatchLine(x.message)!.kind)).toEqual(['stalled']);
+    // Told once: its pane isn't read for stalls again.
+    const reads = captures.length;
+    await tick(w);
+    await tick(w);
+    expect(sent).toHaveLength(1);
+    expect(captures).toHaveLength(reads);
+  });
+
+  it('reads panes only for workers that would be called stalled', async () => {
+    sessions(ctl(), s1('working'));
+    const w = make();
+    await tick(w);
+    sessions(ctl(), s1('idle', { statusSince: ago(5) }));
+    await tick(w);
+    expect(captures).toEqual([]);
   });
 
   it('tells nothing for a project with the watch off, and drops what was waiting', async () => {

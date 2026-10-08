@@ -194,7 +194,7 @@ const COST_EVERY_MS = 15_000;
 /**
  * The office's cost meters (SPEC §14.5): every 15 seconds it reads what is new in the live Claude
  * conversation of each session on the floor (incrementally, as the chat view does), estimates the
- * cost, flags runaways, and notifies once when someone becomes one.
+ * cost, flags runaways (workers only, never a control chat), and notifies once when someone becomes one.
  */
 export class CostWatcher {
   private timer: NodeJS.Timeout | null = null;
@@ -248,9 +248,10 @@ export class CostWatcher {
           .sort()
           .at(-1) ?? null;
       const cost = summarizeCost(s.id, entries, now, progressAt);
-      cost.runaway = runawayReasons(cost, s.status === 'working', limits, now);
+      // A control chat is long-lived by design: it is never flagged as a runaway.
+      cost.runaway = w.role === 'lead' ? [] : runawayReasons(cost, s.status === 'working', limits, now);
       costs[s.id] = cost;
-      names.set(s.id, w.role === 'lead' ? `${w.project}'s control chat` : w.name);
+      names.set(s.id, w.name);
     }
     this.store.setCosts(costs);
     // Notify once per runaway; who was flagged when the daemon started counts as seen.

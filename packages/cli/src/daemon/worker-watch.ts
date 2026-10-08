@@ -9,8 +9,10 @@ import {
   writeWatchLog,
 } from '@aoe-supercharge/core/node';
 import {
+  backgroundShells,
   formatWatchNotice,
   markerOf,
+  stallCandidates,
   watchEvents,
   watchStep,
   watchWorkers,
@@ -59,6 +61,8 @@ export class WorkerWatch {
   private book: WatchBook | null = null;
   private logs = new Map<string, WatchLogEntry[]>();
   private sentAt = new Map<string, number>();
+  /** When each idle worker was last seen with background shells running (ISO). */
+  private busy = new Map<string, string>();
   private prunedAt = 0;
   private send: NonNullable<WorkerWatchDeps['send']>;
   private capture: NonNullable<WorkerWatchDeps['capture']>;
@@ -173,6 +177,7 @@ export class WorkerWatch {
           markers: await this.markers(workers),
           now,
           stallMinutes: ctx.config.watch.stallMinutes,
+          busy: await this.shells(workers, book, now),
         });
         const step = watchStep(book, project.name, workers, events, now);
         book = step.book;
@@ -206,6 +211,29 @@ export class WorkerWatch {
       this.prunedAt = now.getTime();
       await pruneWatchCaptures(ctx.paths, now).catch(() => {});
     }
+  }
+
+  /**
+   * Idle workers that would be called stalled but have background shells running (the "N shells" in
+   * Claude Code's footer, say a full e2e run): they are working, so their stall clock restarts now. Only
+   * panes of would-be stalls are read, and one that can't be read counts as no shells.
+   */
+  private async shells(workers: WatchWorker[], book: WatchBook, now: Date): Promise<Record<string, string>> {
+    const idle = new Set(workers.filter((w) => w.session?.status === 'idle').map((w) => w.sessionId));
+    for (const id of this.busy.keys()) if (!idle.has(id)) this.busy.delete(id);
+    const candidates = stallCandidates(
+      workers,
+      now,
+      this.ctx.config.watch.stallMinutes,
+      (key) => !!book.seen[key],
+    );
+    await Promise.all(
+      candidates.map(async (w) => {
+        const pane = await this.capture(w.sessionId).catch(() => '');
+        if (backgroundShells(pane) > 0) this.busy.set(w.sessionId, now.toISOString());
+      }),
+    );
+    return Object.fromEntries(this.busy);
   }
 
   private async saveBook(book: WatchBook) {

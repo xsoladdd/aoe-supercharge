@@ -73,6 +73,7 @@ test.describe('worker watch', () => {
       }) as Promise<{ id: string }>;
     const crew = await mk('watch-crew', { status: 'Running' });
     let idler: { id: string } | null = null;
+    let waiter: { id: string } | null = null;
     let before = 0;
     const once = async (session: string, expected: string[]) =>
       expect.poll(() => kinds(control, session, before), { timeout: 20_000 }).toEqual(expected);
@@ -113,10 +114,17 @@ test.describe('worker watch', () => {
         idle_entered_at: new Date(Date.now() - 20 * 60_000).toISOString(),
       });
       await once(idler.id, ['stalled']);
+      // One idle just as long but waiting on its own background shells is working, not stalled.
+      waiter = await mk('watch-shells', {
+        status: 'Idle',
+        idle_entered_at: new Date(Date.now() - 20 * 60_000).toISOString(),
+        shells: 2,
+      });
       // Still once each a few polls later.
       await page.waitForTimeout(4_000);
       expect(await kinds(control, crew.id, before)).toEqual(['error', 'permission', 'question', 'done']);
       expect(await kinds(control, idler.id, before)).toEqual(['stalled']);
+      expect(await kinds(control, waiter!.id, before)).toEqual([]);
       expect((await watchLines(control)).length).toBe(before + 6);
 
       // In the chat: compact notices, with links to the worker and to what its pane showed.
@@ -147,7 +155,8 @@ test.describe('worker watch', () => {
       expect(await kinds(control, crew.id, before)).toHaveLength(4);
     } finally {
       await setWatch(page, false).catch(() => {});
-      for (const s of [crew, idler]) if (s) await fake(`/__fake/sessions/${s.id}`, { method: 'DELETE' });
+      for (const s of [crew, idler, waiter])
+        if (s) await fake(`/__fake/sessions/${s.id}`, { method: 'DELETE' });
       await patch(task, { status: 'Running', last_error: null });
       await patch(control, { status: 'Running' });
     }

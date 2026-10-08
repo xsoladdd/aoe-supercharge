@@ -245,9 +245,9 @@ describe('office cost meters (CostWatcher)', () => {
     projectPath: `/w/${id}`,
     parentId: null,
   });
-  const worker = (id: string, status: 'working' | 'idle') => ({
+  const worker = (id: string, status: 'working' | 'idle', role = 'worker') => ({
     key: `p/${id}`,
-    role: 'worker',
+    role,
     project: 'p',
     name: `Worker ${id}`,
     session: session(id, status),
@@ -296,6 +296,43 @@ describe('office cost meters (CostWatcher)', () => {
     expect(alerts).toEqual(['Worker a: Over the token limit']);
     await w.tick();
     expect(alerts).toHaveLength(1);
+  });
+
+  it('never flags a control chat as a runaway, nor notifies for it', async () => {
+    const config = defaultConfig();
+    config.office.runaway = { sessionTokens: 1000, usdPerHour: 0, stallMinutes: 0 };
+    const ctx = { config, logger: { warn() {} } } as never;
+    const store = new Store({ daemon: {}, aoe: {}, config: {} } as never, {
+      waitingDebounceSeconds: () => 0,
+    });
+    const office = {
+      model: { everyone: [worker('lead', 'working', 'lead'), worker('a', 'working')] },
+    } as never;
+    const at = new Date().toISOString();
+    let tokens = 10;
+    const transcripts = {
+      usage: async (id: string) => ({
+        entries: [
+          {
+            id: `${id}-1`,
+            at,
+            model: 'claude-opus-5-5',
+            speed: null,
+            usage: { input: tokens, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0, output: 0 },
+          },
+        ],
+        lastEditAt: null,
+      }),
+    };
+    const alerts: string[] = [];
+    const w = new CostWatcher(ctx, store, office, transcripts, async (_t, body) => alerts.push(body));
+    await w.tick();
+    tokens = 5000;
+    await w.tick();
+    expect(store.costs.lead!.total.tokens).toBe(5000);
+    expect(store.costs.lead!.runaway).toEqual([]);
+    expect(store.costs.a!.runaway).toEqual(['tokens']);
+    expect(alerts).toEqual(['Worker a: Over the token limit']);
   });
 });
 

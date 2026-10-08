@@ -31,6 +31,8 @@ export interface FakeSession {
   parent_session_id: string | null;
   /** Fake only: a Claude Code menu drawn at the bottom of the pane (see PLAN_MENU). Never sent over REST. */
   menu?: string | null;
+  /** Fake only: background shells the pane's footer reports ("· 2 shells ·"). Never sent over REST. */
+  shells?: number;
   /** Fake only: the `aoe add --extra-args` string, so tests can see the claude flags. Never sent over REST. */
   extra_args?: string | null;
   /** Fake only: how many more sends are accepted but lost (typed before Claude Code's input was ready). */
@@ -162,6 +164,7 @@ function toRest(s: FakeSession) {
   const {
     parent_session_id: _p,
     menu: _m,
+    shells: _sh,
     extra_args: _x,
     swallow: _s,
     hooks: _h,
@@ -419,6 +422,7 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
         .filter((m) => m.id === s.id)
         .flatMap((m) => [`❯ ${m.message}`, '', '⏺ Got it. Working on that now.', '']),
       ...(s.menu ? [s.menu] : ['❯ ']),
+      ...(s.shells ? [`  ⏵⏵ auto mode on · ${s.shells} shells · ← for agents`] : []),
     ];
     return c.json({
       id: s.id,
