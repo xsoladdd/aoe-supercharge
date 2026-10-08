@@ -6,6 +6,7 @@ import type { IdleLimits } from './office-idle.ts';
 import type { Weather, WindowsMode } from './office-ambience.ts';
 import type { UsageReport } from './usage.ts';
 import type { WatchSummary } from './watch.ts';
+import type { HeldMessage } from './held.ts';
 
 export type Actor = 'worker' | 'daemon' | 'user' | 'control';
 
@@ -305,6 +306,8 @@ export interface Snapshot {
   sessionMrs: Record<string, MrState>;
   /** Each project's worker watch at a glance, by project name. */
   watch: Record<string, WatchSummary>;
+  /** Messages the daemon holds until their session is free, oldest first, by session id. */
+  held: Record<string, HeldMessage[]>;
   ui: {
     theme: 'dark' | 'light' | 'system';
     density: 'comfortable' | 'compact';
@@ -331,6 +334,7 @@ export type SnapshotEvent =
   | { type: 'costs'; data: Record<string, SessionCost> }
   | { type: 'session_mrs'; data: Record<string, MrState> }
   | { type: 'watch'; data: Record<string, WatchSummary> }
+  | { type: 'held'; data: Record<string, HeldMessage[]> }
   | { type: 'health'; data: Health };
 
 export interface ProjectStatus {

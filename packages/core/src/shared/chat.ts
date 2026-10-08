@@ -57,8 +57,16 @@ export interface ChatResponse {
   /** What the session last ran with: the model id and effort of its latest reply or /model, /effort. */
   model: string | null;
   effort: string | null;
-  /** Tokens in the context at the latest reply. */
+  /** Tokens in the context at the latest reply: its input, cache writes and cache reads (as Claude Code counts them). */
   contextTokens: number | null;
+  /** The Claude Code conversation this is (AoE's hook file), for figures kept per conversation. */
+  claudeSessionId?: string | null;
+  /** The latest reply's API request: its tokens and when it was written. */
+  lastUsage?: { at: string; usage: RequestTokens } | null;
+  /** The latest `/compact` (or auto-compact): when, and the tokens left after it. */
+  compacted?: { at: string; tokens: number | null } | null;
+  /** How full the context is, for the composer's meter (the chat route fills it in). */
+  context?: ContextInfo | null;
   /** The Claude Code version that wrote the conversation's latest record. */
   claudeVersion?: string | null;
   /** A control chat only: the model Supercharge starts control chats on (agent.controlModel). */
@@ -141,9 +149,105 @@ export function prettyModel(id: string): string {
   return `${family} ${m[2]!.split('-').join('.')}${m[3] ? ' (1M)' : ''}`;
 }
 
-/** Context window for a model id: 1M for the long-context variants, else 200k. */
-export function contextWindow(model: string | null): number {
-  return model && /\[1m\]|1m$/i.test(model) ? 1_000_000 : 200_000;
+/**
+ * Context window for a model id: 1M for the long-context variants, else 200k. Transcript replies don't
+ * always carry `[1m]`, so more tokens in use than 200k holds means the window is 1M.
+ */
+export function contextWindow(model: string | null, used: number | null = null): number {
+  if (model && /\[1m\]|1m$/i.test(model)) return 1_000_000;
+  return used !== null && used > 200_000 ? 1_000_000 : 200_000;
+}
+
+/** One API request's tokens. Input, cache writes and cache reads are what fills the context. */
+export interface RequestTokens {
+  input: number;
+  cacheWrite: number;
+  cacheRead: number;
+  output: number;
+}
+
+export const contextOf = (t: RequestTokens) => t.input + t.cacheWrite + t.cacheRead;
+
+/**
+ * What Claude Code's status line last said about a conversation's context (its `context_window`),
+ * saved per conversation by `supercharge statusline`.
+ */
+export interface StatusContext {
+  /** Claude Code's session id: the conversation. */
+  sessionId: string;
+  at: string;
+  model: { id: string | null; name: string | null };
+  /** `context_window_size`: the window for the model in use. */
+  window: number | null;
+  /** `total_input_tokens`: input, cache writes and cache reads in the context now. */
+  used: number | null;
+  /** `used_percentage`. */
+  percent: number | null;
+  /** `current_usage`: the latest request. */
+  current: RequestTokens | null;
+}
+
+/** How full a session's context is, for the composer's meter and its popover. */
+export interface ContextInfo {
+  /** Tokens in the context: input, cache writes and cache reads (output is not counted). */
+  used: number;
+  /** The model's context window. */
+  window: number;
+  /** used / window, 0-100, rounded. */
+  percent: number;
+  /** `claude`: Claude Code's own figures, from its status line · `estimate`: worked out from the transcript. */
+  source: 'claude' | 'estimate';
+  /** When the figures were taken. */
+  at: string | null;
+  /** The model id, and Claude Code's name for it when it told us. */
+  model: string | null;
+  modelName: string | null;
+  /** The latest API request's tokens. */
+  lastRequest: RequestTokens | null;
+  /** The auto-compact window Supercharge started this session with; null: Claude Code's own setting. */
+  autoCompactWindow: number | null;
+  /** Compacted since the latest reply: `used` is what the compaction left, until Claude replies again. */
+  compacted: boolean;
+}
+
+/** A model id without the 1M suffix or date, to tell whether two ids are the same model. */
+const baseModel = (id: string | null) => (id ?? '').replace(/\[1m\]$/i, '').replace(/-\d{8}$/, '');
+
+/**
+ * The context figures to show: Claude Code's (from its status line) when they are as new as the latest
+ * reply, else an estimate from the transcript. After a compaction, what it left.
+ */
+export function contextInfo(
+  chat: Pick<ChatResponse, 'model' | 'contextTokens' | 'lastUsage' | 'compacted'>,
+  status: StatusContext | null,
+  autoCompactWindow: number | null,
+): ContextInfo | null {
+  const replyAt = chat.lastUsage ? Date.parse(chat.lastUsage.at) : 0;
+  const sameModel = status && (!chat.model || baseModel(status.model.id) === baseModel(chat.model));
+  // The status line runs just after a reply is written; one older than the reply is about an earlier one.
+  const fresh = status && status.used !== null && sameModel && Date.parse(status.at) >= replyAt - 1_000;
+  const compactedAt = chat.compacted ? Date.parse(chat.compacted.at) : 0;
+  const compacted =
+    !!chat.compacted && compactedAt > replyAt && (!fresh || compactedAt > Date.parse(status!.at));
+  let used: number | null;
+  if (compacted) used = chat.compacted!.tokens;
+  else if (fresh) used = status!.used;
+  else used = chat.lastUsage ? contextOf(chat.lastUsage.usage) : chat.contextTokens;
+  if (!used) return null;
+  const model = chat.model ?? status?.model.id ?? null;
+  const window = (sameModel && status?.window) || contextWindow(status?.model.id ?? model, used);
+  return {
+    used,
+    window,
+    percent: Math.min(100, Math.max(0, Math.round((used / window) * 100))),
+    source: fresh && !compacted ? 'claude' : 'estimate',
+    at: compacted ? chat.compacted!.at : fresh ? status!.at : (chat.lastUsage?.at ?? null),
+    model,
+    modelName: sameModel ? status!.model.name : null,
+    lastRequest: fresh && status!.current ? status!.current : (chat.lastUsage?.usage ?? null),
+    autoCompactWindow,
+    compacted,
+  };
 }
 
 /**

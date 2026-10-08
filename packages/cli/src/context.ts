@@ -30,6 +30,8 @@ export interface Ctx {
   ledger: Ledger;
   notes: Notes;
   env: NodeJS.ProcessEnv;
+  /** Told whenever something is typed into a session (the daemon's typing gate listens). */
+  onTyped?: (sessionId: string) => void;
 }
 
 export async function createCtx(

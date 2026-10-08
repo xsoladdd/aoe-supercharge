@@ -1,12 +1,16 @@
 import { spawn } from 'node:child_process';
 import { readFile, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { recordUsage, writeFileAtomic, type Paths } from '@aoe-supercharge/core/node';
+import { recordContext, recordUsage, writeFileAtomic, type Paths } from '@aoe-supercharge/core/node';
 import { CliError } from './util/errors.ts';
 
-/** Fields of Claude Code's status line input that Supercharge reads. */
+/**
+ * Fields of Claude Code's status line input that Supercharge reads. `recordContext` also keeps
+ * `session_id`, `model.id` and the rest of `context_window` (window size, tokens, latest request).
+ */
 interface StatusInput {
-  model?: { display_name?: string };
+  session_id?: string;
+  model?: { id?: string; display_name?: string };
   context_window?: { used_percentage?: number | null };
   rate_limits?: {
     five_hour?: { used_percentage?: number };
@@ -146,7 +150,10 @@ export async function statusLine(paths: Paths): Promise<string> {
   } catch {
     return '';
   }
-  await recordUsage(paths, input.rate_limits).catch(() => false);
+  await Promise.all([
+    recordUsage(paths, input.rate_limits).catch(() => false),
+    recordContext(paths, input).catch(() => false),
+  ]);
 
   const own = await userStatusLine(paths);
   if (own) return ((await runUserCommand(own, raw, input.workspace?.current_dir)) ?? '').replace(/\n$/, '');

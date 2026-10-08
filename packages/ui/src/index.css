@@ -49,6 +49,11 @@
   --color-st-violet: var(--st-violet);
   --color-st-slate: var(--st-slate);
   --color-st-muted: var(--st-muted);
+  --color-attn-needs: var(--attn-needs);
+  --color-attn-working: var(--attn-working);
+  --color-attn-done: var(--attn-done);
+  --color-attn-warn: var(--attn-warn);
+  --color-attn-error: var(--attn-error);
   --color-progress: var(--progress);
 
   --color-sidebar: var(--sidebar);
@@ -180,6 +185,19 @@
   --sidebar-accent-foreground: #f4f4f5;
   --sidebar-border: #232528;
   --sidebar-ring: #b780e5;
+}
+
+/*
+ * Attention colours: what needs you, what is under way, what is done, warnings, errors. Built on the
+ * status colours, so they follow light and dark. Used as a muted shade (the colour at 6-8%) behind
+ * text in the full colour, which stays >= 4.5:1 on every surface (packages/ui/test/attention.test.ts).
+ */
+:root {
+  --attn-needs: var(--st-red);
+  --attn-working: var(--st-yellow);
+  --attn-done: var(--st-green);
+  --attn-warn: var(--st-orange);
+  --attn-error: var(--st-red);
 }
 
 @layer base {
@@ -446,6 +464,35 @@
   }
   .chat-md input[type='checkbox'] {
     margin-right: 0.4rem;
+  }
+  /* A report's NEEDS YOU, WORKING and DONE sections (components/chat/attention.ts): a shade, not a shout. */
+  .chat-md [data-attention] {
+    --attn: var(--attn-needs);
+    border-left: 3px solid var(--attn);
+    border-radius: 0 0.6rem 0.6rem 0;
+    background: color-mix(in srgb, var(--attn) 7%, transparent);
+    padding: 0.55rem 0.9rem 0.65rem;
+  }
+  .chat-md [data-attention='working'] {
+    --attn: var(--attn-working);
+  }
+  .chat-md [data-attention='done'] {
+    --attn: var(--attn-done);
+  }
+  .chat-md [data-attention] > * + * {
+    margin-top: 0.6em;
+  }
+  .chat-md [data-attention] > :first-child {
+    margin-top: 0;
+    color: var(--attn);
+    font-weight: 600;
+  }
+  /* An outline, not a fill: the word keeps the section's contrast. */
+  .chat-md [data-attention-blocked] {
+    color: var(--attn-needs);
+    border: 1px solid color-mix(in srgb, var(--attn-needs) 50%, transparent);
+    border-radius: 4px;
+    padding: 0 0.3em;
   }
 
   .hljs-comment,

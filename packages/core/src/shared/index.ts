@@ -25,3 +25,6 @@ export * from './model-prices.ts';
 export * from './office-layout.ts';
 export * from './pathfind.ts';
 export * from './watch.ts';
+export * from './destructive.ts';
+export * from './run-terminals.ts';
+export * from './held.ts';

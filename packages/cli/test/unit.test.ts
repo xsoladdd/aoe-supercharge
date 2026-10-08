@@ -19,6 +19,7 @@ import { landedOn, markLanded } from '../src/daemon/branch-watcher.ts';
 import { MrWatcher } from '../src/daemon/mr-watcher.ts';
 import { CostWatcher, OfficeWatcher, WeatherWatcher } from '../src/daemon/office.ts';
 import { at, project, session as view, T0, task as taskRecord } from '../../core/test/office-fixtures.ts';
+import { RunTerminals } from '../src/daemon/run-terminals.ts';
 import { Store } from '../src/daemon/store.ts';
 import { countUnresolvedThreads, GitLabProvider, parseMrView } from '../src/mr/gitlab.ts';
 import { Notifier } from '../src/notify.ts';
@@ -759,6 +760,59 @@ describe('slash commands for the chat composer', () => {
       expect(find('compact', 'builtin')).toBeDefined();
       expect(find('tools:build')).toMatchObject({ kind: 'skill', source: 'plugin' });
       expect(frontmatter('no frontmatter')).toEqual({});
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('RunTerminals: the terminals a Run opened in a chat', () => {
+  it('keeps them across a daemon restart, types each command once, and lets go of a gone session’s', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'sc-terminals-'));
+    try {
+      const calls: string[] = [];
+      const aoe = {
+        ensureTerminal: async (id: string, index: number) => (
+          calls.push(`ensure ${id} ${index}`),
+          { created: true }
+        ),
+        killTerminal: async (id: string, index: number) => void calls.push(`kill ${id} ${index}`),
+      };
+      const ctx = {
+        logger: { info() {}, warn() {} },
+        paths: resolvePaths({ HOME: home }, home),
+        aoe,
+      } as never;
+      const store = new Store({ daemon: {}, aoe: {}, config: {} } as never, {
+        waitingDebounceSeconds: () => 0,
+      });
+      store.sessions = [view('a', 'idle'), view('b', 'idle')];
+      store.sessionsLoaded = true;
+      const terminals = new RunTerminals(ctx, store);
+      const first = await terminals.open('a', 'npm test', 'turn:t0:4');
+      const second = await terminals.open('a', 'ls', 'turn:t0:40');
+      await terminals.open('b', 'pwd', 'other:t0:0');
+      expect([first.index, second.index]).toEqual([30, 29]);
+      expect(calls).toEqual(['ensure a 30', 'ensure a 29', 'ensure b 30']);
+      expect(terminals.takeRun(first)).toBe('npm test');
+      expect(terminals.takeRun(first)).toBeNull();
+
+      // A restarted daemon reads them back, the first one already run.
+      const again = new RunTerminals(ctx, store);
+      // `takeRun` saves in the background.
+      await new Promise((r) => setTimeout(r, 100));
+      expect((await again.list('a')).map((t) => [t.command, t.ran])).toEqual([
+        ['npm test', true],
+        ['ls', false],
+      ]);
+      // Session b is gone from AoE: its terminal is let go.
+      store.sessions = [view('a', 'idle')];
+      expect(await again.list('b')).toEqual([]);
+      await again.close((await again.get('a', second.id))!);
+      expect(calls.at(-1)).toBe('kill a 29');
+      expect((await again.list('a')).map((t) => t.command)).toEqual(['npm test']);
+      const saved = JSON.parse(await readFile(join(home, '.local/state/supercharge/terminals.json'), 'utf8'));
+      expect(saved.map((t: { command: string }) => t.command)).toEqual(['npm test']);
     } finally {
       await rm(home, { recursive: true, force: true });
     }

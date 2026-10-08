@@ -11,6 +11,21 @@ async function sessionId(prefix: string): Promise<string> {
   return state.sessions.find((s) => s.title.startsWith(prefix))!.id;
 }
 
+/** Close the terminals Run in a new terminal left open in a session (an earlier engine's, or a failed run's). */
+async function closeRunTerminals(page: Page, id: string) {
+  await page.evaluate(async (id) => {
+    const { token } = (await (await fetch('/api/csrf')).json()) as { token: string };
+    const { terminals } = (await (await fetch(`/api/sessions/${id}/terminals`)).json()) as {
+      terminals: { id: string }[];
+    };
+    for (const t of terminals)
+      await fetch(`/api/sessions/${id}/terminals/${t.id}`, {
+        method: 'DELETE',
+        headers: { 'x-csrf-token': token },
+      });
+  }, id);
+}
+
 /** Everything in the dialog (and the dialog itself) sits inside its box: nothing spills out or scrolls sideways. */
 async function expectContained(page: Page, dialog: Locator) {
   const box = (await dialog.boundingBox())!;
@@ -149,7 +164,9 @@ test.describe('overview', () => {
     await expect(dialog).toContainText('types /clear into this session');
     await expect(dialog).toContainText('not part of a Supercharge project');
     await axe(page, 'start-fresh');
-    await dialog.getByRole('button', { name: 'Clear conversation' }).click();
+    // Enter clears, as the dialog's own button.
+    await expect(dialog.getByRole('button', { name: 'Clear conversation' })).toBeFocused();
+    await page.keyboard.press('Enter');
     await expect(page.getByText('Started a fresh conversation')).toBeVisible();
     const state = (await fake('/__fake/state')) as { sent: { message: string }[] };
     expect(state.sent.some((s) => s.message === '/clear')).toBe(true);
@@ -448,36 +465,46 @@ test.describe('project', () => {
     signedIn: page,
     browserName,
   }) => {
-    await page.goto('/p/apollo-api');
-    await page
-      .getByRole('link', { name: /Control chat/ })
-      .first()
-      .click();
-    await expect(page).toHaveURL(/\/chat\/[0-9a-f]{16}$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'apollo-api control' })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'breadcrumb' })).toContainText(
-      'apollo-apiControl chat',
-    );
-    await expect(page.getByRole('link', { name: 'Open on claude.ai' })).toBeVisible();
-    const message = `What is blocked right now? (${browserName})`;
-    const box = page.getByLabel(/^Message /);
-    await box.fill(message);
-    await box.press('Enter');
-    const log = page.getByRole('log', { name: /^Conversation with/ });
-    await expect(log.getByText(message, { exact: true }).first()).toBeVisible();
-    await expect(box).toHaveValue('');
-    // The fake agent answers through the transcript, rendered as markdown (a blockquote of the prompt).
-    await expect(log.locator('blockquote', { hasText: message })).toBeVisible({ timeout: 15_000 });
-    // A message of several lines arrives as a paste, which Claude Code records wrapped: shown once, as typed.
-    const second = `second line ${browserName}`;
-    await box.fill(`Two lines (${browserName})\n${second}`);
-    await box.press('Enter');
-    await expect(log.locator('blockquote', { hasText: `Two lines (${browserName})` })).toBeVisible({
-      timeout: 15_000,
-    });
-    await expect(log.getByText(second)).toHaveCount(1);
-    await expect(log.getByText('pasted_content')).toHaveCount(0);
-    await axe(page, 'control chat');
+    // Idle, so Send types it in at once (while Claude works, it would hold it: e2e/composer.spec.ts).
+    const control = await sessionId('apollo-api control');
+    await fake(`/__fake/sessions/${control}`, { method: 'PATCH', body: JSON.stringify({ status: 'Idle' }) });
+    try {
+      await page.goto('/p/apollo-api');
+      await page
+        .getByRole('link', { name: /Control chat/ })
+        .first()
+        .click();
+      await expect(page).toHaveURL(/\/chat\/[0-9a-f]{16}$/);
+      await expect(page.getByRole('heading', { level: 1, name: 'apollo-api control' })).toBeVisible();
+      await expect(page.getByRole('navigation', { name: 'breadcrumb' })).toContainText(
+        'apollo-apiControl chat',
+      );
+      await expect(page.getByRole('link', { name: 'Open on claude.ai' })).toBeVisible();
+      const message = `What is blocked right now? (${browserName})`;
+      const box = page.getByLabel(/^Message /);
+      await box.fill(message);
+      await box.press('Enter');
+      const log = page.getByRole('log', { name: /^Conversation with/ });
+      await expect(log.getByText(message, { exact: true }).first()).toBeVisible();
+      await expect(box).toHaveValue('');
+      // The fake agent answers through the transcript, rendered as markdown (a blockquote of the prompt).
+      await expect(log.locator('blockquote', { hasText: message })).toBeVisible({ timeout: 15_000 });
+      // A message of several lines arrives as a paste, which Claude Code records wrapped: shown once, as typed.
+      const second = `second line ${browserName}`;
+      await box.fill(`Two lines (${browserName})\n${second}`);
+      await box.press('Enter');
+      await expect(log.locator('blockquote', { hasText: `Two lines (${browserName})` })).toBeVisible({
+        timeout: 15_000,
+      });
+      await expect(log.getByText(second)).toHaveCount(1);
+      await expect(log.getByText('pasted_content')).toHaveCount(0);
+      await axe(page, 'control chat');
+    } finally {
+      await fake(`/__fake/sessions/${control}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'Running' }),
+      });
+    }
   });
 
   test('the chat renders markdown, tables, code and folded tool calls', async ({ signedIn: page }) => {
@@ -532,7 +559,7 @@ test.describe('project', () => {
     await expect(log.getByText('That ran cleanly.').last()).toBeVisible({ timeout: 15_000 });
   });
 
-  test("Run in terminal runs a command in the control chat's own shell, in the side panel", async ({
+  test("Run in control shell runs a command in the control chat's own shell, in the side panel", async ({
     signedIn: page,
     browserName,
   }) => {
@@ -548,22 +575,137 @@ test.describe('project', () => {
     await log.getByRole('button', { name: 'Run aoe session list-trash' }).click();
     const dialog = page.getByRole('alertdialog', { name: 'Run this command?' });
     await expect(dialog).toContainText('aoe session list-trash');
-    await axe(page, 'run in terminal');
+    await axe(page, 'run in control shell');
     await expectContained(page, dialog);
     await page.setViewportSize({ width: 390, height: 844 });
     await expectContained(page, dialog);
     await page.setViewportSize({ width: 1440, height: 900 });
-    await dialog.getByRole('button', { name: 'Run in terminal' }).click();
+    await dialog.getByRole('button', { name: 'Run in control shell' }).click();
     await expect(page.getByRole('tab', { name: 'Shell' })).toHaveAttribute('aria-selected', 'true');
-    const screen = page.locator('.xterm-rows');
+    const panel = page.getByRole('complementary', { name: 'Project panel' });
+    const screen = panel.locator('.xterm-rows');
     await expect(screen).toContainText('ran: aoe session list-trash', { timeout: 15_000 });
     expect(await ran()).toContain('aoe session list-trash');
     // It is a terminal: what you type goes to the shell.
-    await page.locator('.xterm').click();
+    await panel.locator('.xterm').click();
     await page.keyboard.type(`echo from ${browserName}`);
     await page.keyboard.press('Enter');
     await expect(screen).toContainText(`ran: echo from ${browserName}`);
     await expect.poll(ran).toContain(`echo from ${browserName}`);
+  });
+
+  test('Run in a new terminal opens one under the command, keeps it across a reload, and closes it', async ({
+    signedIn: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const id = await sessionId('northwind-web control');
+    const state = async () =>
+      (await fake('/__fake/state')) as {
+        shellRan: { id: string; index: number; command: string }[];
+        killedTerminals: { id: string; index: number }[];
+      };
+    const runs = async (command: string) =>
+      (await state()).shellRan.filter(
+        (r) => r.id === id && r.index > 0 && r.index < 31 && r.command === command,
+      ).length;
+    await page.goto(`/chat/${id}`);
+    await closeRunTerminals(page, id);
+    await page.reload();
+    const ranBefore = await runs('aoe session list-trash');
+    const killedBefore = (await state()).killedTerminals.filter((k) => k.id === id).length;
+    const log = page.getByRole('log', { name: /^Conversation with/ });
+    const dialog = page.getByRole('alertdialog', { name: 'Run this command?' });
+    // Enter runs the highlighted way, Run in chat until you pick another; Escape cancels.
+    await log.getByRole('button', { name: 'Run', exact: true }).click();
+    await expect(dialog.getByRole('button', { name: 'Run in chat' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await log.getByRole('button', { name: 'Run', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Run in a new terminal' }).click();
+    const block = log.getByRole('region', { name: /^Terminal: supercharge task new/ });
+    await expect(block.locator('.xterm-rows')).toContainText('ran: supercharge task new', {
+      timeout: 15_000,
+    });
+    // Right under its code block.
+    expect(await block.evaluate((el) => el.previousElementSibling?.textContent?.startsWith('bash'))).toBe(
+      true,
+    );
+    await axe(page, 'run terminal');
+    // Now the highlighted way is your last one: Enter opens a terminal under the inline command's paragraph.
+    await log.getByRole('button', { name: 'Run aoe session list-trash' }).click();
+    await expect(dialog.getByRole('button', { name: 'Run in a new terminal' })).toBeFocused();
+    await page.keyboard.press('Enter');
+    const inline = log.getByRole('region', { name: 'Terminal: aoe session list-trash' });
+    await expect(inline.locator('.xterm-rows')).toContainText('ran: aoe session list-trash', {
+      timeout: 15_000,
+    });
+    expect(await inline.evaluate((el) => el.previousElementSibling?.tagName)).toBe('P');
+    // A reload finds both again with their output, and runs neither again.
+    await page.reload();
+    await block.scrollIntoViewIfNeeded();
+    await expect(block.locator('.xterm-rows')).toContainText('ran: supercharge task new', {
+      timeout: 15_000,
+    });
+    await inline.scrollIntoViewIfNeeded();
+    await expect(inline.locator('.xterm-rows')).toContainText('ran: aoe session list-trash', {
+      timeout: 15_000,
+    });
+    expect(await runs('aoe session list-trash')).toBe(ranBefore + 1);
+    // Closing one kills its shell in AoE.
+    await block.getByRole('button', { name: 'Close this terminal' }).click();
+    await inline.getByRole('button', { name: 'Close this terminal' }).click();
+    await expect(log.getByRole('region', { name: /^Terminal:/ })).toHaveCount(0);
+    expect((await state()).killedTerminals.filter((k) => k.id === id).length).toBe(killedBefore + 2);
+  });
+
+  test('a command that can lose work gets a red warning, and Enter cancels it', async ({
+    signedIn: page,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    const id = await sessionId('northwind-web control');
+    // Claude suggests a cleanup that deletes a worker's worktree and branch.
+    await page.route(`**/api/sessions/${id}/chat`, async (route) => {
+      const res = await route.fetch();
+      const body = (await res.json()) as { messages: unknown[] };
+      body.messages.push({
+        id: 'e2e-destructive',
+        role: 'assistant',
+        at: new Date().toISOString(),
+        blocks: [
+          {
+            kind: 'text',
+            text: 'Clean up NW-0003:\n\n```bash\naoe rm nw-0003 --purge --delete-worktree --delete-branch\n```',
+          },
+        ],
+      });
+      await route.fulfill({ response: res, json: body });
+    });
+    const counts = async () => {
+      const s = (await fake('/__fake/state')) as { sent: unknown[]; shellRan: unknown[] };
+      return [s.sent.length, s.shellRan.length];
+    };
+    await page.goto(`/chat/${id}`);
+    const before = await counts();
+    const log = page.getByRole('log', { name: /^Conversation with/ });
+    await log.getByRole('button', { name: 'Run', exact: true }).last().click();
+    const dialog = page.getByRole('alertdialog', { name: 'Run this command?' });
+    const warning = dialog.getByRole('alert');
+    await expect(warning).toContainText("This can't be undone");
+    for (const what of ['aoe rm --purge', '--delete-worktree', '--delete-branch'])
+      await expect(warning).toContainText(what);
+    // Nothing is highlighted, so Enter cancels.
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await axe(page, 'destructive run');
+    await expectContained(page, dialog);
+    // On a phone the dialog scrolls within the screen.
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expectContained(page, dialog);
+    const box = (await dialog.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(844);
+    await page.keyboard.press('Enter');
+    await expect(dialog).toBeHidden();
+    expect(await counts()).toEqual(before);
   });
 
   test('a control chat off Opus says so, and switches back after saying what it does', async ({
@@ -657,49 +799,54 @@ test.describe('project', () => {
     browserName,
   }) => {
     const id = await sessionId('apollo-api control');
-    await page.goto(`/chat/${id}`);
-    const png = await page.evaluate(() => {
-      const c = document.createElement('canvas');
-      c.width = 320;
-      c.height = 200;
-      const x = c.getContext('2d')!;
-      x.fillStyle = '#e5e7eb';
-      x.fillRect(0, 0, 320, 200);
-      x.fillStyle = '#111827';
-      x.fillRect(40, 40, 120, 60);
-      return c.toDataURL('image/png').split(',')[1]!;
-    });
-    await page
-      .locator('input[type="file"]')
-      .setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
-    const dialog = page.getByRole('dialog', { name: 'Mark up the image' });
-    const canvas = dialog.getByLabel('Image to mark up');
-    await expect(canvas).toBeVisible();
-    const box = (await canvas.boundingBox())!;
-    await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.7, { steps: 6 });
-    await page.mouse.up();
-    await expect(dialog.getByRole('button', { name: 'Undo' })).toBeEnabled();
-    const message = `The dark box is in the wrong place (${browserName})`;
-    const field = dialog.getByLabel('Message with the image');
-    await field.fill(message);
-    await field.press('Enter');
-    await expect(dialog).toHaveCount(0, { timeout: 15_000 });
-    await expect
-      .poll(async () => {
-        const state = (await fake('/__fake/state')) as { sent: { id: string; message: string }[] };
-        return state.sent.filter((m) => m.id === id).at(-1)?.message ?? '';
-      })
-      .toMatch(
-        new RegExp(
-          `^${message.replace(/[()]/g, '\\$&')}\\n\\nAttached: /\\S+/uploads/${id}/\\S+-screenshot\\.png$`,
-        ),
-      );
-    const log = page.getByRole('log', { name: /^Conversation with/ });
-    await expect(log.getByRole('img', { name: 'screenshot.png' }).first()).toBeVisible({ timeout: 15_000 });
-    // The context meter reads the latest reply's token usage.
-    await expect(page.getByTitle(/tokens in context$/)).toBeVisible();
+    await fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Idle' }) });
+    try {
+      await page.goto(`/chat/${id}`);
+      const png = await page.evaluate(() => {
+        const c = document.createElement('canvas');
+        c.width = 320;
+        c.height = 200;
+        const x = c.getContext('2d')!;
+        x.fillStyle = '#e5e7eb';
+        x.fillRect(0, 0, 320, 200);
+        x.fillStyle = '#111827';
+        x.fillRect(40, 40, 120, 60);
+        return c.toDataURL('image/png').split(',')[1]!;
+      });
+      await page
+        .locator('input[type="file"]')
+        .setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+      const dialog = page.getByRole('dialog', { name: 'Mark up the image' });
+      const canvas = dialog.getByLabel('Image to mark up');
+      await expect(canvas).toBeVisible();
+      const box = (await canvas.boundingBox())!;
+      await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.7, { steps: 6 });
+      await page.mouse.up();
+      await expect(dialog.getByRole('button', { name: 'Undo' })).toBeEnabled();
+      const message = `The dark box is in the wrong place (${browserName})`;
+      const field = dialog.getByLabel('Message with the image');
+      await field.fill(message);
+      await field.press('Enter');
+      await expect(dialog).toHaveCount(0, { timeout: 15_000 });
+      await expect
+        .poll(async () => {
+          const state = (await fake('/__fake/state')) as { sent: { id: string; message: string }[] };
+          return state.sent.filter((m) => m.id === id).at(-1)?.message ?? '';
+        })
+        .toMatch(
+          new RegExp(
+            `^${message.replace(/[()]/g, '\\$&')}\\n\\nAttached: /\\S+/uploads/${id}/\\S+-screenshot\\.png$`,
+          ),
+        );
+      const log = page.getByRole('log', { name: /^Conversation with/ });
+      await expect(log.getByRole('img', { name: 'screenshot.png' }).first()).toBeVisible({ timeout: 15_000 });
+      // The context meter reads the latest reply's token usage.
+      await expect(page.getByRole('button', { name: /^Context: \d+% of the window used/ })).toBeVisible();
+    } finally {
+      await fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Running' }) });
+    }
   });
 
   test('the control chat panel: comment on a plan, then send the comments in one go', async ({
@@ -752,16 +899,16 @@ test.describe('project', () => {
     await expect(page.getByLabel(/^Message /)).toBeInViewport();
   });
 
-  test('the control chat panel keeps notes and nudges when something new needs you', async ({
+  test('the control chat panel opens on its shell, which clears and restarts, and nudges when something new needs you', async ({
     signedIn: page,
-    browserName,
   }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.goto(`/chat/${await sessionId('northwind-web control')}`);
+    const control = await sessionId('northwind-web control');
+    await page.goto(`/chat/${control}`);
     const panel = page.getByRole('complementary', { name: 'Project panel' });
-    // Notes is the first tab and the one a control chat opens on.
-    await expect(panel.getByRole('tab').first()).toHaveText('Notes');
-    await expect(panel.getByRole('tab', { name: 'Notes' })).toHaveAttribute('aria-selected', 'true');
+    // Plans, Comments, Watch and Shell (notes have their own page); a control chat opens on its shell.
+    await expect(panel.getByRole('tab')).toHaveText(['Plans', 'Comments', 'Watch', 'Shell']);
+    await expect(panel.getByRole('tab', { name: 'Shell' })).toHaveAttribute('aria-selected', 'true');
     // The panel hides from inside, and the labelled Panel button in the header brings it back.
     await panel.getByRole('button', { name: 'Hide the panel' }).click();
     await expect(panel).toHaveCount(0);
@@ -771,16 +918,23 @@ test.describe('project', () => {
     await page.getByRole('button', { name: /start fresh/i }).click();
     await expect(page.getByRole('alertdialog', { name: 'Start a fresh conversation?' })).toBeVisible();
     await page.getByRole('button', { name: 'Cancel' }).click();
-    const notes = panel.getByLabel('Notes for northwind-web');
-    const text = `Compare NW-0001 with the Figma frames (${browserName})`;
-    await notes.fill(text);
-    await expect(panel.getByRole('status').filter({ hasText: 'Saved' })).toBeVisible();
-    await page.reload();
-    await page
-      .getByRole('complementary', { name: 'Project panel' })
-      .getByRole('tab', { name: 'Notes' })
-      .click();
-    await expect(page.getByLabel('Notes for northwind-web')).toHaveValue(text);
+    // Clear clears the screen; Restart closes the shell and starts a fresh one (Enter confirms).
+    const screen = panel.locator('.xterm-rows');
+    await expect(screen).toContainText('Last login', { timeout: 15_000 });
+    await panel.getByRole('button', { name: 'Clear' }).click();
+    await expect(screen).not.toContainText('Last login');
+    const restarts = async () =>
+      (
+        (await fake('/__fake/state')) as { killedTerminals: { id: string; index: number }[] }
+      ).killedTerminals.filter((k) => k.id === control && k.index === 31).length;
+    const before = await restarts();
+    await panel.getByRole('button', { name: 'Restart' }).click();
+    const confirm = page.getByRole('alertdialog', { name: 'Restart the shell?' });
+    await expect(confirm.getByRole('button', { name: 'Restart' })).toBeFocused();
+    await axe(page, 'restart shell');
+    await page.keyboard.press('Enter');
+    await expect.poll(restarts).toBe(before + 1);
+    await expect(screen).toContainText('Last login', { timeout: 15_000 });
     // A worker starts waiting: the status strip pulses and lists it.
     const id = await sessionId('NW-0004');
     await fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Waiting' }) });

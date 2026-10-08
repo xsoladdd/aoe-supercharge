@@ -36,6 +36,45 @@
   the look changes: rooms, desks, your line and every path stay put, and status colours, bubbles and
   nameplates read the same in every theme. The choice is saved as `ui.officeTheme`, so every device
   shows the same; a theme it doesn't know shows Headquarters.
+- **Run in a new terminal.** Run now offers three ways to run a command: in the chat (shell mode, as
+  before), in the control shell (the side panel's Shell tab; it was "Run in terminal"), and in a new
+  terminal of its own that opens right under the command. You see its output there, scroll back through
+  it and answer its prompts, and it stays until you close it, across reloads too. It is one of AoE's
+  extra paired terminals for the session, so it runs in the session's folder and needs nothing new
+  installed. A terminal whose command the chat no longer shows (after Start fresh) is listed at the end
+  of the chat. Every run is audited.
+- **A red warning on commands that lose work.** Before you run `aoe rm` with `--purge`,
+  `--delete-worktree` or `--delete-branch`, `aoe session empty-trash`, `rm -rf`, `git reset --hard`,
+  `git push --force`, `git branch -D`, `git clean -f` and similar, the Run dialog says in red what the
+  command deletes, and keeps the focus on Cancel.
+- **Enter confirms.** In the Run dialog Enter runs the highlighted choice (the one you used last; Run in
+  chat at first) and Escape cancels; for a command that loses work, Enter cancels. In Start fresh,
+  Enter clears the conversation.
+- **A slimmer side panel.** The control chat's panel has Plans, Comments, Watch and Shell, and opens on
+  Shell. Its Notes tab is gone; notes and todos stay on the Notes page.
+- **Clear and Restart in the Shell tab.** Clear clears the screen (Ctrl-L; the scrollback stays).
+  Restart closes the shell and starts a fresh one in the same folder. The Shell tab now has a terminal of
+  its own (AoE's extra paired terminal 31), since AoE won't close the terminal it shares with its TUI;
+  after upgrading it starts as a new shell.
+- **Messages wait while Claude works.** In the chat, Send no longer types into a turn under way: the
+  message is held in Supercharge, shown in the chat with **Edit** (back into the box) and **Cancel**, and
+  typed in once Claude is done, one per turn, in order. Held messages keep their images and files and
+  survive a reload or a closed tab, because the daemon holds them. The caret beside Send offers **Send
+  now** (as before: Claude reads it during the turn) and **Interrupt and send** (Escape stops Claude, then
+  it goes in). A menu on screen is still never typed over, and every message is audited when it goes in.
+  A message whose sending failed is never sent again by itself: it waits with Retry, Edit and Cancel.
+- **Drafts are kept.** What you were writing in a chat, text, pasted images and files, stays with that
+  chat when you switch to another one or reload, until you send it. Files upload as you add them and are
+  not uploaded again when you send.
+- **The context ring opens.** Click it for tokens used of the window, the model, the last request's
+  input, output, cache reads and cache writes, and when Claude Code compacts, with Start fresh. The
+  figures are Claude Code's own, from its status line, when it reports them; otherwise an estimate.
+- **1M context shown right.** A 1M session no longer reads its context against 200k: the window comes
+  from Claude Code's status line, and without it, more than 200k in use means 1M. Output tokens no longer
+  count as context, as in Claude Code.
+- **What needs you stands out.** A reply's 🔴 NEEDS YOU, 🟡 WORKING and ✅ DONE sections sit on a muted
+  shade of their colour, and a "Blocked" item is marked. Watch notices, failed tool calls, session errors
+  and warnings take the same shades, in light and dark.
 
 ## 1.3.0 (2026-10-08)
 

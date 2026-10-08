@@ -142,3 +142,30 @@ export function asksFromChat(messages: ChatMessage[]): ControlAskList | null {
   settle();
   return list;
 }
+
+/** The sections of a report the chat colours: what needs you, what is under way, what is done. */
+export type AttentionKind = 'needs' | 'working' | 'done';
+
+const WORKING = /^(?:still\s+)?(?:working|in progress|under way|underway|running)\b\s*(?:[:—–(-].{0,80})?$/i;
+const DONE = /^(?:done|finished|completed?|shipped|merged)\b\s*(?:[:—–(-].{0,80})?$/i;
+
+/**
+ * The section a line of a reply starts, read the way the office reads NEEDS YOU (any line it would
+ * take as that heading), and WORKING or DONE only as a heading (`🟡 WORKING`, `**✅ DONE**`, `## Done`),
+ * so a reply that just says "Done" is not one.
+ */
+export function attentionKind(line: string): AttentionKind | null {
+  const words = bare(line).replace(/:$/, '');
+  if (!words) return null;
+  if (NEEDS_YOU.test(words)) return 'needs';
+  if (!sectionStart(line)) return null;
+  if (WORKING.test(words)) return 'working';
+  if (DONE.test(words)) return 'done';
+  return null;
+}
+
+/** Whether a NEEDS YOU item says work is stopped until you act ("Blocked", but not "not blocking"). */
+export const isBlocker = (text: string) => BLOCKS.test(text) && !NOT_BLOCKING.test(text);
+
+/** Whether a line starts a section of a report (a heading, a rule, a short status-emoji or capitals line). */
+export const isSectionStart = (line: string) => sectionStart(line);
