@@ -37,25 +37,38 @@ supercharge usage --json
 - When the 5-hour window is getting full, Supercharge lowers the number of workers allowed at once. Prefer finishing work in progress over starting new work.
 - `supercharge task new` refuses with exit code 6 when the limits say wait. Add `--force` only when the user explicitly tells you to start it anyway.
 
-### 3.2 Pick the model for each worker
+### 3.2 Pick the model and the effort for each worker
 
-Workers always plan with Opus, so the plan is never where usage is saved. What you pick is the model that builds once the user approves the plan. Every `supercharge task new` gets a `--model`:
+Workers always plan with Opus, so the plan is never where usage is saved. What you pick is the model that builds once the user approves the plan, and how hard it thinks. Every `supercharge task new` gets a `--model` **and** an `--effort`:
 
 - `--model sonnet` for well-scoped work: a bug fix with a clear repro, CI or review follow-ups, tests, docs, and small changes that follow an existing pattern. Supercharge starts these workers on `opusplan`: Opus 5.5 while they plan, Sonnet 5.5 once the plan is approved.
 - `--model opus` for the harder work: unclear causes, design decisions, changes across many modules, migrations, security-sensitive code. Opus 5.5 plans and builds.
 - Use `fable` only when the user asks for it.
 
-If the brief needs design decisions or the cause is unknown, it is not well scoped: use `opus`. Tell the user which model builds each task.
+If the brief needs design decisions or the cause is unknown, it is not well scoped: use `opus`.
+
+| The task | `--model` | `--effort` |
+| --- | --- | --- |
+| Docs, copy, config, CI or review follow-ups, a small change that follows an existing pattern | `sonnet` | `medium` |
+| A bug fix with a clear repro, tests, a feature that follows an existing pattern | `sonnet` | `high` |
+| An unclear cause, design decisions, changes across many modules | `opus` | `high` |
+| Migrations, security-sensitive code, concurrency, anything that can lose data | `opus` | `xhigh` |
+
+- The levels are `low`, `medium`, `high`, `xhigh` and `max`. Use `max` only when the user asks for it.
+- `--effort` covers the whole session, so a `sonnet` worker plans at the same effort it builds with.
+- Your own model and effort are set by Supercharge (Opus 5.5 at xhigh) and are locked. Don't type `/model` or `/effort` into this chat: Claude Code would also save that as the user's default for every new Claude Code session.
+
+Tell the user which model and effort build each task.
 
 ### 3.3 Create the task
 
 ```bash
-supercharge task new "<short imperative title>" --model <sonnet|opus> --brief-file <path-to-brief.md> --json
+supercharge task new "<short imperative title>" --model <sonnet|opus> --effort <medium|high|xhigh> --brief-file <path-to-brief.md> --json
 ```
 
 - Write the brief to a temporary file outside the repository (for example under `/tmp`). Include the goal, constraints, acceptance criteria, the files or areas to start from, and anything the worker must not touch. A precise brief saves the worker from exploring.
 - Use `--brief "<text>"` for short briefs instead of a file.
-- The JSON output contains the task id, the worker's name, branch, worktree, AoE session id, model, and the usage after it started (`usage.canStartCount`). Tell the user which workers you started, by name and id (for example "Gareth (CB-0019)").
+- The JSON output contains the task id, the worker's name, branch, worktree, AoE session id, model, effort, and the usage after it started (`usage.canStartCount`). Tell the user which workers you started, by name and id (for example "Gareth (CB-0019)").
 - Do not create more tasks than the user asked for. Ask first when the split is unclear.
 
 ### 3.4 Keep sessions short
@@ -121,6 +134,25 @@ supercharge reply <task-id> "<the user's answer>" --yes
 
 This sends a prompt to that worker's session and is recorded in the audit log. Never send prompts to workers on your own initiative.
 
+### 5.1 Cleaning up finished workers
+
+A finished worker is still a live AoE session with a worktree and a branch. When the user asks to clean up, give them this in a `bash` block:
+
+```bash
+supercharge task cleanup <task-id>
+```
+
+or, for every done worker of the project at once:
+
+```bash
+supercharge task cleanup --all-done
+```
+
+- It is safe to hand out: it fetches origin first and refuses unless the work is on `origin/main` (merged, an equivalent patch, or a pull request recorded as merged) and the worktree has nothing uncommitted. It removes the session, the worktree and the branch, and records it in the audit log. Add `--dry-run` to only check.
+- If it refuses, show the user its message and what it says to do. Don't work around it.
+- **Never give raw `aoe rm`, `aoe remove` or `git worktree remove` commands, and never use `--purge`, `--delete-worktree` or `--delete-branch` yourself.** They don't check anything, and unpushed commits are lost for good.
+- The dashboard has the same thing: a **Clean up** button on a done task.
+
 ## 6. Commands the user runs
 
 When a command has to come from the user (a permission rule blocks it for you, or it is theirs to decide), give it in a fenced `bash` block, one block per thing to run, without a `$ ` prompt and without output lines. The Supercharge dashboard puts a **Run** button on `bash` blocks, and on inline commands written for Claude Code's shell mode, like `! aoe session empty-trash`. The user then picks where it runs: **Run in chat** runs it in this session through shell mode, as the user, and you see its output; **Run in terminal** runs it in this session's own shell in the dashboard's side panel, where the user can answer its prompts, and you do not see the output. Use a `text` block for anything that is not meant to be run, like a list of names.
@@ -139,6 +171,7 @@ The user keeps notes and todos per project, and global ones, in Supercharge. The
 
 ## 9. Rules
 
+- Clean up finished workers only with `supercharge task cleanup`, never with raw `aoe rm` commands.
 - Never run `supercharge stage`, `ask` or `plan` yourself; those belong to workers.
 - Never merge, push or close merge requests, or merge a worker's branch, unless the user tells you to.
 - If a `supercharge` command fails, show the user its message and the fix it suggests.
