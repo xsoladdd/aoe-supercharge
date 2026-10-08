@@ -1,4 +1,4 @@
-import type { NoteRecord } from '@aoe-supercharge/core/shared';
+import { DOOR_BOARD, roomBoardId, type NoteRecord } from '@aoe-supercharge/core/shared';
 import { sendJson } from './api';
 import type { BoardLine } from './office/scene';
 
@@ -64,4 +64,29 @@ export function boardLines(all: NoteRecord[]): BoardLine[] {
     for (const n of notes) lines.push({ kind: 'note', text: line(n) });
   }
   return lines;
+}
+
+/**
+ * Which whiteboard each note is written on (SPEC §14.6): a project's notes on the board in its room,
+ * the global ones, and any whose project has no room, on the board by your door. Keyed by board id.
+ */
+export function splitBoards(all: NoteRecord[], rooms: string[]): Record<string, NoteRecord[]> {
+  const out: Record<string, NoteRecord[]> = { [DOOR_BOARD]: [] };
+  for (const r of rooms) out[roomBoardId(r)] = [];
+  for (const n of all) {
+    const id = n.project !== null && rooms.includes(n.project) ? roomBoardId(n.project) : DOOR_BOARD;
+    out[id]!.push(n);
+  }
+  return out;
+}
+
+/** What every whiteboard says. A room with nothing on it keeps a blank board; the door board says so. */
+export function allBoardLines(all: NoteRecord[], rooms: string[]): Record<string, BoardLine[]> {
+  const split = splitBoards(all, rooms);
+  return Object.fromEntries(
+    Object.entries(split).map(([id, notes]) => [
+      id,
+      id === DOOR_BOARD || notes.length ? boardLines(notes) : [],
+    ]),
+  );
 }

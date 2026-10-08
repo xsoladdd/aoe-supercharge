@@ -313,8 +313,20 @@ function Team({ team, now, focus }: { team: OfficeTeam; now: Date; focus: Focus 
             {team.project}
           </Link>
         </h3>
-        <span className="tabular text-sm text-muted-foreground">
-          {team.desks ? `${busy} of ${team.desks} desks in use` : 'No open tasks'}
+        <span className="flex items-baseline gap-3">
+          {focus.onBoard && (
+            <button
+              type="button"
+              onClick={() => focus.onBoard?.(team.project)}
+              aria-label={`${team.project} whiteboard`}
+              className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Whiteboard
+            </button>
+          )}
+          <span className="tabular text-sm text-muted-foreground">
+            {team.desks ? `${busy} of ${team.desks} desks in use` : 'No open tasks'}
+          </span>
         </span>
       </div>
       {leadSeated || busy ? (
@@ -359,6 +371,8 @@ export interface Focus {
   steal?: boolean;
   /** Rows pick a worker on the floor instead of opening its page. */
   onSelect?: (key: string) => void;
+  /** Opens a room's whiteboard (the board on the floor has no keyboard way in of its own). */
+  onBoard?: (project: string) => void;
 }
 
 /** Every worker by where it stands: the accessible, testable face of the office (SPEC §14.5). */

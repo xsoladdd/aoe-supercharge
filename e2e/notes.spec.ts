@@ -76,19 +76,23 @@ test.describe('notes', () => {
     await expect(page.getByText(text)).toHaveCount(0);
   });
 
-  test('the whiteboard in the office opens up close, with the boxes to tick', async ({
+  test('the whiteboard by the door holds only the global notes, and opens up close', async ({
     signedIn: page,
     browserName,
   }) => {
-    const text = `Send the launch email (${browserName})`;
+    const text = `Order the new badges (${browserName})`;
     await page.goto('/office');
     const floor = page.locator('[data-office-floor]');
     await expect(floor).toHaveAttribute('data-renderer', /^(webgl|webgpu|canvas)$/);
     await page.getByRole('navigation', { name: 'Go to' }).getByRole('button', { name: 'Whiteboard' }).click();
     await expect(floor).toHaveAttribute('data-camera-focus', 'board');
     const card = page.locator('[data-whiteboard-card]');
-    await expect(card.getByRole('heading', { name: 'Whiteboard' })).toBeVisible();
-    await expect(card.getByRole('checkbox', { name: 'Book a QA pass on the iPad' })).toBeVisible();
+    await expect(card.getByRole('heading', { name: 'Whiteboard', exact: true })).toBeVisible();
+    // Global in, the project's own out.
+    await expect(card.getByText('Renew the GitLab token')).toBeVisible();
+    await expect(card.getByRole('checkbox', { name: 'Book a QA pass on the iPad' })).toHaveCount(0);
+    await expect(card.getByText('Staging is read-only on Fridays from 15:00')).toHaveCount(0);
+    // A todo written here is a global one: it stays on this board.
     await card.getByRole('textbox', { name: 'Todo' }).fill(text);
     await card.getByRole('textbox', { name: 'Todo' }).press('Enter');
     const box = card.getByRole('checkbox', { name: text });
@@ -100,5 +104,62 @@ test.describe('notes', () => {
     // Escape puts the card away, as a worker's does.
     await page.keyboard.press('Escape');
     await expect(card).toHaveCount(0);
+  });
+
+  test('each room has a whiteboard of its own with that project’s todos, and you tick them there', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    const text = `Check the cutover rollback (${browserName})`;
+    await page.goto('/office');
+    const floor = page.locator('[data-office-floor]');
+    await expect(floor).toHaveAttribute('data-renderer', /^(webgl|webgpu|canvas)$/);
+    await page
+      .locator('[data-team="northwind-web"]')
+      .getByRole('button', { name: 'northwind-web whiteboard' })
+      .click();
+    await expect(floor).toHaveAttribute('data-camera-focus', 'board:northwind-web');
+    const card = page.locator('[data-whiteboard-card]');
+    await expect(card.getByRole('heading', { name: 'northwind-web whiteboard' })).toBeVisible();
+    await expect(card.getByRole('checkbox', { name: 'Book a QA pass on the iPad' })).toBeVisible();
+    await expect(card.getByText('Staging is read-only on Fridays from 15:00')).toBeVisible();
+    await expect(card.getByText('Renew the GitLab token')).toHaveCount(0);
+    // A todo written on the room's board is the project's, and ticks off as on the door board.
+    await card.getByRole('textbox', { name: 'Todo' }).fill(text);
+    await card.getByRole('textbox', { name: 'Todo' }).press('Enter');
+    const box = card.getByRole('checkbox', { name: text });
+    await box.check();
+    await expect(box).toBeChecked();
+    await axe(page, 'office room whiteboard');
+    // The Notes page agrees, then the door board never saw it.
+    await page.goto('/notes');
+    await expect(
+      page.getByRole('region', { name: 'northwind-web' }).getByRole('checkbox', { name: text }),
+    ).toBeChecked();
+    await page.goto('/office?focus=board');
+    await expect(page.locator('[data-whiteboard-card]').getByText('Renew the GitLab token')).toBeVisible();
+    await expect(page.locator('[data-whiteboard-card]').getByText(text)).toHaveCount(0);
+    // Put it away again.
+    await page.goto('/notes');
+    await page
+      .getByRole('region', { name: 'northwind-web' })
+      .getByRole('button', { name: `Archive: ${text}` })
+      .click();
+  });
+
+  test('a room’s whiteboard opens from a link, and fits a phone', async ({ signedIn: page }) => {
+    await page.setViewportSize({ width: 390, height: 780 });
+    await page.goto('/office?focus=board:northwind-web');
+    const floor = page.locator('[data-office-floor]');
+    await expect(floor).toHaveAttribute('data-renderer', /^(webgl|webgpu|canvas)$/);
+    await expect(floor).toHaveAttribute('data-camera-focus', 'board:northwind-web');
+    const card = page.locator('[data-whiteboard-card]');
+    await expect(card.getByRole('heading', { name: 'northwind-web whiteboard' })).toBeVisible();
+    const fits = await card.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return r.left >= 0 && r.right <= window.innerWidth && r.top >= 0 && r.bottom <= window.innerHeight;
+    });
+    expect(fits).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 });

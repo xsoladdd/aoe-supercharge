@@ -9,7 +9,12 @@ import { edgeKey, type Grid, type Tile } from './pathfind.ts';
  *
  *   wall A (y = -1): pantry | world map ... whiteboard | shelves, lamp, YOUR DOOR, lamp, shelves
  *   x = 0 entrance | pantry | team blocks   | the line, out from your door
+ *   Each team room also has a whiteboard against its left glass (`TeamPlan.board`).
  */
+
+/** Whiteboard ids: the one by your door, and one per room (also the camera area and `?focus=` name). */
+export const DOOR_BOARD = 'board';
+export const roomBoardId = (project: string) => `board:${project}`;
 
 export interface Rect {
   x: number;
@@ -70,6 +75,11 @@ export interface TeamPlan {
   walls: Edge[];
   /** The doorway in the front glass (towards the viewer): tiles x0 to x1 - 1, on grid line y. */
   doorway: { x0: number; x1: number; y: number };
+  /**
+   * The room's whiteboard (SPEC §14.6): a rolling board against the room's left glass, facing east, over
+   * the empty aisle in the first column. `x` is the glass line, `y0`..`y1` the stretch it covers.
+   */
+  board: { x: number; y0: number; y1: number };
   leadSeat: Tile;
   desks: { n: number; seat: Tile; desk: Tile }[];
   /** Where a worker stands when it has no desk yet. */
@@ -101,7 +111,7 @@ export interface OfficeLayout {
   /** The review lounge (SPEC §14.5): a pool table, where workers with an MR out wait with their folder. */
   review: { area: Rect; spots: Tile[] };
   floors: { kind: 'carpet' | 'pantry' | 'runner' | 'lounge'; rect: Rect; team?: string }[];
-  /** Camera targets: `office`, `door`, `pantry`, `board` and each project name. */
+  /** Camera targets: `office`, `door`, `pantry`, `board`, each project name and `board:<project>`. */
   areas: Record<string, Rect>;
 }
 
@@ -117,6 +127,9 @@ const ROPED = 6;
 const TURN = 6;
 /** Tiles of wall the whiteboard takes, just west of your corner. */
 const BOARD_W = 4;
+/** Tiles of glass a room's whiteboard covers, starting this far below the room's back row. */
+const ROOM_BOARD_W = 2.2;
+const ROOM_BOARD_AT = 0.4;
 
 export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   const teams = input.length ? input : [];
@@ -196,9 +209,12 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
       put({ kind: 'desk', x: desk.x, y: desk.y, w: 1, h: 1, team: t.project, desk: n });
       desks.push({ n, seat, desk });
     }
+    const roomBoard = { x: bx, y0: by + ROOM_BOARD_AT, y1: by + ROOM_BOARD_AT + ROOM_BOARD_W };
+    areas[roomBoardId(t.project)] = { x: bx, y: by, w: 3, h: 4 };
     plans.push({
       project: t.project,
       area,
+      board: roomBoard,
       walls: roomWalls,
       doorway,
       leadSeat: { x: bx + 1, y: by },

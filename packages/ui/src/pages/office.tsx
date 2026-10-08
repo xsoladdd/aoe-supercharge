@@ -62,7 +62,8 @@ function ViewSwitch({ view }: { view: OfficeView }) {
 /**
  * The office (SPEC §14.5): every worker stands where its status puts it. The floor view draws it;
  * the list view (`?view=list`) is the same people as a plain list. `?worker=NW-0007` (with
- * `&project=` when ids could clash) picks one; `?focus=door|desk|pantry|<project>` goes to an area.
+ * `&project=` when ids could clash) picks one; `?focus=door|desk|pantry|<project>` goes to an area,
+ * and `?focus=board` or `?focus=board:<project>` opens a whiteboard.
  * `standalone` is the office window (`/office/window`): the floor only.
  */
 export function OfficePage({ snap, standalone = false }: { snap: Snapshot; standalone?: boolean }) {
@@ -113,7 +114,6 @@ export function OfficePage({ snap, standalone = false }: { snap: Snapshot; stand
             announcement={announcement}
             standalone={standalone}
             notes={snap.notes}
-            projects={snap.projects.map((p) => p.name)}
             animations={snap.ui.officeAnimations ?? true}
             epoch={epoch}
             tokenLimit={snap.office?.runaway?.sessionTokens}

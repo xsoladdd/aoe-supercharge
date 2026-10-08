@@ -1,26 +1,35 @@
 import { ArrowSquareOutIcon, ChalkboardSimpleIcon, XIcon } from '@phosphor-icons/react';
 import { Link } from 'wouter';
-import type { NoteRecord } from '@aoe-supercharge/core/shared';
+import { DOOR_BOARD, roomBoardId, type NoteRecord } from '@aoe-supercharge/core/shared';
 import { AddNote, NotesBoard } from '@/components/notes/board';
 import { Button } from '@/components/ui/button';
-import { groupNotes } from '@/lib/notes';
+import { groupNotes, splitBoards } from '@/lib/notes';
 
 /**
- * The whiteboard up close (SPEC §14.6): everything on it, readable, with the boxes to tick, Archive,
- * and a line to add to it. Opens when you click the board on the floor.
+ * A whiteboard up close (SPEC §14.6): everything on it, readable, with the boxes to tick, Archive,
+ * and a line to add to it. Opens when you click a board on the floor: the one by your door (global
+ * notes) or a room's (that project's).
  */
 export function WhiteboardCard({
-  notes,
+  board,
+  all,
   projects,
   now,
   onClose,
 }: {
-  notes: NoteRecord[];
+  /** `board` by your door, or `board:<project>`. */
+  board: string;
+  /** Every note and todo; the card keeps the ones written on this board. */
+  all: NoteRecord[];
+  /** The projects that have a room, in the sidebar's order. */
   projects: string[];
   now: Date;
   onClose: () => void;
 }) {
-  const groups = groupNotes(notes, projects);
+  const room = projects.find((p) => roomBoardId(p) === board) ?? null;
+  const notes = splitBoards(all, projects)[room ? board : DOOR_BOARD] ?? [];
+  const groups = groupNotes(notes, room ? [room] : []);
+  const title = room ? `${room} whiteboard` : 'Whiteboard';
   const open = notes.filter((n) => n.kind === 'todo' && !n.done).length;
   return (
     <section
@@ -32,7 +41,7 @@ export function WhiteboardCard({
         <ChalkboardSimpleIcon className="size-5 shrink-0 text-muted-foreground" />
         <div className="min-w-0 flex-1">
           <h2 id="whiteboard-card-title" className="text-base font-semibold">
-            Whiteboard
+            {title}
           </h2>
           <p className="text-sm text-muted-foreground">
             {open} to do · {notes.filter((n) => n.kind === 'note').length} notes
@@ -43,12 +52,13 @@ export function WhiteboardCard({
         </Button>
       </header>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-3">
-        <AddNote projects={projects} initialScope={projects[0] ?? null} compact />
+        <AddNote key={board} projects={room ? [room] : []} initialScope={room} compact />
         {groups.length ? (
           <NotesBoard groups={groups} now={now} compact />
         ) : (
           <p className="text-sm text-muted-foreground">
-            Nothing on the board yet. Add a todo above, or ask Claude with /todo, /note or /gnote.
+            Nothing on the board yet. Add a todo above, or ask Claude with /todo, /note
+            {room ? '' : ' or /gnote'}.
           </p>
         )}
       </div>

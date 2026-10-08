@@ -83,6 +83,9 @@ describe('office layout', () => {
       'a',
       'b',
       'board',
+      'board:a',
+      'board:b',
+      'board:c',
       'c',
       'door',
       'office',
@@ -97,6 +100,35 @@ describe('office layout', () => {
     // The front of the line stands just in front of your door.
     expect(big.queue[0]).toEqual({ x: big.door.x, y: big.door.y + 1 });
     expect(big.pantry.spots.length).toBeGreaterThanOrEqual(16);
+  });
+
+  it('hangs a whiteboard in every room, against its left glass over the empty aisle', () => {
+    for (const teams of [
+      [{ project: 'a', desks: 1 }],
+      [
+        { project: 'a', desks: 9 },
+        { project: 'b', desks: 3 },
+        { project: 'c', desks: 1 },
+      ],
+      ['a', 'b', 'c', 'd', 'e', 'f'].map((project, i) => ({ project, desks: 2 + i })),
+    ]) {
+      const l = officeLayout(teams);
+      for (const t of l.teams) {
+        const { board, area } = t;
+        // On the room's left glass, inside its back and front, and about two tiles wide.
+        expect(board.x).toBe(area.x);
+        expect(board.y0).toBeGreaterThanOrEqual(area.y);
+        expect(board.y1).toBeLessThanOrEqual(area.y + area.h);
+        expect(board.y1 - board.y0).toBeGreaterThanOrEqual(2);
+        // Nothing stands in that column of the room, so the board hides no desk, sign or seat.
+        const mine = l.furniture.filter((f) => f.team === t.project);
+        for (const f of mine) expect(f.x).toBeGreaterThan(board.x);
+        for (const s of [t.leadSeat, ...t.desks.map((d) => d.seat), ...t.spare])
+          expect(s.x).toBeGreaterThan(board.x);
+        // And it is a camera target of its own.
+        expect(l.areas[`board:${t.project}`]).toBeDefined();
+      }
+    }
   });
 
   it('puts your door at the far east end of the back wall, with the line standing out from it', () => {

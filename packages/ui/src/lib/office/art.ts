@@ -1,6 +1,8 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import {
+  DOOR_BOARD,
   fnv1a,
+  roomBoardId,
   type Edge,
   type Furniture,
   type OfficeLayout,
@@ -38,6 +40,49 @@ export interface StaticOffice {
   windows: number[];
   /** The layer between the panes and the curtains that `drawSky` draws on. */
   sky: Graphics;
+  /** The room whiteboards' writing layers, by board id; the scene writes on them (`BoardSpot`). */
+  roomBoards: Map<string, Container>;
+}
+
+/**
+ * Where a whiteboard hangs, for the scene to write on: `at(u, h)` is the point `u` tiles along the
+ * board (left to right on screen) and `h` px up; `slope` is the way the writing runs on screen.
+ */
+export interface BoardSpot {
+  id: string;
+  /** The project it belongs to; null for the one by your door. */
+  project: string | null;
+  at: (u: number, h: number) => Pt;
+  length: number;
+  bottom: number;
+  top: number;
+  slope: 1 | -1;
+}
+
+/** Every whiteboard in the office: the one by your door, then one against each room's left glass. */
+export function boardSpots(layout: OfficeLayout): BoardSpot[] {
+  const { x0, x1 } = layout.board;
+  const door: BoardSpot = {
+    id: DOOR_BOARD,
+    project: null,
+    at: (u, h) => wallA(x0 + u, h),
+    length: x1 - x0,
+    ...BOARD_H,
+    slope: 1,
+  };
+  const rooms = layout.teams.map<BoardSpot>((t) => ({
+    id: roomBoardId(t.project),
+    project: t.project,
+    // Facing east, so it reads left to right as y falls.
+    at: (u, h) => {
+      const q = iso(t.board.x, t.board.y1 - u);
+      return { x: q.x, y: q.y - h };
+    },
+    length: t.board.y1 - t.board.y0,
+    ...ROOM_BOARD_H,
+    slope: -1,
+  }));
+  return [door, ...rooms];
 }
 
 const teamColor = (p: Palette, index: number) => p.carpets[index % p.carpets.length]!;
@@ -256,23 +301,38 @@ function worldMap(g: Graphics, p: Palette, x0: number, x1: number) {
 
 /** How high the whiteboard's writing surface runs on the wall, in px. */
 export const BOARD_H = { bottom: 20, top: 76 } as const;
+/** The same for a room's rolling board: on legs, its top clear of the glass. */
+export const ROOM_BOARD_H = { bottom: 18, top: 66 } as const;
 
-/** The whiteboard (SPEC §14.6): an aluminium frame and a marker tray. The scene writes your notes on it. */
-function whiteboard(g: Graphics, p: Palette, x0: number, x1: number) {
-  const { bottom, top } = BOARD_H;
+/**
+ * A whiteboard (SPEC §14.6): an aluminium frame and a marker tray. The scene writes the notes on it.
+ * The one by your door and the ones in the rooms are the same board, laid out by `spot`.
+ */
+function whiteboard(g: Graphics, p: Palette, spot: BoardSpot) {
+  const { bottom, top, length: len, at } = spot;
   const b = p.board;
-  quad(g, wallRect(x0 - 0.07, x1 + 0.07, bottom - 3, top + 3)).fill(b.frame);
-  quad(g, wallRect(x0, x1, bottom, top)).fill(b.surface);
+  const rect = (u0: number, u1: number, h0: number, h1: number) => [
+    at(u0, h0),
+    at(u1, h0),
+    at(u1, h1),
+    at(u0, h1),
+  ];
+  quad(g, rect(-0.07, len + 0.07, bottom - 3, top + 3)).fill(b.frame);
+  quad(g, rect(0, len, bottom, top)).fill(b.surface);
   // A faint sheen, and the ghost of something wiped off.
-  quad(g, wallRect(x0 + 0.08, x0 + 1.2, top - 9, top - 2)).fill({ color: 0xffffff, alpha: 0.3 });
-  quad(g, wallRect(x1 - 1.4, x1 - 0.3, bottom + 4, bottom + 9)).fill({ color: b.ink, alpha: 0.04 });
+  quad(g, rect(0.08, Math.min(1.2, len / 3), top - 9, top - 2)).fill({ color: 0xffffff, alpha: 0.3 });
+  quad(g, rect(len - 1.4, len - 0.3, bottom + 4, bottom + 9)).fill({ color: b.ink, alpha: 0.04 });
   // The tray, with three markers and an eraser.
-  quad(g, wallRect(x0 + 0.25, x1 - 0.25, bottom - 6, bottom - 3)).fill(shade(b.frame, 0.15));
+  quad(g, rect(0.25, len - 0.25, bottom - 6, bottom - 3)).fill(shade(b.frame, 0.15));
   [b.ink, b.red, 0x2f7a4a].forEach((color, i) => {
-    const at = x0 + 0.5 + i * 0.32;
-    quad(g, wallRect(at, at + 0.24, bottom - 4.6, bottom - 3)).fill(color);
+    const x = 0.5 + i * 0.32;
+    quad(g, rect(x, x + 0.24, bottom - 4.6, bottom - 3)).fill(color);
   });
-  quad(g, wallRect(x1 - 0.9, x1 - 0.45, bottom - 5.5, bottom - 3)).fill(0x3a3f45);
+  quad(g, rect(len - 0.9, len - 0.45, bottom - 5.5, bottom - 3)).fill(0x3a3f45);
+  // A rolling board stands on two legs.
+  if (spot.project !== null)
+    for (const u of [0.2, len - 0.2])
+      quad(g, rect(u - 0.04, u + 0.04, 0, bottom - 6)).fill(shade(b.frame, 0.3));
 }
 
 /** The windows along the left wall, up to the entrance: where each starts, in tiles. */
@@ -398,7 +458,7 @@ function drawWalls(
     const half = Math.min(3, mapSpan / 2 - 1);
     worldMap(g, p, mid - half, mid + half);
   }
-  whiteboard(g, p, layout.board.x0, layout.board.x1);
+  whiteboard(g, p, boardSpots(layout)[0]!);
 
   // Your corner: painted panelling with a moulding, built-in bookcases, sconces and your door.
   const doorX = layout.door.x;
@@ -679,8 +739,18 @@ export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string)
   const pieces: Container[] = [];
   const awaySigns = new Map<string, Graphics>();
   const teamIndex = new Map(layout.teams.map((t, i) => [t.project, i]));
+  const roomBoards = new Map<string, Container>();
 
   for (const t of layout.teams) {
+    // The room's whiteboard, a piece of its own so whoever walks past draws over it.
+    const spot = boardSpots(layout).find((b) => b.project === t.project)!;
+    const frame = new Graphics();
+    whiteboard(frame, p, spot);
+    const foot = iso(t.board.x + 0.2, (t.board.y0 + t.board.y1) / 2);
+    frame.ellipse(foot.x, foot.y, 28, 6).fill({ color: p.shadow, alpha: 0.14 });
+    const writing = new Container();
+    roomBoards.set(spot.id, writing);
+    pieces.push(piece(depth(t.board.x + 0.15, (t.board.y0 + t.board.y1) / 2), frame, writing));
     for (const d of t.desks) {
       pieces.push(piece(zOf(d.seat.x, d.seat.y, -20), chairPiece(p, d.seat.x, d.seat.y)));
       const f: Furniture = { kind: 'desk', x: d.desk.x, y: d.desk.y, w: 1, h: 1, team: t.project, desk: d.n };
@@ -926,5 +996,5 @@ export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string)
   for (const s of layout.pantry.spots.filter((x) => x.seat === 'chair'))
     pieces.push(piece(zOf(s.tile.x, s.tile.y, -20), stoolPiece(p, s.tile.x, s.tile.y)));
 
-  return { floor, walls, pieces, door, awaySigns, windows: windowsOf(layout), sky };
+  return { floor, walls, pieces, door, awaySigns, windows: windowsOf(layout), sky, roomBoards };
 }

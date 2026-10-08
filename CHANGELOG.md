@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **A whiteboard in every room.** Each project's room in the office has its own whiteboard, standing
+  against its left glass, with that project's open todos and notes. Click it (or use the **Whiteboard**
+  button on the team in the list, or `?focus=board:<project>`) to read it up close and tick todos off.
+  The whiteboard by your door now keeps only the global notes.
+
 ## 1.1.0 (2026-10-08)
 
 The built-in worker watch, and `[WATCH]` notices shown as notices in chat.
