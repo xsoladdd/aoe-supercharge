@@ -18,11 +18,20 @@ function sectionKind(node: RootContent): AttentionKind | null {
   return attentionKind(firstLine(node));
 }
 
-/** Whether a top-level block ends a section: another heading, a rule, or a line like one. */
-function endsSection(node: RootContent): boolean {
+const LIST = new Set(['ul', 'ol']);
+
+/**
+ * Whether a top-level block ends a section: another heading, a rule, or a line like one; or, once the
+ * section has its list, a plain paragraph after it (the reply going on: "Anything else?").
+ */
+function endsSection(node: RootContent, section: Element): boolean {
   if (node.type !== 'element') return false;
   if (node.tagName === 'hr' || HEADING.test(node.tagName)) return true;
-  return node.tagName === 'p' && isSectionStart(firstLine(node));
+  if (node.tagName !== 'p') return false;
+  return (
+    isSectionStart(firstLine(node)) ||
+    section.children.some((c) => c.type === 'element' && LIST.has(c.tagName))
+  );
 }
 
 /** Wraps the first "Blocked" in an item that says work is stopped, so it stands out. */
@@ -72,7 +81,7 @@ export function groupAttention(tree: Root) {
     if (kind) {
       group = { type: 'element', tagName: 'div', properties: { dataAttention: kind }, children: [] };
       out.push(group);
-    } else if (group && endsSection(node)) group = null;
+    } else if (group && endsSection(node, group)) group = null;
     if (group) group.children.push(node as ElementContent);
     else out.push(node);
   }

@@ -62,6 +62,18 @@ describe('rehypeAttention: report sections in a reply', () => {
     expect(marked).toEqual(['Blocked']);
   });
 
+  it('ends a section at the reply going on after its list, but keeps a command under an item', () => {
+    const tree = render(
+      ['✅ DONE', '', '- Roger: PR raised.', '', '```bash', 'gh pr view 6', '```', '', 'Anything else?'].join(
+        '\n',
+      ),
+    );
+    const done = sections(tree)[0]!;
+    expect(text(done)).toContain('gh pr view 6');
+    expect(text(done)).not.toContain('Anything else?');
+    expect(text(tree)).toContain('Anything else?');
+  });
+
   it('leaves an ordinary reply alone', () => {
     const tree = render('Done.\n\nI updated the README and pushed.');
     expect(sections(tree)).toEqual([]);

@@ -38,7 +38,7 @@ export function SendButton({
   return (
     <span className="flex shrink-0 items-center gap-0.5">
       {wouldHold && (
-        <DropdownMenu>
+        <DropdownMenu modal={false}>
           <DropdownMenuTrigger
             type="button"
             disabled={sending}
