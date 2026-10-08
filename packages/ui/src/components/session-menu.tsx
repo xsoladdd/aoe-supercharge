@@ -2,6 +2,7 @@ import {
   ArchiveIcon,
   ArrowSquareOutIcon,
   ArrowUUpLeftIcon,
+  BroomIcon,
   BuildingOfficeIcon,
   CircleNotchIcon,
   CopyIcon,
@@ -20,6 +21,7 @@ import { workerLabel, type SessionView, type Snapshot, type TaskRecord } from '@
 import { useId, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useLocation } from 'wouter';
+import { CleanupTaskDialog } from '@/components/cleanup-task';
 import { copyText } from '@/components/copy';
 import {
   AlertDialog,
@@ -156,6 +158,7 @@ export function SessionMenu({
   const [, navigate] = useLocation();
   const [ids, setIds] = useState<string[]>([sessionId]);
   const [deleting, setDeleting] = useState<Target[] | null>(null);
+  const [cleaning, setCleaning] = useState<TaskRecord | null>(null);
   const targets = useMemo(() => (snap ? resolveTargets(snap, ids) : []), [snap, ids]);
 
   const run = async (action: Action, list: Target[]) => {
@@ -304,6 +307,12 @@ export function SessionMenu({
               {lockedNote(!archivable.length)}
             </ContextMenuItem>
           )}
+          {one?.task?.stage === 'done' && (
+            <ContextMenuItem onSelect={() => setCleaning(one.task!)}>
+              <BroomIcon />
+              Clean up…
+            </ContextMenuItem>
+          )}
           <ContextMenuItem
             variant="destructive"
             disabled={!deletable.length}
@@ -339,6 +348,9 @@ export function SessionMenu({
           )}
         </ContextMenuContent>
       </ContextMenu>
+      {cleaning && (
+        <CleanupTaskDialog task={cleaning} open onOpenChange={(o) => !o && setCleaning(null)} />
+      )}
       <DeleteSessions
         targets={deleting}
         onClose={() => setDeleting(null)}

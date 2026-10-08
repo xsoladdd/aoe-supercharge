@@ -22,6 +22,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
 import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
+import { CleanupTaskButton } from '@/components/cleanup-task';
 import { CommentablePlan, CommentList, useComments } from '@/components/plan-comments';
 import { CommandLine } from '@/components/copy';
 import { LiveStatus, MrBadge, StageBadge, StageStepper, STAGE_META } from '@/components/status';
@@ -474,6 +475,7 @@ export function TaskPage({
             {task.title}
           </h1>
           <StageBadge stage={task.stage} size="sm" />
+          {task.stage === 'done' && <CleanupTaskButton task={task} />}
           {tab !== 'chat' && (
             <LiveStatus
               status={session?.status ?? 'missing'}

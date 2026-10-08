@@ -391,6 +391,21 @@ export function createApp(deps: AppDeps) {
     return c.json({ results });
   });
 
+  // A chat that is open and visible is read. The page asks this for itself, so unlike "Mark as read" in
+  // the menu it is not audited: it would add a line for every reply someone watched arrive.
+  app.post('/api/sessions/:id/read', async (c) => {
+    const id = c.req.param('id');
+    if (!store.sessions.some((s) => s.id === id))
+      return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    try {
+      await ctx.aoe.setUnread(id, false);
+      deps.onClientConnected();
+      return c.json({ ok: true });
+    } catch (err) {
+      return sendError(c, err, 'read_failed');
+    }
+  });
+
   // Adopting an AoE parent session and its children: what would happen, then do it.
   app.get('/api/adopt/:sessionId', async (c) => {
     const id = c.req.param('sessionId');
