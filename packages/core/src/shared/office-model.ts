@@ -10,6 +10,7 @@ import {
 } from './office.ts';
 import { outfitFor, type Outfit } from './outfit.ts';
 import type { SessionCost } from './office-cost.ts';
+import { cookKitchen, kitchenMemory, type KitchenMemory, type Meal } from './office-kitchen.ts';
 import { comesBack, idleCheck, nextIdleDeadline, type IdleCheck, type IdleLimits } from './office-idle.ts';
 import type {
   MrState,
@@ -59,6 +60,8 @@ export interface OfficeWorker {
   mark: OfficeMark | null;
   /** The idle timeout: whether to ask it to go home. */
   idle: IdleCheck;
+  /** In the pantry: the plate in front of it, a plan someone served (SPEC §14.5). */
+  plate: Meal | null;
 }
 
 export interface OfficeTeam {
@@ -73,7 +76,11 @@ export interface OfficeTeam {
 export interface OfficeModel {
   door: OfficeWorker[];
   teams: OfficeTeam[];
+  /** Planning in the kitchen, every project together: at the stoves first, then the prep counter. */
+  kitchen: OfficeWorker[];
   pantry: OfficeWorker[];
+  /** Plates on the pantry table: plans served by the workers who cooked them. */
+  meals: Meal[];
   /** Workers with an MR out, idle in the review lounge, by project then desk. */
   review: OfficeWorker[];
   away: OfficeWorker[];
@@ -123,7 +130,12 @@ export function spawnedSessions(input: OfficeInput, controlSessionId: string | n
   return input.sessions.filter((s) => s.parentId === controlSessionId && !managed.has(s.id) && !s.archived);
 }
 
-export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = new Map()): OfficeModel {
+export function buildOffice(
+  input: OfficeInput,
+  now: Date,
+  holds: HoldMemory = new Map(),
+  pots: KitchenMemory = kitchenMemory(),
+): OfficeModel {
   const marks = input.office?.marks ?? {};
   const limits = input.office?.idle ?? DEFAULT_IDLE;
   const resolve = (key: string, spot: OfficeSpot, session: SessionView | null): Zone => {
@@ -167,6 +179,7 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
         cost: costOf(project.controlSessionId),
         mark: marks[key] ?? null,
         idle: idleCheck({ role: 'lead', spot, session }, marks[key], limits, now),
+        plate: null,
       };
       everyone.push(lead);
     }
@@ -196,6 +209,7 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
         cost: costOf(task.aoeSessionId),
         mark: marks[key] ?? null,
         idle: idleCheck({ role: 'worker', spot, session }, marks[key], limits, now),
+        plate: null,
       });
     }
     // Workers the control chat started straight through AoE: no task, so they take the free desks after
@@ -233,6 +247,7 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
         cost: costOf(session.id),
         mark: marks[key] ?? null,
         idle: idleCheck({ role: 'worker', spot, session }, marks[key], limits, now),
+        plate: null,
       });
     }
     const mine = everyone.filter((w) => w.project === name && w.role === 'worker');
@@ -243,13 +258,16 @@ export function buildOffice(input: OfficeInput, now: Date, holds: HoldMemory = n
       desks: Math.max(0, ...mine.map((w) => w.desk ?? 0)),
     });
   }
+  const { kitchen, meals } = cookKitchen(everyone, pots, now.getTime());
 
   return {
     door: everyone
       .filter((w) => w.zone === 'door')
       .sort((a, b) => byQueue({ ...a, id: a.key }, { ...b, id: b.key })),
     teams,
+    kitchen,
     pantry: everyone.filter((w) => w.zone === 'pantry'),
+    meals,
     review: everyone.filter((w) => w.zone === 'review'),
     away: everyone.filter((w) => w.zone === 'away'),
     archived: everyone.filter((w) => w.zone === 'archived'),
@@ -275,12 +293,14 @@ export function nextHoldEnd(model: OfficeModel, now: number): number | null {
 }
 
 /**
- * When the floor should be built again with nothing else changing: a hold runs out, or an idle worker is
- * due its "go home" prompt or its auto-archive. Epoch ms, or null.
+ * When the floor should be built again with nothing else changing: a hold runs out, a plate is cleared,
+ * or an idle worker is due its "go home" prompt or its auto-archive. Epoch ms, or null.
  */
 export function nextOfficeLook(model: OfficeModel, office: OfficeInput['office'], now: Date): number | null {
+  const plates = model.meals.map((m) => m.until).filter((t) => t > now.getTime());
   const ends = [
     nextHoldEnd(model, now.getTime()),
+    plates.length ? Math.min(...plates) : null,
     nextIdleDeadline(model.everyone, office?.marks ?? {}, office?.idle ?? DEFAULT_IDLE, now),
   ].filter((t): t is number => t !== null);
   return ends.length ? Math.min(...ends) : null;

@@ -13,6 +13,16 @@ export interface Palette {
   pantry: [number, number];
   /** The review lounge's carpet. */
   lounge: [number, number];
+  /** The kitchen: its checkered floor, the cast-iron ranges, the tiled splashback (and grout), the island's butcher block and cabinets, and copper pots. */
+  kitchen: {
+    floor: [number, number];
+    iron: { top: number; left: number; right: number };
+    tile: number;
+    grout: number;
+    block: number;
+    cabinet: { left: number; right: number };
+    copper: number;
+  };
   /** Rug under each team, picked per project. */
   carpets: [number, number][];
   wallLeft: number;
@@ -88,6 +98,15 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
       seam: 0x1b140f,
       pantry: [0x2d3033, 0x282b2e],
       lounge: [0x2b2633, 0x29242f],
+      kitchen: {
+        floor: [0x2b3036, 0x202429],
+        iron: { top: 0x2c2f34, left: 0x1f2125, right: 0x16181b },
+        tile: 0x24302f,
+        grout: 0x2f3c3b,
+        block: 0x9a6b42,
+        cabinet: { left: 0x1f2a33, right: 0x18212a },
+        copper: 0xb5683f,
+      },
       carpets: [
         [0x232a35, 0x262e3a],
         [0x1f2d27, 0x22322b],
@@ -144,6 +163,15 @@ export function makePalette(theme: 'dark' | 'light'): Palette {
     seam: 0x281c15,
     pantry: [0xe7e4dd, 0xdcd8cf],
     lounge: [0xe2dbe6, 0xddd5e1],
+    kitchen: {
+      floor: [0xe7e2d7, 0xc3cad1],
+      iron: { top: 0x3a3d43, left: 0x2b2e34, right: 0x1f2125 },
+      tile: 0xece7dc,
+      grout: 0xd3ccbe,
+      block: 0xc28d5c,
+      cabinet: { left: 0x2c3e52, right: 0x223244 },
+      copper: 0xc0703f,
+    },
     carpets: [
       [0xe9e3d6, 0xe3dccd],
       [0xd9dfd0, 0xd2d9c8],

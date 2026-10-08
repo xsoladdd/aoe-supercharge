@@ -387,6 +387,75 @@ describe('office idle timeout (OfficeWatcher)', () => {
   });
 });
 
+describe('office kitchen (OfficeWatcher)', () => {
+  it('records the cook at the stove, the plate it serves to the pantry, and the plate being cleared', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'sc-kitchen-'));
+    try {
+      const config = defaultConfig();
+      const ctx = {
+        config,
+        logger: { info() {}, warn() {} },
+        paths: resolvePaths({ HOME: home }, home),
+      } as never;
+      const store = new Store({ daemon: {}, aoe: {}, config: {} } as never, {
+        waitingDebounceSeconds: () => 0,
+      });
+      const planned = { at: at(-30), from: null, to: 'planning' as const, by: 'worker' as const, note: null };
+      store.projects = [project('alpha', 'ctl')];
+      store.tasks = [
+        taskRecord('XX-0001', 'alpha', 's1', {
+          name: 'Ada',
+          title: 'Soup',
+          stage: 'planning',
+          history: [planned],
+        }),
+        taskRecord('XX-0002', 'alpha', 's2', { name: 'Bo', desk: 2 }),
+      ];
+      store.sessions = [
+        view('ctl', 'idle'),
+        view('s1', 'working'),
+        view('s2', 'idle', { statusSince: at(-20) }),
+      ];
+      store.ledgerLoaded = store.sessionsLoaded = true;
+      let now = new Date(T0);
+      const w = new OfficeWatcher(ctx, store, () => now);
+      await w.reloadMarks();
+      await w.tick();
+      expect(w.model?.kitchen.map((x) => [x.key, x.spot.prop])).toEqual([['alpha/XX-0001', 'pot']]);
+
+      // The plan is approved: Ada heads to her desk, and Bo, idle in the pantry, gets the plate.
+      now = new Date(T0 + 1000);
+      const approved = {
+        ...planned,
+        at: now.toISOString(),
+        from: 'planning' as const,
+        to: 'implementing' as const,
+      };
+      store.tasks = store.tasks.map((t) =>
+        t.id === 'XX-0001' ? { ...t, stage: 'implementing', history: [planned, approved] } : t,
+      );
+      const served = await w.tick();
+      const moves = served.flatMap((r) =>
+        r.type === 'move' ? [[r.key, r.zone, r.prop, r.meal?.title ?? null]] : [],
+      );
+      expect(moves).toEqual([
+        ['alpha/XX-0001', 'desk', null, null],
+        ['alpha/XX-0002', 'pantry', 'plate', 'Soup'],
+      ]);
+
+      // About a minute later the plate is cleared: back to coffee.
+      now = new Date(T0 + 1000 + 60_000);
+      const cleared = await w.tick();
+      expect(cleared.flatMap((r) => (r.type === 'move' ? [[r.key, r.prop]] : []))).toEqual([
+        ['alpha/XX-0002', 'mug'],
+      ]);
+      w.stop();
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('office weather (WeatherWatcher)', () => {
   const reading = { temperature_2m: 3.2, weather_code: 71, is_day: 0 };
   const make = () => {

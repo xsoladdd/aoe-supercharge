@@ -4,6 +4,7 @@ import {
   ArrowsOutIcon,
   ChalkboardSimpleIcon,
   CoffeeIcon,
+  CookingPotIcon,
   DoorOpenIcon,
   FolderIcon,
   ListBulletsIcon,
@@ -170,6 +171,7 @@ export default function OfficeFloor({
   const [walking, setWalking] = useState(0);
   const [errands, setErrands] = useState('');
   const [arriving, setArriving] = useState(0);
+  const [plates, setPlates] = useState('');
   const [zoom, setZoom] = useState(1);
   const [rosterOpen, setRosterOpen] = useState(() => readRosterPref(standalone));
   // History mode (SPEC §14.5): the floor as it was, replayed from the office history.
@@ -238,6 +240,7 @@ export default function OfficeFloor({
       setErrands(e.join(','));
       setArriving(a);
     },
+    plates: (eaters) => setPlates(eaters.join(',')),
     door: callNext,
     board: (id) => openBoard(id),
     openMr: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
@@ -255,6 +258,7 @@ export default function OfficeFloor({
       focus: (a) => handlers.current?.focus(a),
       walking: (n) => handlers.current?.walking(n),
       errands: (e, a) => handlers.current?.errands(e, a),
+      plates: (eaters) => handlers.current?.plates(eaters),
       door: () => handlers.current?.door(),
       board: (id) => handlers.current?.board(id),
       openMr: (url) => handlers.current?.openMr(url),
@@ -427,6 +431,7 @@ export default function OfficeFloor({
       data-walking={walking}
       data-errands={errands}
       data-arriving={arriving}
+      data-plates={plates}
       data-motion={reduced ? 'jump' : 'walk'}
       data-called={called ?? ''}
       data-selected={sel?.key ?? ''}
@@ -440,8 +445,8 @@ export default function OfficeFloor({
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-4 py-2.5 lg:px-6">
         <h1 className="text-lg font-semibold tracking-tight">Office</h1>
         <p className="tabular text-sm text-muted-foreground">
-          {office.door.length} at your door · {deskCount} at desks · {office.review.length} in review ·{' '}
-          {office.pantry.length} in the pantry
+          {office.door.length} at your door · {deskCount} at desks · {office.kitchen.length} in the kitchen ·{' '}
+          {office.review.length} in review · {office.pantry.length} in the pantry
           {office.away.length ? ` · ${office.away.length} away` : ''}
         </p>
         {!inHistory && <CostSummary office={live} onAttention={(key) => pick(key, 'roster')} />}
@@ -547,6 +552,9 @@ export default function OfficeFloor({
             </Chip>
             <Chip icon={CoffeeIcon} {...at('pantry')}>
               Pantry
+            </Chip>
+            <Chip icon={CookingPotIcon} {...at('kitchen')}>
+              Kitchen
             </Chip>
             <Chip icon={FolderIcon} {...at('review')}>
               Review lounge

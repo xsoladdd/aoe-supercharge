@@ -1,6 +1,7 @@
 import {
   ArchiveIcon,
   CoffeeIcon,
+  CookingPotIcon,
   DeskIcon,
   DoorIcon,
   EnvelopeOpenIcon,
@@ -10,6 +11,8 @@ import {
   ClockIcon,
   EyeIcon,
   FolderIcon,
+  ForkKnifeIcon,
+  KnifeIcon,
   HourglassMediumIcon,
   PhoneCallIcon,
   StopIcon,
@@ -38,7 +41,7 @@ import { cn } from '@/lib/utils';
 
 const MUTED = 'text-muted-foreground';
 
-/** Pantry and away reasons; door reasons reuse the Needs-you vocabulary (`KIND`). */
+/** Kitchen, pantry and away reasons; door reasons reuse the Needs-you vocabulary (`KIND`). */
 const PROP_META: Partial<Record<Exclude<Prop, null>, { icon: Icon; color: string }>> = {
   pipeline: { icon: HourglassMediumIcon, color: 'text-st-violet' },
   pipeline_failed: { icon: XCircleIcon, color: 'text-st-red' },
@@ -48,6 +51,9 @@ const PROP_META: Partial<Record<Exclude<Prop, null>, { icon: Icon; color: string
   letter: { icon: EnvelopeOpenIcon, color: 'text-st-cyan' },
   mug: { icon: CoffeeIcon, color: MUTED },
   phone: { icon: PhoneCallIcon, color: 'text-st-cyan' },
+  pot: { icon: CookingPotIcon, color: 'text-st-blue' },
+  board: { icon: KnifeIcon, color: 'text-st-blue' },
+  plate: { icon: ForkKnifeIcon, color: 'text-st-green' },
 };
 
 function Pill({
@@ -486,6 +492,39 @@ export function OfficeRoster({
         </section>
 
         <div className="space-y-8">
+          <section
+            aria-labelledby="zone-kitchen"
+            data-zone-section="kitchen"
+            className={sectionCls('kitchen')}
+          >
+            <div className="flex items-center gap-2">
+              <CookingPotIcon className="size-5 text-muted-foreground" />
+              <h2 id="zone-kitchen" className="text-base font-semibold">
+                Kitchen
+              </h2>
+              <Count n={office.kitchen.length} />
+            </div>
+            {office.kitchen.length ? (
+              <ul className={LIST} aria-label="In the kitchen">
+                {office.kitchen.map((w) => (
+                  <WorkerRow
+                    key={w.key}
+                    w={w}
+                    now={now}
+                    highlighted={focus.worker === w.key}
+                    showProject
+                    onSelect={focus.onSelect}
+                    steal={!!focus.steal}
+                  />
+                ))}
+              </ul>
+            ) : (
+              <Empty>
+                Nobody is cooking. Workers planning cook here, at the stoves first, then the prep counter.
+              </Empty>
+            )}
+          </section>
+
           <section aria-labelledby="zone-review" data-zone-section="review" className={sectionCls('review')}>
             <div className="flex items-center gap-2">
               <FolderIcon className="size-5 text-muted-foreground" />

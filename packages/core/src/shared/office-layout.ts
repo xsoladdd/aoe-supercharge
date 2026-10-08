@@ -1,14 +1,16 @@
+import { STOVES } from './office-kitchen.ts';
 import { edgeKey, type Grid, type Tile } from './pathfind.ts';
 
 /**
  * The office floor plan (SPEC §14.5), in tiles: x runs along the back wall (wall A), y along the left
- * wall (wall B), towards the viewer. West to east: the pantry in the back-left corner, the team rooms
- * in rows (low glass all round, a doorway in the front, a nameplate over it), and your door at the far east end of the back wall, set in panelling with bookshelves, a lamp
- * on either side. The line to see you stands in single file on a runner straight out from your door,
- * between brass posts and ropes. The entrance is at the front of the left wall. It grows with the teams.
+ * wall (wall B), towards the viewer. West to east: the pantry in the back-left corner, the kitchen next
+ * to it, the team rooms in rows (low glass all round, a doorway in the front, a nameplate over it), and
+ * your door at the far east end of the back wall, set in panelling with bookshelves, a lamp on either
+ * side. The line to see you stands in single file on a runner straight out from your door, between
+ * brass posts and ropes. The entrance is at the front of the left wall. It grows with the teams.
  *
- *   wall A (y = -1): pantry | world map ... whiteboard | shelves, lamp, YOUR DOOR, lamp, shelves
- *   x = 0 entrance | pantry | team blocks   | the line, out from your door
+ *   wall A (y = -1): pantry | ranges under a hood | world map ... whiteboard | shelves, lamp, YOUR DOOR, lamp, shelves
+ *   x = 0 entrance | pantry | kitchen | team blocks   | the line, out from your door
  *   Each team room also has a whiteboard against its left glass (`TeamPlan.board`).
  */
 
@@ -47,7 +49,13 @@ export type FurnitureKind =
   /** A rack of cues on the lounge's wall side. */
   | 'cue_rack'
   /** Brass posts and a rope along the side of the line that faces it. Blocks its column, so people join at the back. */
-  | 'rope';
+  | 'rope'
+  /** A cast-iron kitchen range against the back wall, one tile; `n` is its number from 1, west to east. */
+  | 'range'
+  /** The kitchen's prep island: a butcher block, one piece per tile. */
+  | 'prep_counter'
+  /** The kitchen sink. */
+  | 'sink';
 
 export interface Furniture {
   kind: FurnitureKind;
@@ -57,6 +65,8 @@ export interface Furniture {
   h: number;
   team?: string;
   desk?: number;
+  /** A range's number (1 to `STOVES`). */
+  n?: number;
 }
 
 /** A unit stretch of grid line, from (x0, y0) to (x1, y1): one pane of a glass partition. */
@@ -88,6 +98,22 @@ export interface TeamPlan {
 
 export type PantrySeat = 'stand' | 'chair' | 'sofa';
 
+/** A place at the prep counter: where to stand, which way to face, and the tile its board lies on. */
+export interface CounterPlace {
+  tile: Tile;
+  face: [number, number];
+  /** The island tile its cutting board lies on; null past the counter (the board is held). */
+  board: Tile | null;
+}
+
+export interface KitchenPlan {
+  area: Rect;
+  /** The ranges, west to east: the range's tile and where its cook stands, facing it. */
+  stoves: { range: Tile; stand: Tile }[];
+  /** Places at the prep counter: the back row first (facing the room), then the front, the ends, then the rest of the floor. */
+  counter: CounterPlace[];
+}
+
 export interface OfficeLayout {
   width: number;
   height: number;
@@ -106,17 +132,24 @@ export interface OfficeLayout {
   /** The whiteboard with your notes and todos (SPEC §14.6): the stretch of wall A it hangs on, by your corner. */
   board: { x0: number; x1: number };
   pantry: { area: Rect; spots: { tile: Tile; seat: PantrySeat }[] };
+  /** The kitchen (SPEC §14.5), shared by every project: planners cook here. */
+  kitchen: KitchenPlan;
   teams: TeamPlan[];
   furniture: Furniture[];
   /** The review lounge (SPEC §14.5): a pool table, where workers with an MR out wait with their folder. */
   review: { area: Rect; spots: Tile[] };
-  floors: { kind: 'carpet' | 'pantry' | 'runner' | 'lounge'; rect: Rect; team?: string }[];
-  /** Camera targets: `office`, `door`, `pantry`, `board`, each project name and `board:<project>`. */
+  floors: { kind: 'carpet' | 'pantry' | 'kitchen' | 'runner' | 'lounge'; rect: Rect; team?: string }[];
+  /** Camera targets: `office`, `door`, `pantry`, `kitchen`, `review`, `board`, each project name and `board:<project>`. */
   areas: Record<string, Rect>;
 }
 
 const PANTRY_W = 8;
 const PANTRY_H = 7;
+/** The kitchen, east of the pantry along the back wall. */
+const KITCHEN_W = 7;
+const KITCHEN_H = 7;
+/** Ranges on the back wall, one per stove; the prep island is as long. */
+const RANGES = STOVES;
 /** The review lounge, in front of the pantry. */
 const LOUNGE_H = 7;
 /** Your corner, to the east wall: a tile to walk by, a plant and a lamp on either side of your door. */
@@ -148,7 +181,8 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   const teamsH = rowHeights.reduce((a, b) => a + b, 0) + Math.max(0, rowHeights.length - 1);
 
   const px = 1;
-  const tx = px + PANTRY_W + 1;
+  const kx = px + PANTRY_W + 1;
+  const tx = kx + KITCHEN_W + 1;
   const sx = tx + teamsW + 1;
   const doorX = sx + 3;
   const width = sx + SUITE_W;
@@ -266,6 +300,41 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
     for (let x = px; x < px + PANTRY_W; x++)
       if (!blocked[y * width + x] && !taken.has(`${x},${y}`)) spots.push({ tile: { x, y }, seat: 'stand' });
 
+  // The kitchen, east of the pantry: five ranges under a hood on the back wall, each cook standing in
+  // front of its own; a sink in the corner; and a butcher-block island with an aisle behind the cooks.
+  // The prep counter's places run along the island's back (facing the room), its front, then its ends.
+  const kitchenArea = { x: kx, y: 0, w: KITCHEN_W, h: KITCHEN_H };
+  floors.push({ kind: 'kitchen', rect: kitchenArea });
+  const stoves: KitchenPlan['stoves'] = [];
+  for (let n = 1; n <= RANGES; n++) {
+    const range = { x: kx + n, y: 0 };
+    put({ kind: 'range', ...range, w: 1, h: 1, n });
+    stoves.push({ range, stand: { x: range.x, y: 1 } });
+  }
+  put({ kind: 'sink', x: kx + RANGES + 1, y: 0, w: 1, h: 1 });
+  const islandY = 4;
+  put({ kind: 'prep_counter', x: kx + 1, y: islandY, w: RANGES, h: 1 });
+  const counter: CounterPlace[] = [];
+  for (let k = 1; k <= RANGES; k++)
+    counter.push({ tile: { x: kx + k, y: islandY - 1 }, face: [0, 1], board: { x: kx + k, y: islandY } });
+  for (let k = 1; k <= RANGES; k++)
+    counter.push({ tile: { x: kx + k, y: islandY + 1 }, face: [0, -1], board: { x: kx + k, y: islandY } });
+  counter.push({ tile: { x: kx, y: islandY }, face: [1, 0], board: { x: kx + 1, y: islandY } });
+  counter.push({
+    tile: { x: kx + RANGES + 1, y: islandY },
+    face: [-1, 0],
+    board: { x: kx + RANGES, y: islandY },
+  });
+  // No cap: past the counter, the rest of the kitchen floor, board in hand.
+  const placed = new Set([
+    ...stoves.map((s) => `${s.stand.x},${s.stand.y}`),
+    ...counter.map((c) => `${c.tile.x},${c.tile.y}`),
+  ]);
+  for (let y = 1; y < KITCHEN_H; y++)
+    for (let x = kx; x < kx + KITCHEN_W; x++)
+      if (!blocked[y * width + x] && !placed.has(`${x},${y}`))
+        counter.push({ tile: { x, y }, face: [0, y < islandY ? 1 : -1], board: null });
+
   // The review lounge, in front of the pantry: a pool table in the middle, a cue rack against the
   // left wall side, and room to stand round the table with a folder.
   const lounge = { x: px, y: PANTRY_H + 1, w: PANTRY_W, h: LOUNGE_H };
@@ -306,6 +375,7 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
   areas.board = { x: Math.floor(board.x0), y: 0, w: BOARD_W + 1, h: 2 };
   areas.door = { x: sx - 1, y: 0, w: SUITE_W + 2, h: ROPED + 3 };
   areas.pantry = pantryArea;
+  areas.kitchen = kitchenArea;
   areas.review = lounge;
 
   return {
@@ -323,6 +393,7 @@ export function officeLayout(input: LayoutTeam[]): OfficeLayout {
     suite,
     board,
     pantry: { area: pantryArea, spots },
+    kitchen: { area: kitchenArea, stoves, counter },
     review: { area: lounge, spots: reviewSpots },
     teams: plans,
     furniture,

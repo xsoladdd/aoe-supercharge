@@ -6,6 +6,7 @@ import {
   type HistoryFilter,
   type HistoryRecord,
 } from './office-history.ts';
+import type { Meal } from './office-kitchen.ts';
 import type { OfficeModel, OfficeTeam, OfficeWorker } from './office-model.ts';
 import { chatPath, taskPath } from './office-model.ts';
 import { byQueue, DESK_POSE, type OfficeSpot, type Pose } from './office.ts';
@@ -77,11 +78,13 @@ function poseOf(c: CharState): Pose {
     case 'desk':
       if (c.prop === 'phone') return 'phone';
       return c.stage ? DESK_POSE[c.stage] : c.role === 'lead' ? 'reading' : 'typing';
+    case 'kitchen':
+      return c.prop === 'board' ? 'chopping' : 'cooking';
     case 'door':
     case 'review':
       return 'waiting';
     case 'pantry':
-      return c.prop === 'letter' ? 'reading' : 'coffee';
+      return c.prop === 'plate' ? 'eating' : c.prop === 'letter' ? 'reading' : 'coffee';
     case 'gone':
       return 'waving';
     default:
@@ -142,6 +145,19 @@ function taskOf(c: CharState): TaskRecord | null {
  * idle prompt) is left empty.
  */
 export function historyModel(chars: CharState[]): OfficeModel {
+  // The plates on the table, from who was eating: the history keeps no times, so they stay until cleared.
+  const meals: Meal[] = chars
+    .filter((c) => c.zone === 'pantry' && c.prop === 'plate' && c.meal)
+    .map((c) => ({
+      id: `${c.meal!.server}>${c.key}`,
+      server: c.meal!.server,
+      eater: c.key,
+      serverName: c.meal!.name,
+      title: c.meal!.title,
+      at: 0,
+      until: 0,
+    }));
+  const plateOf = new Map(meals.map((m) => [m.eater, m]));
   const everyone: OfficeWorker[] = chars
     .filter((c) => c.zone !== 'gone')
     .map((c) => {
@@ -190,6 +206,7 @@ export function historyModel(chars: CharState[]): OfficeModel {
           : null,
         mark: c.zone === 'archived' ? { ...NO_MARK, archivedAt: '' } : null,
         idle: { since: null, prompt: false, autoArchive: false },
+        plate: plateOf.get(c.key) ?? null,
       };
     });
   const projects = [...new Set(everyone.map((w) => w.project))];
@@ -208,7 +225,14 @@ export function historyModel(chars: CharState[]): OfficeModel {
       .filter((w) => w.zone === 'door')
       .sort((a, b) => byQueue({ ...a, id: a.key }, { ...b, id: b.key })),
     teams,
+    kitchen: everyone
+      .filter((w) => w.zone === 'kitchen')
+      .sort(
+        (a, b) =>
+          Number(a.spot.prop === 'board') - Number(b.spot.prop === 'board') || a.key.localeCompare(b.key),
+      ),
     pantry: everyone.filter((w) => w.zone === 'pantry'),
+    meals,
     review: everyone.filter((w) => w.zone === 'review'),
     away: everyone.filter((w) => w.zone === 'away'),
     archived: everyone.filter((w) => w.zone === 'archived'),

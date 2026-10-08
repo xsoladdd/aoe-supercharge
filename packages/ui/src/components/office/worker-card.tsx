@@ -42,6 +42,8 @@ function where(w: OfficeWorker, office: OfficeModel): string {
   }
   if (w.zone === 'desk')
     return w.role === 'lead' ? 'At the lead desk' : w.desk ? `At desk ${w.desk}` : 'In the team walkway';
+  if (w.zone === 'kitchen')
+    return `${ZONE_LABEL.kitchen}, ${w.spot.prop === 'board' ? 'at the prep counter' : 'at a stove'}`;
   return ZONE_LABEL[w.zone];
 }
 
@@ -257,6 +259,14 @@ export function WorkerCard({
             <>
               <dt className="text-muted-foreground">Since</dt>
               <dd title={new Date(w.since).toLocaleString()}>{relativeTime(w.since, now)}</dd>
+            </>
+          )}
+          {w.plate && (
+            <>
+              <dt className="text-muted-foreground">Eating</dt>
+              <dd>
+                {w.plate.serverName}’s plan: {w.plate.title}
+              </dd>
             </>
           )}
           <dt className="text-muted-foreground">Wearing</dt>

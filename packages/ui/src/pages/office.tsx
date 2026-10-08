@@ -62,7 +62,7 @@ function ViewSwitch({ view }: { view: OfficeView }) {
 /**
  * The office (SPEC §14.5): every worker stands where its status puts it. The floor view draws it;
  * the list view (`?view=list`) is the same people as a plain list. `?worker=NW-0007` (with
- * `&project=` when ids could clash) picks one; `?focus=door|desk|pantry|<project>` goes to an area,
+ * `&project=` when ids could clash) picks one; `?focus=door|desk|kitchen|pantry|review|<project>` goes to an area,
  * and `?focus=board` or `?focus=board:<project>` opens a whiteboard.
  * `standalone` is the office window (`/office/window`): the floor only.
  */
@@ -128,7 +128,7 @@ export function OfficePage({ snap, standalone = false }: { snap: Snapshot; stand
       <ViewSwitch view={view} />
       <PageHeader
         title="Office"
-        sub="Each worker stands where its status puts it: at your door, at a desk, or in the pantry."
+        sub="Each worker stands where its status puts it: at your door, at a desk, in the kitchen, or in the pantry."
       />
       <OfficeClocks clocks={snap.office?.clocks} weather={snap.office?.weather} />
       <p className="sr-only" role="status" aria-live="polite">

@@ -15,6 +15,8 @@ import {
   HANDOVER_MS,
   officeLayout,
   planMoves,
+  SERVE_MS,
+  type Meal,
   type OfficeLayout,
   type Prop,
   type Tile,
@@ -22,15 +24,17 @@ import {
   mrLabel,
 } from '@aoe-supercharge/core/shared';
 import type { OfficeModel, OfficeWorker } from '@/lib/office';
-import { boardSpots, buildStatic, drawSky, FONT, type StaticOffice } from './art';
+import { boardSpots, buildStatic, drawSky, FONT, label, type StaticOffice } from './art';
 import { Camera, MAX_ZOOM } from './camera';
 import { Character, type Badge, type Hands, type Meter, type Stance } from './character';
 import { depth, iso, mix, TILE_H, TILE_W, toGrid, WALL_H, type Pt } from './iso';
+import { cuttingBoard, drawSteam, plateArt, plateLabel, potArt, steamAt } from './kitchen-art';
 import { makePalette, type Palette } from './palette';
 
 /**
  * The drawn office (SPEC §14.5). It draws only while something moves: a worker walking, the camera
- * flying or gliding, a bubble popping. Then it stops, so an office with nobody moving costs nothing.
+ * flying or gliding, a bubble popping, a cook stirring for a moment as it starts. Then it stops, so an
+ * office with nobody moving costs nothing.
  *
  * Where a worker stands is decided by the model (`buildOffice`); this only walks it there.
  */
@@ -40,8 +44,10 @@ export interface SceneEvents {
   /** The area the camera was sent to; `free` once you pan or zoom yourself. */
   focus(area: string): void;
   walking(count: number): void;
-  /** Who is on the finish errand, and how many wait outside the entrance for their turn. */
+  /** Who is on an errand (finishing, or serving a plan), and how many wait outside the entrance for their turn. */
   errands(keys: string[], arriving: number): void;
+  /** Who has a served plate on the pantry table in front of them (or in hand). */
+  plates(eaters: string[]): void;
   door(): void;
   /** A whiteboard was clicked: `board` (by your door) or `board:<project>` (in a room). */
   board(id: string): void;
@@ -92,10 +98,21 @@ interface Walker {
   /** A newcomer waits out of sight until the entrance is free (epoch of `performance.now()`). */
   enterAt: number;
   /**
-   * The finish errand (SPEC §14.5): to the lead's desk with a folder, then on to `final`. `until` is
-   * set on arrival at the lead: when the handover ends.
+   * An errand (SPEC §14.5), then on to `final`. Finish: to the lead's desk with a folder; `until` is set
+   * on arrival at the lead, when the handover ends. Serve: to the pantry table with a plate for `eater`
+   * (the plan `meal`); `until` is when it has set the plate down.
    */
-  errand: { final: Spot; finalKey: string; prop: Prop; until: number } | null;
+  errand: {
+    kind: 'finish' | 'serve';
+    final: Spot;
+    finalKey: string;
+    prop: Prop;
+    until: number;
+    meal?: string;
+    eater?: string;
+  } | null;
+  /** Stirring or chopping for a moment after arriving at a stove or the counter (`performance.now()`). */
+  workUntil: number;
 }
 
 /** Tiles per second. Long walks speed up so none takes longer than LONGEST_WALK_S. */
@@ -110,6 +127,8 @@ const POP_MS = 240;
 const RING_EACH_MS = 600;
 const RING_MS = 2 * RING_EACH_MS;
 const RING_CYCLE_MS = 3_000;
+/** How long a cook stirs (and the steam rises), or a chopper chops, on arriving; then it holds still. */
+const WORK_MS = 3000;
 /** Names show over every head from this zoom; below it only on hover or selection. */
 const NAMES_AT = 1.15;
 const DRAG_PX = 5;
@@ -141,8 +160,20 @@ function handsFor(w: OfficeWorker): Hands {
           ? 'magnifier'
           : 'down';
   }
-  if (w.zone === 'pantry') return s.prop === 'letter' ? 'letter' : 'mug';
+  if (w.zone === 'kitchen') {
+    if (s.zone !== 'kitchen') return 'down';
+    return s.pose === 'cooking' ? 'stir' : 'chop';
+  }
+  if (w.zone === 'pantry') return s.prop === 'letter' ? 'letter' : s.prop === 'plate' ? 'eat' : 'mug';
   return 'down';
+}
+
+const WORKING = new Set<Hands>(['stir', 'chop', 'board']);
+
+/** "Ada’s plan: Office kitchen…", for the label over a plate. */
+function plateText(m: Meal) {
+  const title = m.title.length > 52 ? `${m.title.slice(0, 51).trimEnd()}…` : m.title;
+  return `${m.serverName}’s plan: ${title}`;
 }
 
 /** The MR badge for a worker in the review lounge (SPEC §14.5); nobody else wears one. */
@@ -202,6 +233,24 @@ export class OfficeScene {
   private entrance = new EntranceQueue();
   private pantrySeat = new Map<string, number>();
   private reviewSpot = new Map<string, number>();
+  /** In the kitchen: each cook's stove, and each chopper's place at the counter, while it stays. */
+  private stoveOf = new Map<string, number>();
+  private boardOf = new Map<string, number>();
+  /** Plates already served (carried over, or there when the floor was placed): each is served once. */
+  private served = new Set<string>();
+  /** Eaters whose plate is on its way (eater key to meal id): they keep their coffee until it is set down. */
+  private pending = new Map<string, string>();
+  /** What comes and goes in the kitchen and on the pantry tables: pots, boards and plates, by key. */
+  private things = new Map<
+    string,
+    { piece: Container; steam?: { g: Graphics; at: Pt }; plate?: { meal: Meal; at: Pt; hit: Pt[] } }
+  >();
+  /** The pots' steam rises until then, after a cook arrives (`performance.now()`); then it holds still. */
+  private steamUntil = 0;
+  private steamMoving = false;
+  private hoveredPlate: string | null = null;
+  private plateTag: Container | null = null;
+  private platesSeen = '';
   private model: OfficeModel | null = null;
   private called: string | null = null;
   private selected: string | null = null;
@@ -324,6 +373,9 @@ export class OfficeScene {
     const live = new Set<string>();
     const instant = this.opts.reducedMotion || !this.placed;
     const moves = new Map(planMoves(this.placed ? this.zones : null, model).map((m) => [m.key, m.kind]));
+    const meals = new Map(model.meals.map((m) => [m.id, m]));
+    // A plate whose eater left (or that was cleared) is gone: nothing is left behind.
+    for (const [eater, id] of [...this.pending]) if (!meals.has(id)) this.pending.delete(eater);
     for (const worker of model.everyone) {
       const spot = spots.get(worker.key);
       if (!spot) continue;
@@ -340,15 +392,32 @@ export class OfficeScene {
       const prop = worker.zone === worker.spot.zone || worker.zone === 'door' ? worker.spot.prop : null;
       const shown = worker.zone === 'away' || worker.zone === 'archived' ? null : prop;
       if (w.errand) {
-        // On an errand to the lead: carry on unless where it is going has changed.
-        if (spotKey(spot) === w.errand.finalKey) continue;
+        // On an errand: carry on unless where it is going has changed, or the plate's eater has left.
+        const e = w.errand;
+        const left = e.kind === 'serve' && !meals.has(e.meal!);
+        if (!left && spotKey(spot) === e.finalKey) continue;
+        // Called off on the way: the plate is simply there.
+        if (e.kind === 'serve' && !e.until && this.pending.get(e.eater!) === e.meal) {
+          this.pending.delete(e.eater!);
+          this.poseEater(e.eater!);
+        }
         w.errand = null;
       }
       if (!instant && moves.get(worker.key) === 'finish' && this.startErrand(w, spot, shown, now)) continue;
+      if (moves.get(worker.key) === 'serve') {
+        const meal = model.meals.find((m) => m.server === worker.key && !this.served.has(m.id));
+        if (meal) {
+          this.served.add(meal.id);
+          if (!instant && this.startServe(w, spot, shown, meal, spots, now)) continue;
+        }
+      }
       w.ch.setProp(shown, worker.zone === 'pantry' || worker.zone === 'review', now);
       this.goTo(w, spot, now);
     }
     this.zones = new Map(model.everyone.map((w) => [w.key, w.zone]));
+    // Every plate on the table now has been served: walked over, or there when the floor was placed.
+    this.served = new Set(meals.keys());
+    this.syncThings();
     // Done or deleted: out of the building.
     for (const w of this.walkers.values())
       if (!live.has(w.key) && !w.leaving) {
@@ -418,7 +487,48 @@ export class OfficeScene {
       }
     }
 
-    // The pantry: everyone keeps the spot they took until they leave it.
+    // The kitchen: each cook keeps its stove, and each chopper its place at the counter, while it stays.
+    const K = L.kitchen;
+    const cooking = new Set(model.kitchen.map((w) => w.key));
+    for (const m of [this.stoveOf, this.boardOf])
+      for (const k of [...m.keys()]) if (!cooking.has(k)) m.delete(k);
+    for (const w of model.kitchen) (w.spot.prop === 'pot' ? this.boardOf : this.stoveOf).delete(w.key);
+    const stoves = new Set(this.stoveOf.values());
+    const boards = new Set(this.boardOf.values());
+    for (const w of model.kitchen) {
+      let stove = this.stoveOf.get(w.key);
+      if (w.spot.prop === 'pot' && stove === undefined) {
+        const free = K.stoves.findIndex((_, n) => !stoves.has(n));
+        if (free >= 0) {
+          stove = free;
+          this.stoveOf.set(w.key, free);
+          stoves.add(free);
+        }
+      }
+      if (stove !== undefined) {
+        out.set(w.key, { tile: K.stoves[stove]!.stand, stance: 'stand', hands: handsFor(w), face: [0, -1] });
+        continue;
+      }
+      let n = this.boardOf.get(w.key);
+      if (n === undefined) {
+        n = K.counter.findIndex((_, i) => !boards.has(i));
+        if (n < 0) n = K.counter.length - 1;
+        this.boardOf.set(w.key, n);
+        boards.add(n);
+      }
+      const place = K.counter[n]!;
+      const hands = handsFor(w);
+      // Past the counter, the board is in hand.
+      out.set(w.key, {
+        tile: place.tile,
+        stance: 'stand',
+        hands: hands === 'chop' && !place.board ? 'board' : hands,
+        face: place.face,
+      });
+    }
+
+    // The pantry: everyone keeps the spot they took until they leave it. Someone served a plate away
+    // from a table sits down at a free one, if there is one.
     const inPantry = new Set(model.pantry.map((w) => w.key));
     for (const k of [...this.pantrySeat.keys()]) if (!inPantry.has(k)) this.pantrySeat.delete(k);
     const used = new Set(this.pantrySeat.values());
@@ -430,11 +540,21 @@ export class OfficeScene {
         this.pantrySeat.set(w.key, n);
         used.add(n);
       }
+      const at = this.pantrySeat.get(w.key)!;
+      if (w.plate && spots[at]?.seat !== 'chair') {
+        const chair = spots.findIndex((x, n) => x.seat === 'chair' && !used.has(n));
+        if (chair >= 0) {
+          used.delete(at);
+          used.add(chair);
+          this.pantrySeat.set(w.key, chair);
+        }
+      }
       const s = spots[Math.min(this.pantrySeat.get(w.key)!, spots.length - 1)]!;
+      const hands = handsFor(w);
       out.set(w.key, {
         tile: s.tile,
         stance: s.seat === 'stand' ? 'stand' : 'sit',
-        hands: handsFor(w),
+        hands: hands === 'eat' && s.seat !== 'chair' ? 'dish' : hands,
         face: this.pantryFace(s),
       });
     }
@@ -494,7 +614,7 @@ export class OfficeScene {
     if (!plan || w.hidden) return false;
     const tile = { x: plan.leadSeat.x, y: plan.leadSeat.y + 2 };
     if (this.layout.grid.blocked(tile.x, tile.y)) return false;
-    w.errand = { final, finalKey: spotKey(final), prop, until: 0 };
+    w.errand = { kind: 'finish', final, finalKey: spotKey(final), prop, until: 0 };
     w.ch.setProp('folder', false, now);
     this.goTo(w, { tile, stance: 'stand', hands: 'down', face: [0, -1] }, now);
     return true;
@@ -512,13 +632,193 @@ export class OfficeScene {
   private endErrand(w: Walker, now: number) {
     const e = w.errand!;
     w.errand = null;
-    const lead = this.walkers.get(`${w.worker.project}/lead`);
+    const lead = e.kind === 'finish' ? this.walkers.get(`${w.worker.project}/lead`) : null;
     if (lead) {
       const lw = lead.worker;
       lead.ch.setProp(lw.zone === lw.spot.zone || lw.zone === 'door' ? lw.spot.prop : null, false, now);
     }
     w.ch.setProp(e.prop, w.worker.zone === 'pantry' || w.worker.zone === 'review', now);
     this.goTo(w, e.final, now);
+  }
+
+  /**
+   * The serve errand: the plan, plated, carried to the pantry table beside whoever eats it (who keeps
+   * its coffee till then), set down, then on to `final`, its desk. False when there is nowhere beside
+   * the eater to stand.
+   */
+  private startServe(w: Walker, final: Spot, prop: Prop, meal: Meal, spots: Map<string, Spot>, now: number) {
+    const seat = spots.get(meal.eater);
+    if (!seat || w.hidden) return false;
+    const tile = this.beside(seat.tile, w.pos);
+    if (!tile) return false;
+    w.errand = {
+      kind: 'serve',
+      final,
+      finalKey: spotKey(final),
+      prop,
+      until: 0,
+      meal: meal.id,
+      eater: meal.eater,
+    };
+    this.pending.set(meal.eater, meal.id);
+    this.poseEater(meal.eater);
+    w.ch.setProp(null, false, now);
+    const face: [number, number] = [sign(seat.tile.x - tile.x), sign(seat.tile.y - tile.y)];
+    this.goTo(w, { tile, stance: 'stand', hands: 'plate', face }, now);
+    return true;
+  }
+
+  /** The plate goes down in front of the eater, who puts down its coffee. */
+  private setDown(w: Walker, now: number) {
+    const e = w.errand!;
+    e.until = now + SERVE_MS;
+    w.ch.pose('stand', 'down');
+    if (this.pending.get(e.eater!) === e.meal) this.pending.delete(e.eater!);
+    this.poseEater(e.eater!);
+    this.syncThings();
+  }
+
+  /** A walkable tile next to `t`, the nearest to `from`, preferring one nobody is headed for. */
+  private beside(t: Tile, from: Pt): Tile | null {
+    const g = this.layout.grid;
+    const taken = new Set(
+      [...this.walkers.values()].map((w) => (w.spot ? `${w.spot.tile.x},${w.spot.tile.y}` : '')),
+    );
+    let best: Tile | null = null;
+    let score = Infinity;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const x = t.x + dx;
+        const y = t.y + dy;
+        if ((!dx && !dy) || g.blocked(x, y) || g.wall?.(t.x, t.y, x, y)) continue;
+        const d =
+          Math.hypot(x + 0.5 - from.x, y + 0.5 - from.y) +
+          (taken.has(`${x},${y}`) ? 4 : 0) +
+          (dx && dy ? 0.5 : 0);
+        if (d < score) {
+          score = d;
+          best = { x, y };
+        }
+      }
+    return best;
+  }
+
+  /** The hands an eater shows: its coffee while its plate is on the way. */
+  private handsShown(w: Walker): Hands {
+    const h = w.spot?.hands ?? 'down';
+    return this.pending.has(w.key) && (h === 'eat' || h === 'dish') ? 'mug' : h;
+  }
+
+  /** An eater settled in its seat takes up its fork (or its coffee, while the plate is on the way). */
+  private poseEater(key: string) {
+    const e = this.walkers.get(key);
+    if (!e?.spot || e.path.length || e.hidden) return;
+    e.ch.pose(e.spot.stance, this.handsShown(e));
+    this.decorate(e);
+    this.wake();
+  }
+
+  /**
+   * The pots on the ranges in use, the boards at the counter, the plates on the pantry tables: made
+   * when they appear, dropped when they go.
+   */
+  private syncThings() {
+    const L = this.layout;
+    const want = new Set<string>();
+    for (const n of this.stoveOf.values()) {
+      const k = `pot:${n}`;
+      want.add(k);
+      if (this.things.has(k)) continue;
+      const range = L.kitchen.stoves[n]!.range;
+      const art = potArt(this.palette, range);
+      const piece = new Container();
+      piece.zIndex = depth(range.x + 0.5, range.y + 0.5) + 1;
+      piece.addChild(art.piece, art.steam);
+      this.objects.addChild(piece);
+      this.things.set(k, { piece, steam: { g: art.steam, at: steamAt(range) } });
+    }
+    for (const n of this.boardOf.values()) {
+      const place = L.kitchen.counter[n];
+      if (!place?.board) continue;
+      const k = `board:${n}`;
+      want.add(k);
+      if (this.things.has(k)) continue;
+      const piece = new Container();
+      piece.zIndex = depth(place.board.x + 0.5, place.board.y + 0.5) + 1;
+      piece.addChild(cuttingBoard(place));
+      this.objects.addChild(piece);
+      this.things.set(k, { piece });
+    }
+    const tables = L.furniture.filter((f) => f.kind === 'table');
+    for (const m of this.model?.meals ?? []) {
+      const eater = this.walkers.get(m.eater);
+      const seat = eater?.spot;
+      if (!seat || this.pending.has(m.eater) || seat.hands !== 'eat' || !tables.length) continue;
+      const table = tables.reduce((a, b) =>
+        Math.hypot(b.x - seat.tile.x, b.y - seat.tile.y) < Math.hypot(a.x - seat.tile.x, a.y - seat.tile.y)
+          ? b
+          : a,
+      );
+      const k = `plate:${m.id}:${seat.tile.x},${seat.tile.y}`;
+      want.add(k);
+      if (this.things.has(k)) continue;
+      const art = plateArt(this.palette, table, seat.tile);
+      const piece = new Container();
+      piece.zIndex = depth(table.x + 0.5, table.y + 0.5) + 1;
+      piece.addChild(art.piece);
+      this.objects.addChild(piece);
+      this.things.set(k, { piece, plate: { meal: m, at: art.at, hit: art.hit } });
+    }
+    for (const [k, t] of [...this.things])
+      if (!want.has(k)) {
+        t.piece.destroy({ children: true });
+        this.things.delete(k);
+        if (this.hoveredPlate === k) this.hoverPlate(null);
+      }
+    // Plates in hand count too, for `data-plates`.
+    const eaters = (this.model?.meals ?? [])
+      .filter((m) => !this.pending.has(m.eater) && this.walkers.has(m.eater))
+      .map((m) => m.eater)
+      .sort();
+    const seen = eaters.join(',');
+    if (seen !== this.platesSeen) {
+      this.platesSeen = seen;
+      this.opts.events.plates(eaters);
+    }
+    this.wake();
+  }
+
+  private clearThings() {
+    for (const t of this.things.values()) t.piece.destroy({ children: true });
+    this.things.clear();
+    this.hoverPlate(null);
+  }
+
+  /** The plate under a world point, if any. */
+  private plateAt(world: Pt): string | null {
+    for (const [k, t] of this.things) if (t.plate && inPolygon(world, t.plate.hit)) return k;
+    return null;
+  }
+
+  /** Show whose plan a plate is, over it, while the pointer is on it. */
+  private hoverPlate(key: string | null) {
+    if (key === this.hoveredPlate) return;
+    this.hoveredPlate = key;
+    this.plateTag?.destroy({ children: true });
+    this.plateTag = null;
+    const plate = key ? this.things.get(key)?.plate : null;
+    // For tests: whose plate the pointer is on.
+    if (plate) this.host.dataset.hoveredPlate = plate.meal.eater;
+    else delete this.host.dataset.hoveredPlate;
+    if (plate) {
+      const tag = plateLabel(label(plateText(plate.meal), 10.5, this.palette.nameplateText), this.palette);
+      tag.position.set(plate.at.x, plate.at.y - 16);
+      tag.pivot.y = 8;
+      tag.scale.set(Math.max(1 / Math.sqrt(this.camera.zoom), 0.95 / this.camera.zoom));
+      this.overlay.addChild(tag);
+      this.plateTag = tag;
+    }
+    this.wake();
   }
 
   private spawn(worker: OfficeWorker, now: number): Walker {
@@ -540,6 +840,7 @@ export class OfficeScene {
       // Newcomers take turns at the entrance.
       enterAt: this.placed && !this.opts.reducedMotion ? this.entrance.next(now) : 0,
       errand: null,
+      workUntil: 0,
     };
     this.objects.addChild(ch.root);
     this.overlay.addChild(ch.overlay);
@@ -605,7 +906,9 @@ export class OfficeScene {
       prev = p;
     }
     w.speed = Math.max(SPEED, length / LONGEST_WALK_S);
-    w.ch.pose('stand', 'down');
+    w.workUntil = 0;
+    // Carrying a plate, it holds it out in front all the way.
+    w.ch.pose('stand', spot.hands === 'plate' ? 'plate' : 'down');
     this.decorate(w);
   }
 
@@ -613,10 +916,18 @@ export class OfficeScene {
   private arrive(w: Walker, now: number, instant: boolean) {
     const s = w.spot;
     if (!s) return;
-    w.ch.pose(s.stance, s.hands);
+    w.ch.pose(s.stance, this.handsShown(w));
     w.ch.face(s.face[0], s.face[1]);
     w.ch.still();
-    if (w.errand && !w.errand.until && w.spotKey !== w.errand.finalKey) this.handOver(w, now);
+    w.workUntil = 0;
+    if (!instant && WORKING.has(s.hands)) {
+      // A moment of stirring (the steam rising) or chopping, then still.
+      w.workUntil = now + WORK_MS;
+      if (s.hands === 'stir') this.steamUntil = Math.max(this.steamUntil, now + WORK_MS);
+    }
+    if (w.errand && !w.errand.until && w.spotKey !== w.errand.finalKey)
+      if (w.errand.kind === 'serve') this.setDown(w, now);
+      else this.handOver(w, now);
     if (s.vanish) {
       if (instant) this.hide(w, s.vanish);
       else w.fade = { from: 1, to: 0, start: now };
@@ -637,6 +948,9 @@ export class OfficeScene {
     this.walkers.delete(w.key);
     this.pantrySeat.delete(w.key);
     this.reviewSpot.delete(w.key);
+    this.stoveOf.delete(w.key);
+    this.boardOf.delete(w.key);
+    this.pending.delete(w.key);
     w.ch.destroy();
   }
 
@@ -669,6 +983,14 @@ export class OfficeScene {
     for (const w of [...this.walkers.values()]) {
       if (this.step(w, now, dt)) busy = true;
       if (w.path.length) walking++;
+    }
+    // The pots' steam rises for a moment after a cook arrives, then holds still.
+    const steaming = now < this.steamUntil && !this.opts.reducedMotion;
+    if (steaming || this.steamMoving) {
+      for (const t of this.things.values())
+        if (t.steam) drawSteam(t.steam.g, this.palette, t.steam.at, steaming ? now / 420 : 0);
+      this.steamMoving = steaming;
+      if (steaming) busy = true;
     }
     this.view();
     this.app.render();
@@ -735,6 +1057,15 @@ export class OfficeScene {
       } else busy = true;
     }
     if (!this.walkers.has(w.key)) return busy;
+    if (w.workUntil) {
+      if (now < w.workUntil && !this.opts.reducedMotion) {
+        w.ch.work(now / 160);
+        busy = true;
+      } else {
+        w.workUntil = 0;
+        w.ch.still();
+      }
+    }
     const pop = (now - w.ch.bubbleSince) / POP_MS;
     if (!this.opts.reducedMotion && pop < 1) {
       w.ch.popBubble(pop);
@@ -785,6 +1116,7 @@ export class OfficeScene {
       w.ch.scaleOverlay(s);
       if (names !== this.namesShown) this.paintSelection(w);
     }
+    this.plateTag?.scale.set(s);
     this.namesShown = names;
     if (Math.abs(c.zoom - this.lastZoom) > 0.004) {
       this.lastZoom = c.zoom;
@@ -805,6 +1137,8 @@ export class OfficeScene {
       this.office.walls.destroy({ children: true });
     }
     this.office = buildStatic(this.layout, this.palette, this.opts.doorLabel);
+    // Pots, boards and plates are drawn again for the new floor (or palette) by the next model.
+    this.clearThings();
     this.ground.removeChildren();
     this.ground.addChild(this.office.floor, this.office.walls, this.boardLayer);
     this.drawBoards();
@@ -984,6 +1318,7 @@ export class OfficeScene {
       w.enterAt = 0;
       w.spotKey = '';
     }
+    this.pending.clear();
   }
 
   // ---- Camera ---------------------------------------------------------------------------------
@@ -999,7 +1334,7 @@ export class OfficeScene {
     return { x: (minX + maxX) / 2, y: (minY + maxY) / 2, w: maxX - minX, h: maxY - minY };
   }
 
-  /** Fly to an area: `office`, `door`, `pantry` or a project. */
+  /** Fly to an area: `office`, `door`, `pantry`, `kitchen`, `review` or a project. */
   focus(name: string, instant = false) {
     const b = this.areaBox(name);
     if (name.startsWith(DOOR_BOARD)) return this.focusBoard(name, this.boardCover, instant);
@@ -1198,6 +1533,7 @@ export class OfficeScene {
     const world = this.camera.toWorld(p.x, p.y);
     const overThing = !w && (inPolygon(world, this.office?.door.hit ?? []) || this.boardAt(world) !== null);
     (this.app.canvas as HTMLCanvasElement).style.cursor = w || overThing ? 'pointer' : 'grab';
+    this.hoverPlate(w ? null : this.plateAt(world));
     const key = w?.key ?? null;
     if (key !== this.hovered) {
       const before = this.hovered;
@@ -1251,6 +1587,7 @@ export class OfficeScene {
   };
 
   private onLeave = () => {
+    this.hoverPlate(null);
     if (this.hovered && !this.drag) {
       const w = this.walkers.get(this.hovered);
       this.hovered = null;
@@ -1288,7 +1625,7 @@ export class OfficeScene {
     const L = this.layout;
     const inside = (r: { x: number; y: number; w: number; h: number }) =>
       g.x >= r.x && g.y >= r.y && g.x < r.x + r.w && g.y < r.y + r.h;
-    for (const name of ['door', 'pantry', ...L.teams.map((t) => t.project)])
+    for (const name of ['door', 'pantry', 'kitchen', 'review', ...L.teams.map((t) => t.project)])
       if (L.areas[name] && inside(L.areas[name]!)) return this.focus(name);
     this.camera.zoomAt(1.6, p.x, p.y);
     this.userMoved();

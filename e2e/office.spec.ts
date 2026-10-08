@@ -1,5 +1,9 @@
+import { execFileSync } from 'node:child_process';
+import { join } from 'node:path';
 import { timeDifference } from '../packages/core/src/shared/office-ambience.ts';
-import { axe, expect, fake, test } from './fixtures.ts';
+import { axe, expect, fake, test, world } from './fixtures.ts';
+
+const CLI = join(import.meta.dirname, '..', 'packages/cli/dist/supercharge.mjs');
 
 /** The fake AoE id of the session whose title starts with `prefix`. */
 async function sessionId(prefix: string): Promise<string> {
@@ -9,6 +13,59 @@ async function sessionId(prefix: string): Promise<string> {
 
 const setStatus = async (id: string, status: string) =>
   fake(`/__fake/sessions/${id}`, { method: 'PATCH', body: JSON.stringify({ status, menu: null }) });
+
+/** The CLI in `cwd`, as you; with `AOE_INSTANCE_ID`, as that task's worker. */
+const sc = (args: string[], cwd: string, extra: Record<string, string> = {}, input?: string) =>
+  execFileSync(process.execPath, [CLI, ...args], {
+    cwd,
+    env: { ...world().env, ...extra },
+    input,
+    encoding: 'utf8',
+  });
+
+interface Cook {
+  id: string;
+  name: string | null;
+  worktree: string;
+  aoeSessionId: string;
+}
+
+/** A fresh northwind-web task, its worker working on the plan: it cooks in the kitchen. */
+async function cook(title: string): Promise<Cook> {
+  const nw = join(world().home, 'code', 'northwind-web');
+  const t = JSON.parse(sc(['task', 'new', title, '--brief', title, '--force', '--json'], nw)) as Cook;
+  await setStatus(t.aoeSessionId, 'Running');
+  return t;
+}
+
+/** The plan approved: the worker saves it and starts implementing. */
+function approve(t: Cook) {
+  const worker = { AOE_INSTANCE_ID: t.aoeSessionId };
+  sc(['plan', '-'], t.worktree, worker, '# Plan\n\n1. Cook it\n2. Serve it\n');
+  sc(['stage', 'implementing'], t.worktree, worker);
+}
+
+/** Closes the task and its session, so other engines' tests find the world as it was. */
+async function clear(t: Cook) {
+  sc(['stage', 'done', '--force'], t.worktree);
+  await fake(`/__fake/sessions/${t.aoeSessionId}`, { method: 'DELETE' });
+}
+
+/** Someone the northwind control chat started, idle in the pantry for a few minutes already. */
+async function hungry(title: string): Promise<string> {
+  const control = await sessionId('northwind-web control');
+  const { id } = (await fake('/__fake/sessions', {
+    method: 'POST',
+    body: JSON.stringify({
+      title,
+      project_path: `/tmp/${title.replace(/\W+/g, '-')}`,
+      parent_session_id: control,
+      status: 'Idle',
+      idle_entered_at: new Date(Date.now() - 3 * 60_000).toISOString(),
+    }),
+  })) as { id: string };
+  return id;
+}
 
 test.describe('office', () => {
   test('every open worker stands in exactly one place; at the door, blockers first, then oldest first', async ({
@@ -37,7 +94,7 @@ test.describe('office', () => {
       await expect(page.locator(`li[data-task="${t.id}"]`)).toHaveCount(0);
 
     // Each row sits in the section for its zone.
-    for (const zone of ['door', 'desk', 'review', 'pantry', 'away']) {
+    for (const zone of ['door', 'desk', 'kitchen', 'review', 'pantry', 'away']) {
       const section = page.locator(`[data-zone-section="${zone}"]`);
       const inside = section.locator('li[data-zone]');
       for (const z of await inside.evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.zone)))
@@ -698,6 +755,8 @@ test.describe('office', () => {
       await chips.getByRole('button', { name: 'Pantry' }).click();
       await expect(floor(page)).toHaveAttribute('data-camera-focus', 'pantry');
       await expect(chips.getByRole('button', { name: 'Pantry' })).toHaveAttribute('aria-pressed', 'true');
+      await chips.getByRole('button', { name: 'Kitchen' }).click();
+      await expect(floor(page)).toHaveAttribute('data-camera-focus', 'kitchen');
       await chips.getByRole('button', { name: 'northwind-web' }).click();
       await expect(floor(page)).toHaveAttribute('data-camera-focus', 'northwind-web');
       await chips.getByRole('button', { name: 'Your office' }).click();
@@ -961,6 +1020,83 @@ test.describe('office', () => {
       await expect(row).toHaveAttribute('data-zone', 'door', { timeout: 15_000 });
     });
 
+    test('a worker planning cooks in the kitchen; a waiting one goes to your door instead', async ({
+      signedIn: page,
+    }) => {
+      // NW-0005 is working on its plan (seeded): at a stove, its desk kept for it.
+      const id = await sessionId('NW-0005');
+      await setStatus(id, 'Running');
+      await page.goto('/office');
+      await drawn(page);
+      const row = page.locator('li[data-task="NW-0005"]');
+      await expect(row).toHaveAttribute('data-zone', 'kitchen', { timeout: 15_000 });
+      const kitchen = page.locator('[data-zone-section="kitchen"]');
+      await expect(kitchen.getByRole('heading', { name: 'Kitchen' })).toBeVisible();
+      await expect(kitchen.locator('li[data-task="NW-0005"]')).toContainText('Planning at the stove');
+      await expect(page.getByText(/ at desks · [1-9]\d* in the kitchen · /)).toBeVisible();
+      try {
+        // The door wins over the stove.
+        await setStatus(id, 'Waiting');
+        await expect(row).toHaveAttribute('data-zone', 'door', { timeout: 15_000 });
+      } finally {
+        await setStatus(id, 'Running');
+      }
+      await expect(row).toHaveAttribute('data-zone', 'kitchen', { timeout: 15_000 });
+    });
+
+    test('a plan approved is served to whoever has idled longest in the pantry, on the way to the desk', async ({
+      signedIn: page,
+      browserName,
+    }) => {
+      test.setTimeout(90_000);
+      const eater = await hungry(`hungry ${browserName}`);
+      const t = await cook(`Seasonal menu ${browserName}`);
+      try {
+        await page.goto('/office');
+        await drawn(page);
+        const row = page.locator(`li[data-task="${t.id}"]`);
+        await expect(row).toHaveAttribute('data-zone', 'kitchen', { timeout: 15_000 });
+        await expect(row).toContainText(/Planning at the (stove|prep counter)/);
+        await expect(page.locator(`li[data-session="${eater}"]`)).toHaveAttribute('data-zone', 'pantry', {
+          timeout: 15_000,
+        });
+        await expect(floor(page)).toHaveAttribute('data-walking', '0', { timeout: 15_000 });
+        await floor(page).evaluate((el) => {
+          const seen: string[] = [];
+          (window as unknown as { __errands: string[] }).__errands = seen;
+          new MutationObserver(() => seen.push((el as HTMLElement).dataset.errands ?? '')).observe(el, {
+            attributes: true,
+            attributeFilter: ['data-errands'],
+          });
+        });
+        approve(t);
+        // The list says Implementing at once; only the walk lags.
+        await expect(row).toHaveAttribute('data-zone', 'desk', { timeout: 10_000 });
+        await expect(row).toContainText('Implementing');
+        const eating = page.locator('[data-zone-section="pantry"] li[data-zone="pantry"]', {
+          hasText: `Eating ${t.name}’s plan`,
+        });
+        await expect(eating).toHaveCount(1);
+        const key = await eating.locator('[data-worker]').first().getAttribute('data-worker');
+        // The plate goes on the table in front of the eater, then the server goes on to its desk.
+        await expect
+          .poll(async () => (await floor(page).getAttribute('data-plates'))?.split(',') ?? [], {
+            timeout: 20_000,
+          })
+          .toContain(key);
+        await expect(floor(page)).toHaveAttribute('data-errands', '', { timeout: 15_000 });
+        const seen = await page.evaluate(() => (window as unknown as { __errands: string[] }).__errands);
+        expect(seen.some((e) => e.split(',').includes(`northwind-web/${t.id}`))).toBe(true);
+        await page.locator(`[data-worker="${key}"]`).first().click();
+        await expect(page.locator(`[data-worker-card="${key}"]`)).toContainText(
+          `${t.name}’s plan: Seasonal menu ${browserName}`,
+        );
+      } finally {
+        await clear(t);
+        await fake(`/__fake/sessions/${eater}`, { method: 'DELETE' });
+      }
+    });
+
     test('newcomers come in through the entrance one at a time', async ({ signedIn: page, browserName }) => {
       await page.goto('/office');
       await drawn(page);
@@ -1075,6 +1211,57 @@ test.describe('office', () => {
         expect(seen.filter((n) => n !== '0')).toEqual([]);
       } finally {
         await setStatus(id, 'Running');
+        await ctx.close();
+      }
+    });
+
+    test('with reduced motion, a plan approved puts the plate on the table and nobody walks', async ({
+      browser,
+      browserName,
+    }) => {
+      test.setTimeout(90_000);
+      const ctx = await browser.newContext({
+        reducedMotion: 'reduce',
+        viewport: { width: 1440, height: 900 },
+      });
+      const page = await ctx.newPage();
+      const { signIn } = await import('./fixtures.ts');
+      await signIn(page);
+      const eater = await hungry(`peckish ${browserName}`);
+      const t = await cook(`Quiet supper ${browserName}`);
+      try {
+        await page.goto('/office');
+        await drawn(page);
+        await expect(floor(page)).toHaveAttribute('data-motion', 'jump');
+        const row = page.locator(`li[data-task="${t.id}"]`);
+        await expect(row).toHaveAttribute('data-zone', 'kitchen', { timeout: 15_000 });
+        await expect(page.locator(`li[data-session="${eater}"]`)).toHaveAttribute('data-zone', 'pantry', {
+          timeout: 15_000,
+        });
+        await floor(page).evaluate((el) => {
+          const seen: string[] = [];
+          (window as unknown as { __walking: string[] }).__walking = seen;
+          new MutationObserver(() => seen.push((el as HTMLElement).dataset.walking ?? '')).observe(el, {
+            attributes: true,
+            attributeFilter: ['data-walking'],
+          });
+        });
+        approve(t);
+        await expect(row).toHaveAttribute('data-zone', 'desk', { timeout: 10_000 });
+        const eating = page.locator('[data-zone-section="pantry"] li[data-zone="pantry"]', {
+          hasText: `Eating ${t.name}’s plan`,
+        });
+        await expect(eating).toHaveCount(1);
+        const key = await eating.locator('[data-worker]').first().getAttribute('data-worker');
+        await expect
+          .poll(async () => (await floor(page).getAttribute('data-plates'))?.split(',') ?? [])
+          .toContain(key);
+        await page.waitForTimeout(500);
+        const seen = await page.evaluate(() => (window as unknown as { __walking: string[] }).__walking);
+        expect(seen.filter((n) => n !== '0')).toEqual([]);
+      } finally {
+        await clear(t);
+        await fake(`/__fake/sessions/${eater}`, { method: 'DELETE' });
         await ctx.close();
       }
     });

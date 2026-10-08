@@ -11,6 +11,7 @@ import {
   FRAME_EVERY_MS,
   floorStates,
   historyDay,
+  kitchenMemory,
   markChange,
   parseWeather,
   WEATHER_STALE_MS,
@@ -40,6 +41,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  */
 export class OfficeWatcher {
   private holds: HoldMemory = new Map();
+  /** Who holds a stove and who got which plate (office-kitchen.ts), with the same rules as the dashboard. */
+  private pots = kitchenMemory();
   private last = new Map<string, CharState>();
   private lastFrameAt = 0;
   private lastDay: string | null = null;
@@ -134,7 +137,7 @@ export class OfficeWatcher {
     if (!this.store.ledgerLoaded || !this.store.sessionsLoaded) return [];
     const now = this.now();
     const ts = now.toISOString();
-    const model = buildOffice(this.store, now, this.holds);
+    const model = buildOffice(this.store, now, this.holds, this.pots);
     this.model = model;
     this.scheduleHold(model, now);
     await this.keepMarks(model, now);

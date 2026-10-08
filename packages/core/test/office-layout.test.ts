@@ -56,6 +56,8 @@ describe('office layout', () => {
         ...l.queue,
         ...l.pantry.spots.map((s) => s.tile),
         ...l.review.spots,
+        ...l.kitchen.stoves.map((s) => s.stand),
+        ...l.kitchen.counter.map((c) => c.tile),
         ...l.teams.flatMap((t) => [t.leadSeat, ...t.spare, ...t.desks.map((d) => d.seat)]),
       ];
       for (const g of goals) expect(l.grid.blocked(g.x, g.y), `${g.x},${g.y}`).toBe(false);
@@ -88,6 +90,7 @@ describe('office layout', () => {
       'board:c',
       'c',
       'door',
+      'kitchen',
       'office',
       'pantry',
       'review',
@@ -277,6 +280,54 @@ describe('review lounge', () => {
       const table = l.furniture.find((f) => f.kind === 'pool_table')!;
       const first = l.review.spots[0]!;
       expect(first.x >= table.x - 1 && first.x <= table.x + table.w && first.y >= table.y - 1).toBe(true);
+    }
+  });
+});
+
+describe('kitchen', () => {
+  it('sits next to the pantry, clear of the rooms: five ranges on the back wall and a prep counter', () => {
+    for (const n of [0, 1, 3, 5]) {
+      const l = officeLayout(Array.from({ length: n }, (_, i) => ({ project: `p${i}`, desks: 4 + i })));
+      const k = l.kitchen.area;
+      const p = l.pantry.area;
+      expect(l.areas.kitchen).toEqual(k);
+      // Its west edge is one aisle from the pantry's east edge, along the back wall.
+      expect(k.x).toBe(p.x + p.w + 1);
+      expect(k.y).toBe(0);
+      for (const t of l.teams) expect(t.area.x).toBeGreaterThan(k.x + k.w);
+      expect(l.board.x0).toBeGreaterThanOrEqual(k.x + k.w);
+
+      const ranges = l.furniture.filter((f) => f.kind === 'range');
+      expect(ranges.map((f) => f.n)).toEqual([1, 2, 3, 4, 5]);
+      expect(l.kitchen.stoves).toHaveLength(5);
+      for (const [i, s] of l.kitchen.stoves.entries()) {
+        expect(s.range).toEqual({ x: ranges[i]!.x, y: 0 });
+        expect(l.grid.blocked(s.range.x, s.range.y)).toBe(true);
+        // The cook stands right in front of its range.
+        expect(s.stand).toEqual({ x: s.range.x, y: 1 });
+      }
+
+      // One board each at the counter, the back row first, then the front and the ends; then the floor.
+      const places = l.kitchen.counter;
+      const keys = places.map((c) => `${c.tile.x},${c.tile.y}`);
+      expect(new Set(keys).size).toBe(keys.length);
+      const boards = places.filter((c) => c.board);
+      expect(boards).toHaveLength(12);
+      const island = l.furniture.find((f) => f.kind === 'prep_counter')!;
+      for (const c of boards) {
+        expect(c.board!.y).toBe(island.y);
+        expect(c.board!.x >= island.x && c.board!.x < island.x + island.w).toBe(true);
+        // Facing its board, right next to it.
+        expect({ x: c.tile.x + c.face[0], y: c.tile.y + c.face[1] }).toEqual(c.board);
+      }
+      expect(places.slice(0, 5).every((c) => c.tile.y === island.y - 1 && c.face[1] === 1)).toBe(true);
+      expect(places.length).toBeGreaterThan(boards.length);
+      // Nobody cooks or chops outside the kitchen, nor on a range's tile.
+      const stands = new Set(l.kitchen.stoves.map((s) => `${s.stand.x},${s.stand.y}`));
+      for (const c of places) {
+        expect(c.tile.x >= k.x && c.tile.x < k.x + k.w && c.tile.y >= k.y && c.tile.y < k.y + k.h).toBe(true);
+        expect(stands.has(`${c.tile.x},${c.tile.y}`)).toBe(false);
+      }
     }
   });
 });
