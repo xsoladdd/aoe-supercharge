@@ -27,6 +27,15 @@
   lands on `main`, the release workflow now tests it, runs `npm pack`, and creates the GitHub Release (and
   its tag) with the tarball attached. npm publish and the Homebrew tap are skipped until `NPM_TOKEN` and
   `TAP_TOKEN` exist, so the workflow no longer fails on every release. `CLAUDE.md` says who does which step.
+- **Office themes.** **Theme** on the Office page dresses the floor in one of seven looks, each by day
+  and by night: **Headquarters** (today's office, the default, unchanged), **Foundry** (brick, steel
+  and concrete), **Ryokan** (tatami, shoji screens and a garden), **Throne Hall** (stone, banners,
+  torches and a red carpet to your door), **High Roller** (casino carpet, slot machines and a roulette
+  table), **Fjord** (birch and a view of the northern lights) and **Starship** (deck plates, viewports
+  and a blast door). Pick one and the floor changes at once; the menu stays open to try the next. Only
+  the look changes: rooms, desks, your line and every path stay put, and status colours, bubbles and
+  nameplates read the same in every theme. The choice is saved as `ui.officeTheme`, so every device
+  shows the same; a theme it doesn't know shows Headquarters.
 
 ## 1.3.0 (2026-10-08)
 

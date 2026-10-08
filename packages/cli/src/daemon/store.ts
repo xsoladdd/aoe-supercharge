@@ -47,6 +47,7 @@ export class Store {
     sound: true,
     displayName: '',
     officeAnimations: true,
+    officeTheme: 'headquarters',
   };
   sessionsLoaded = false;
   ledgerLoaded = false;

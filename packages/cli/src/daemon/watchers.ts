@@ -577,6 +577,7 @@ export class ConfigWatcher {
       sound: loaded.config.ui.sound,
       displayName: loaded.config.ui.displayName,
       officeAnimations: loaded.config.ui.officeAnimations,
+      officeTheme: loaded.config.ui.officeTheme,
     });
     this.onApplied(loaded.config);
   }

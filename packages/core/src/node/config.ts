@@ -287,6 +287,16 @@ export const ConfigSchema = z.strictObject({
         .describe(
           'Walking, errands and arrivals in the office. Off, everyone jumps to their place (as with reduced motion).',
         ),
+      officeTheme: z
+        .string()
+        .trim()
+        .max(40)
+        // A theme since removed, or a typo, is drawn as Headquarters; it never makes the config invalid.
+        .catch('headquarters')
+        .default('headquarters')
+        .describe(
+          "The office floor's theme (picked on the Office page): headquarters, foundry, ryokan, throne-hall, high-roller, fjord or starship. Unknown reads as headquarters.",
+        ),
     })
     .prefault({}),
   office: z

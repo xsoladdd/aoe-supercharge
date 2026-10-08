@@ -246,6 +246,7 @@ waitingDebounceSeconds = 20
 theme = "dark"                     # dark | light | system
 displayName = "Ericson"            # on your office door: "Ericson’s office"
 officeAnimations = true            # walking, errands and arrivals in the office
+officeTheme = "headquarters"       # headquarters | foundry | ryokan | throne-hall | high-roller | fjord | starship
 
 [office.history]
 retentionDays = 30                 # days of office history kept
@@ -312,6 +313,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - The floor is drawn like a game (PixiJS). Drag to look around, scroll or pinch to zoom, double-click an area to zoom in, or use the chips: Whole office, your door, Pantry, Kitchen, and one per room.
   - When a worker's status changes it walks to its new place, then stands still. A worker that raised an MR first takes a folder to its lead's desk and hands it over. Newcomers walk in through the entrance one at a time. Opening the page, or reconnecting, places everyone without walking.
   - With reduced motion, or **Office animations** off (Settings, Appearance), everyone jumps to their place instead. Nothing is drawn while nobody moves.
+  - **Theme** dresses the office: Headquarters (the default), Foundry, Ryokan, Throne Hall, High Roller, Fjord or Starship, each by day and by night with light and dark mode. Only the look changes: everyone stands, sits and queues where they always do, and status colours, bubbles and nameplates read the same. The choice is saved in Supercharge's settings, so your phone and desktop match.
   - Click a worker, or its row in the list beside the floor, for its card: why it is there, its stage, and its question or approval to answer in place. **Follow** keeps the camera on it.
   - **Call next** (or N) calls the front of the line in through your door and opens their card. Answer, and they walk back to work; close the card, and they go back in line.
   - Keys on the floor: arrows or WASD to move, + and - to zoom, 0 for the whole office, F to follow, Escape to close the card.

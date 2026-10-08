@@ -76,6 +76,20 @@ describe('config', () => {
       ConfigValidationError,
     );
   });
+  it('the office theme defaults to headquarters, and a bad one reads as headquarters', async () => {
+    expect((await loadConfig(paths)).config.ui.officeTheme).toBe('headquarters');
+    await patchConfig(paths, { ui: { officeTheme: ' foundry ' } });
+    expect((await loadConfig(paths)).config.ui.officeTheme).toBe('foundry');
+    // Any short name is kept (the UI falls back for one it does not know); a bad one never fails the file.
+    await patchConfig(paths, { ui: { officeTheme: 'since-removed' } });
+    expect((await loadConfig(paths)).config.ui.officeTheme).toBe('since-removed');
+    await patchConfig(paths, { ui: { officeTheme: 'x'.repeat(41) } });
+    expect((await loadConfig(paths)).config.ui.officeTheme).toBe('headquarters');
+    await patchConfig(paths, { ui: { officeTheme: 7 } });
+    const after = await loadConfig(paths);
+    expect(after.errors).toEqual([]);
+    expect(after.config.ui.officeTheme).toBe('headquarters');
+  });
   it('reports a TOML syntax error instead of throwing', async () => {
     await writeFileAtomic(paths.configFile, '[server\nport = ');
     const c = await loadConfig(paths);

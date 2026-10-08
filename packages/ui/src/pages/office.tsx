@@ -118,6 +118,7 @@ export function OfficePage({ snap, standalone = false }: { snap: Snapshot; stand
             epoch={epoch}
             tokenLimit={snap.office?.runaway?.sessionTokens}
             ambience={snap.office}
+            officeTheme={snap.ui.officeTheme ?? 'headquarters'}
           />
         </Suspense>
       </>

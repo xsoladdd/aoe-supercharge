@@ -314,6 +314,8 @@ export interface Snapshot {
     displayName: string;
     /** Walking, errands and arrivals in the office (off: everyone jumps, as with reduced motion). */
     officeAnimations: boolean;
+    /** The office floor's theme id; the UI draws an unknown one as Headquarters. */
+    officeTheme: string;
   };
 }
 
