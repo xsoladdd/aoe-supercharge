@@ -10,6 +10,7 @@ import {
   type WindowLook,
 } from '@aoe-supercharge/core/shared';
 import { box, depth, diamond, iso, mix, quad, shade, tint, wallA, wallB, WALL_H, type Pt } from './iso';
+import { drawKitchenWall, islandPiece, rangePiece, sinkPiece } from './kitchen-art';
 import type { Palette } from './palette';
 
 /**
@@ -106,6 +107,8 @@ function drawFloor(layout: OfficeLayout, p: Palette): Graphics {
         diamond(g, x, y, x + 1, y + 1).fill(teamColor(p, teamIndex.get(f.team ?? '') ?? 0)[odd]!);
       } else if (f?.kind === 'pantry') {
         diamond(g, x, y, x + 1, y + 1).fill(p.pantry[odd]!);
+      } else if (f?.kind === 'kitchen') {
+        diamond(g, x, y, x + 1, y + 1).fill(p.kitchen.floor[odd]!);
       } else if (f?.kind === 'lounge') {
         diamond(g, x, y, x + 1, y + 1).fill(p.lounge[odd]!);
       } else if (f?.kind === 'runner') {
@@ -450,11 +453,15 @@ function drawWalls(
     g.moveTo(m.x, m.y).lineTo(n.x, n.y).stroke({ width: 1.5, color: p.wood.right });
   }
 
-  // A framed world map over the teams, clear of the whiteboard, and the whiteboard by your corner.
+  drawKitchenWall(g, layout, p);
+
+  // A framed world map over the teams, clear of the kitchen and the whiteboard, and the whiteboard by
+  // your corner.
   const s = layout.suite;
-  const mapSpan = layout.board.x0 - 0.5 - (pa.x + pa.w);
+  const ka = layout.kitchen.area;
+  const mapSpan = layout.board.x0 - 0.5 - (ka.x + ka.w);
   if (mapSpan >= 5) {
-    const mid = pa.x + pa.w + mapSpan / 2;
+    const mid = ka.x + ka.w + mapSpan / 2;
     const half = Math.min(3, mapSpan / 2 - 1);
     worldMap(g, p, mid - half, mid + half);
   }
@@ -857,6 +864,15 @@ export function buildStatic(layout: OfficeLayout, p: Palette, doorLabel: string)
       }
       case 'plant':
         pieces.push(piece(zOf(f.x, f.y), plantPiece(p, f.x, f.y)));
+        break;
+      case 'range':
+        pieces.push(piece(zOf(f.x, f.y), rangePiece(p, f)));
+        break;
+      case 'sink':
+        pieces.push(piece(zOf(f.x, f.y), sinkPiece(p, f)));
+        break;
+      case 'prep_counter':
+        for (let i = 0; i < f.w; i++) pieces.push(piece(zOf(f.x + i, f.y), islandPiece(p, f.x + i, f.y)));
         break;
       case 'table': {
         const g = new Graphics();

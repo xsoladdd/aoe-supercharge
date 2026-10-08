@@ -108,12 +108,31 @@ describe('office: where a worker stands (SPEC §14.5)', () => {
   });
 
   it.each([
-    ['planning', 'sketching'],
     ['implementing', 'typing'],
     ['verifying', 'inspecting'],
     ['watching_mr', 'typing'],
   ] as const)('3: working at the desk: %s is %s', (stage, pose) => {
     expect(at(task(stage), session('working'))).toMatchObject({ zone: 'desk', pose, hold: false });
+  });
+
+  it('3: working on a plan is cooking in the kitchen; the door, the pantry and away still win', () => {
+    expect(at(task('planning'), session('working'))).toMatchObject({
+      zone: 'kitchen',
+      pose: 'cooking',
+      prop: 'pot',
+      hold: false,
+    });
+    // A plan to approve queues at your door with its scroll, not at the stove.
+    expect(at(task('planning'), session('waiting'), [item('plan_approval')])).toMatchObject({
+      zone: 'door',
+      prop: 'scroll',
+    });
+    // Idle while planning: the pantry as ever (after the dwell); stopped: away; waiting: stays put.
+    expect(at(task('planning'), session('idle'))).toMatchObject({ zone: 'pantry', prop: 'mug' });
+    expect(at(task('planning'), session('stopped')).zone).toBe('away');
+    expect(at(task('planning'), session('waiting'))).toMatchObject({ zone: 'desk', hold: true });
+    // Blocked, even working, is not planning.
+    expect(at(task('blocked'), session('working')).zone).toBe('desk');
   });
 
   it('4: stopped workers are away; archived ones too', () => {

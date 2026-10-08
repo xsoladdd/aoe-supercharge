@@ -18,6 +18,7 @@ export * from './office-history.ts';
 export * from './office-moves.ts';
 export * from './office-cost.ts';
 export * from './office-idle.ts';
+export * from './office-kitchen.ts';
 export * from './office-ambience.ts';
 export * from './office-replay.ts';
 export * from './model-prices.ts';

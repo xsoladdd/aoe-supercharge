@@ -5,15 +5,16 @@ import type { MrState, NeedsYouItem, NeedsYouKind, SessionView, TaskRecord } fro
 
 /**
  * The office view (SPEC §14.5): where a worker stands *is* its status. Everyone who needs you queues
- * at your door, working workers sit at their desk, those with an MR wait in the review lounge, idle
- * ones go to the pantry. Pure, so the dashboard and the CLI agree.
+ * at your door, working workers sit at their desk (or cook up their plan in the kitchen), those with an
+ * MR wait in the review lounge, idle ones go to the pantry. Pure, so the dashboard and the CLI agree.
  */
 
-export type Zone = 'door' | 'desk' | 'pantry' | 'review' | 'away' | 'archived' | 'gone';
+export type Zone = 'door' | 'desk' | 'kitchen' | 'pantry' | 'review' | 'away' | 'archived' | 'gone';
 
 export const ZONE_LABEL: Record<Zone, string> = {
   door: 'At your door',
   desk: 'At their desk',
+  kitchen: 'In the kitchen',
   pantry: 'In the pantry',
   review: 'In the review lounge',
   away: 'Away',
@@ -31,7 +32,13 @@ export type Pose =
   | 'away'
   | 'waving'
   /** A lead at its desk while its workers wait on you for what it listed (`control_relayed`). */
-  | 'phone';
+  | 'phone'
+  /** Stirring a pot at a stove in the kitchen (planning). */
+  | 'cooking'
+  /** At the prep counter with a cutting board (planning, every stove taken). */
+  | 'chopping'
+  /** In the pantry, eating a plan someone served (SPEC §14.5). */
+  | 'eating';
 
 /** What a worker holds or shows above its head, so the reason reads at a glance. */
 export type Prop =
@@ -56,6 +63,11 @@ export type Prop =
   | 'mug'
   /** Held to the ear, not shown in a bubble: a lead calling for its workers. */
   | 'phone'
+  /** In the kitchen at a stove; `board` at the prep counter (held, never a bubble). */
+  | 'pot'
+  | 'board'
+  /** In the pantry: a served plan on the table (held, never a bubble). */
+  | 'plate'
   | null;
 
 export interface OfficeSpot {
@@ -235,6 +247,9 @@ export function officeSpot(
   if (door) return door;
   if (session?.archived) return spot('away', 'away', null, 'Archived');
   const status = session?.status ?? null;
+  // Planning is cooking: at a stove until `buildOffice` says which station (office-kitchen.ts).
+  if (status === 'working' && task.stage === 'planning')
+    return spot('kitchen', 'cooking', 'pot', 'Planning at the stove');
   if (status === 'working') return spot('desk', DESK_POSE[task.stage], null, STAGE_LABEL[task.stage]);
   // An MR out is a deliverable: it waits in the review lounge, even with its session stopped.
   const review = REVIEW_STAGES.has(task.stage);

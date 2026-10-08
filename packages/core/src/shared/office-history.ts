@@ -26,6 +26,8 @@ export interface CharState {
   /** Tokens and the estimated cost of its conversation so far, when known. */
   cost: { tokens: number; usd: number | null } | null;
   mr: { iid: number; url: string; state: string; pipeline: PipelineStatus | null; threads: number } | null;
+  /** Eating in the pantry: whose plan it is (its key and name) and the task's title. Absent otherwise. */
+  meal?: { server: string; name: string; title: string } | null;
 }
 
 export interface MoveRecord extends CharState {
@@ -72,6 +74,7 @@ export function charState(w: OfficeWorker, cost: CostLookup = ownCost): CharStat
     mr: mr
       ? { iid: mr.iid, url: mr.url, state: mr.state, pipeline: mr.pipeline, threads: mr.unresolvedThreads }
       : null,
+    ...(w.plate ? { meal: { server: w.plate.server, name: w.plate.serverName, title: w.plate.title } } : {}),
   };
 }
 
@@ -89,7 +92,8 @@ function moved(a: CharState, b: CharState): boolean {
     a.desk !== b.desk ||
     a.mr?.pipeline !== b.mr?.pipeline ||
     a.mr?.state !== b.mr?.state ||
-    a.mr?.iid !== b.mr?.iid
+    a.mr?.iid !== b.mr?.iid ||
+    a.meal?.server !== b.meal?.server
   );
 }
 

@@ -14,6 +14,13 @@
 - The control skill now starts each worker item under NEEDS YOU with `Name (TASK-ID):`, one worker per
   item, its own asks apart. Replies that don't are still matched by task id, worker name or session
   title.
+- **A kitchen for planning.** A worker working on its plan no longer sits at its desk looking busy: it
+  cooks in the office's new kitchen, beside the pantry. Five cast-iron stoves go first come first
+  served (nobody is bumped), and anyone past them chops at the prep counter. When you approve the plan,
+  the worker carries the dish to whoever has been idle longest in the pantry, who eats it for about a
+  minute (hover the plate to see whose plan it was), then goes to its desk. With nobody in the pantry it
+  goes straight to its desk. The list has a Kitchen section, the header counts it, and a chip flies
+  there. History replays it.
 
 ## 1.2.0 (2026-10-08)
 

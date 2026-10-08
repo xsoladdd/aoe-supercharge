@@ -11,8 +11,32 @@ import type { Palette } from './palette';
  */
 
 export type Stance = 'stand' | 'sit';
-/** `phone`: a lead holding a phone to its ear while its workers wait on you (SPEC §14.5). */
-export type Hands = 'down' | 'typing' | 'mug' | 'paper' | 'magnifier' | 'letter' | 'phone';
+export type Hands =
+  | 'down'
+  | 'typing'
+  | 'mug'
+  | 'paper'
+  | 'magnifier'
+  | 'letter'
+  /** A lead holding a phone to its ear while its workers wait on you (SPEC §14.5). */
+  | 'phone'
+  /** At a stove: a wooden spoon in the pot. */
+  | 'stir'
+  /** At the prep counter: a knife over the board on the counter. */
+  | 'chop'
+  /** Chopping past the counter: the board in hand, and the knife. */
+  | 'board'
+  /** Eating at a pantry table: a fork (the plate is on the table). */
+  | 'eat'
+  /** Eating away from a table: the plate in hand, and a fork. */
+  | 'dish'
+  /** Serving: a plate under a brass cloche, held out to the side, walking too. */
+  | 'plate';
+
+/** Hands that hold something out, walking or not. */
+const CARRY = new Set<Hands>(['plate']);
+/** Props held in the hands, never shown in a bubble. */
+const HELD = new Set<Prop>(['mug', 'letter', 'phone', 'pot', 'board', 'plate']);
 
 /** The cost meter under a worker: how full (0 to 1). */
 export interface Meter {
@@ -442,9 +466,68 @@ function heldItem(g: G, hands: Hands, p: Palette, skin: number) {
       g.circle(3, -22, 3.6).fill({ color: 0xbfe0fb, alpha: 0.6 }).stroke({ width: 1.4, color: 0x4a4e57 });
       g.moveTo(0.6, -19.5).lineTo(-2, -16.5).stroke({ width: 1.8, color: 0x4a4e57 });
       break;
+    case 'stir':
+      // A long wooden spoon, its handle up past the shoulder so it shows from behind too.
+      g.moveTo(6.5, -14).lineTo(15.5, -33).stroke({ width: 2.6, color: INK, cap: 'round' });
+      g.moveTo(6.5, -14).lineTo(15.5, -33).stroke({ width: 1.4, color: 0xc89058, cap: 'round' });
+      g.ellipse(6, -12.8, 2.2, 1.4).fill(0xb07a45).stroke({ width: 0.8, color: INK });
+      break;
+    case 'board':
+      g.roundRect(-8, -19.5, 14, 6, 1.6).fill(0xd9b382).stroke({ width: 0.9, color: INK });
+      for (const [x, c] of [
+        [-5, 0x6fbf73],
+        [-2.6, 0xf28c38],
+        [-0.4, 0x6fbf73],
+      ] as const)
+        g.circle(x, -16.6, 1).fill(c);
+      knife(g);
+      break;
+    case 'chop':
+      knife(g);
+      break;
+    case 'eat':
+      fork(g, 8, -28);
+      break;
+    case 'dish':
+      g.ellipse(-3.5, -16.5, 8, 3).fill(0xffffff).stroke({ width: 0.8, color: 0xd8d2c6 });
+      g.ellipse(-3.5, -17.3, 4.4, 1.6).fill(0xd9824a);
+      g.circle(-5.4, -17.8, 1).fill(0x6fbf73);
+      fork(g, 8, -28);
+      break;
+    case 'plate': {
+      // A plate under a brass cloche, held out to the side, so it shows from behind too.
+      const x = 21;
+      const y = -15.5;
+      g.ellipse(x, y, 9, 3.2).fill(0xffffff).stroke({ width: 0.9, color: INK });
+      g.moveTo(x - 6.6, y - 0.7)
+        .bezierCurveTo(x - 6.6, y - 9.5, x + 6.6, y - 9.5, x + 6.6, y - 0.7)
+        .closePath()
+        .fill(p.brass)
+        .stroke({ width: 0.9, color: INK });
+      g.ellipse(x - 2.5, y - 5, 1.5, 2.3).fill({ color: 0xffffff, alpha: 0.45 });
+      g.circle(x, y - 8.2, 1.4)
+        .fill(shade(p.brass, 0.25))
+        .stroke({ width: 0.7, color: INK });
+      break;
+    }
     default:
       break;
   }
+}
+
+function knife(g: G) {
+  g.roundRect(3.4, -17, 4, 2, 0.8).fill(0x3b2a20);
+  g.poly([7.2, -17.4, 14, -15.8, 7.2, -15]).fill(0xd9dde2).stroke({ width: 0.7, color: INK });
+}
+
+function fork(g: G, x: number, y: number) {
+  g.moveTo(x, y)
+    .lineTo(x + 1.6, y - 7)
+    .stroke({ width: 1.1, color: 0xc9ced6, cap: 'round' });
+  for (const dx of [-1, 0, 1])
+    g.moveTo(x + 1.6 + dx, y - 7)
+      .lineTo(x + 2 + dx, y - 10)
+      .stroke({ width: 0.6, color: 0xc9ced6 });
 }
 
 /** Bubble colour and icon for each prop, matching the Needs-you colours. */
@@ -699,21 +782,41 @@ export class Character {
       leg.rotation = 0;
       leg.scale.y = 1;
     }
+    const h = this.hands;
     const [l, r, s] =
-      this.hands === 'typing'
+      h === 'typing'
         ? [-0.34, 0.34, 0.82]
-        : this.hands === 'mug'
+        : h === 'mug' || h === 'eat'
           ? [0.08, 2.5, 0.78]
-          : this.hands === 'phone'
+          : h === 'phone'
             ? // The right arm up beside the head, the hand at the ear.
               [0.1, 3.25, 0.95]
-            : this.hands === 'down'
-              ? [0.1, -0.1, 1]
-              : [-0.5, 0.5, 0.78];
+            : h === 'dish'
+              ? [-0.5, 2.5, 0.78]
+              : h === 'stir'
+                ? [-0.2, 0.75, 0.82]
+                : h === 'plate'
+                  ? [0.1, -1.05, 0.9]
+                  : h === 'down'
+                    ? [0.1, -0.1, 1]
+                    : [-0.5, 0.5, 0.78];
     this.armL.rotation = l;
     this.armR.rotation = r;
-    this.armL.scale.y = this.hands === 'mug' || this.hands === 'phone' ? 1 : s;
+    this.armL.scale.y = h === 'mug' || h === 'eat' || h === 'phone' ? 1 : s;
     this.armR.scale.y = s;
+    this.held.position.set(0, 0);
+  }
+
+  /** At work in place, at `t` radians: the spoon goes round the pot, the knife up and down. */
+  work(t: number) {
+    if (this.hands === 'stir') {
+      this.held.position.set(Math.sin(t) * 1.6, Math.cos(t) * 0.8);
+      this.armR.rotation = 0.75 + Math.sin(t) * 0.12;
+    } else if (this.hands === 'chop' || this.hands === 'board') {
+      const k = Math.abs(Math.sin(t));
+      this.held.position.set(0, -k * 2.4);
+      this.armR.rotation = 0.5 - k * 0.25;
+    }
   }
 
   /** One frame of walking: legs and arms swing with `phase` (radians), the body bobs. */
@@ -726,11 +829,16 @@ export class Character {
     this.armL.scale.y = this.armR.scale.y = 1;
     this.armL.rotation = -s * 0.45;
     this.armR.rotation = s * 0.45;
+    if (CARRY.has(this.hands)) {
+      // Carrying a plate: that arm stays out to the side, holding it.
+      this.armR.rotation = -1.05;
+      this.armR.scale.y = 0.9;
+    }
   }
 
   setProp(prop: Prop, thought: boolean, now: number) {
     // Held, not shown in a bubble.
-    const shown = prop && prop !== 'mug' && prop !== 'letter' && prop !== 'phone' ? prop : null;
+    const shown = prop && !HELD.has(prop) ? prop : null;
     if (shown === this.prop && thought === this.thought) return;
     if (shown && !this.prop) this.bubbleSince = now;
     this.prop = shown;

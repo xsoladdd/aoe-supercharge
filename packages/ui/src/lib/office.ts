@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   buildOffice as buildFloor,
+  kitchenMemory,
   nextOfficeLook,
   RUNAWAY_LABEL,
   type HoldMemory,
@@ -14,14 +15,17 @@ export type { OfficeModel, OfficeTeam, OfficeWorker } from '@aoe-supercharge/cor
 
 /** Where each character was last seen, kept across visits so a hold survives navigating away and back. */
 const lastZone: HoldMemory = new Map();
+/** Who holds a stove and who got which plate, kept across visits too (office-kitchen.ts). */
+const pots = kitchenMemory();
 
 export function buildOffice(snap: Snapshot, now: Date): OfficeModel {
-  return buildFloor({ ...snap, costs: snap.costs ?? {} }, now, lastZone);
+  return buildFloor({ ...snap, costs: snap.costs ?? {} }, now, lastZone, pots);
 }
 
 const MOVED: Record<Zone, string> = {
   door: 'is waiting at your door',
   desk: 'went back to their desk',
+  kitchen: 'went to the kitchen',
   pantry: 'went to the pantry',
   away: 'stepped away',
   review: 'went to the review lounge',
