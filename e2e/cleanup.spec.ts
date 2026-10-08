@@ -132,6 +132,21 @@ test.describe('clean up', () => {
 });
 
 test.describe('control chat', () => {
+  // The world is shared: other specs expect the control chat to have replied and not to be dismissed or
+  // read, so each test leaves it as it found it (a new status brings a new reply back).
+  test.afterEach(async () => {
+    const control = await sessionId('northwind-web control');
+    await fake(`/__fake/sessions/${control}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'Running' }),
+    });
+    await new Promise((r) => setTimeout(r, 2_500));
+    await fake(`/__fake/sessions/${control}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ unread: true, status: 'Idle' }),
+    });
+  });
+
   test('is marked read while its chat is open, so "Control chat replied" leaves Needs you', async ({
     signedIn: page,
   }) => {
