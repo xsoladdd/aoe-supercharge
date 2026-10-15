@@ -167,7 +167,7 @@ describe('attachments ride in the message as paths', () => {
       '/tmp/notes.txt',
     ]);
     expect(msg).toBe(
-      'Look at the header\n\nAttached: /home/me/.local/state/supercharge/uploads/abc123/20261005T031500-1a2b-screenshot.png\nAttached: /tmp/notes.txt',
+      'Look at the header\n\nAttached: `/home/me/.local/state/supercharge/uploads/abc123/20261005T031500-1a2b-screenshot.png`\nAttached: `/tmp/notes.txt`',
     );
     const { text, files } = splitAttachments(msg);
     expect(text).toBe('Look at the header');
@@ -180,7 +180,20 @@ describe('attachments ride in the message as paths', () => {
       },
       { path: '/tmp/notes.txt', name: 'notes.txt', url: null, image: false },
     ]);
-    expect(withAttachments('', ['/a.png'])).toBe('Attached: /a.png');
+    expect(withAttachments('', ['/a.png'])).toBe('Attached: `/a.png`');
+  });
+
+  it('reads folders and paths with spaces, and the bare paths older messages have', () => {
+    const { text, files } = splitAttachments(
+      withAttachments('Look', ['/Users/me/My Files/report.zip', '/Users/me/src']) +
+        '\nAttached: /tmp/old.png',
+    );
+    expect(text).toBe('Look');
+    expect(files.map((f) => [f.path, f.name, f.image])).toEqual([
+      ['/Users/me/My Files/report.zip', 'report.zip', false],
+      ['/Users/me/src', 'src', false],
+      ['/tmp/old.png', 'old.png', true],
+    ]);
   });
 
   it('knows the context window', () => {

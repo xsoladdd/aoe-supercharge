@@ -5,6 +5,11 @@ import { PERMISSION_MENU } from '../packages/fake-aoe/src/server.ts';
 import type { Locator, Page } from '@playwright/test';
 import { axe, expect, fake, test, world } from './fixtures.ts';
 
+const sentTo = async (id: string) =>
+  ((await fake('/__fake/state')) as { sent: { id: string; message: string }[] }).sent
+    .filter((m) => m.id === id)
+    .map((m) => m.message);
+
 /** The fake AoE id of the session whose title starts with `prefix`. */
 async function sessionId(prefix: string): Promise<string> {
   const state = (await fake('/__fake/state')) as { sessions: { id: string; title: string }[] };
@@ -794,7 +799,7 @@ test.describe('project', () => {
     });
   });
 
-  test('an image is marked up before it is sent, and shows in the chat', async ({
+  test('an image is marked up and attached, then goes with the text, a zip and a folder as one message', async ({
     signedIn: page,
     browserName,
   }) => {
@@ -813,9 +818,11 @@ test.describe('project', () => {
         x.fillRect(40, 40, 120, 60);
         return c.toDataURL('image/png').split(',')[1]!;
       });
-      await page
-        .locator('input[type="file"]')
-        .setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+      const sentBefore = await sentTo(id);
+      await page.locator('input[type="file"]').setInputFiles([
+        { name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') },
+        { name: 'logs.zip', mimeType: 'application/zip', buffer: Buffer.from('PK') },
+      ]);
       const dialog = page.getByRole('dialog', { name: 'Mark up the image' });
       const canvas = dialog.getByLabel('Image to mark up');
       await expect(canvas).toBeVisible();
@@ -830,16 +837,34 @@ test.describe('project', () => {
       await field.fill(message);
       await field.press('Enter');
       await expect(dialog).toHaveCount(0, { timeout: 15_000 });
+      // Attached, not sent: it waits in the box with the zip.
+      const chips = page.getByRole('list', { name: 'Attachments' });
+      await expect(chips.locator('[aria-busy="true"]')).toHaveCount(0, { timeout: 15_000 });
+      await expect(chips.getByRole('img', { name: 'screenshot.png' })).toBeVisible();
+      await expect(chips.getByText('logs.zip', { exact: true })).toBeVisible();
+      // A folder goes by its path.
+      const folder = join(process.cwd(), 'e2e');
+      await page.getByRole('button', { name: 'Attach', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Attach a path…' }).click();
+      const ask = page.getByRole('dialog', { name: 'Attach a path' });
+      await ask.getByLabel('Path').fill(`${folder}/nope`);
+      await ask.getByRole('button', { name: 'Attach' }).click();
+      await expect(ask.getByRole('alert')).toContainText('Nothing is there');
+      await ask.getByLabel('Path').fill(folder);
+      await ask.getByRole('button', { name: 'Attach' }).click();
+      await expect(ask).toHaveCount(0);
+      await expect(chips.getByText('e2e', { exact: true })).toBeVisible();
+      expect(await sentTo(id)).toEqual(sentBefore);
+
+      await page.getByLabel(/^Message /).press('Enter');
+      const esc = (t: string) => t.replace(/[()/.]/g, '\\$&');
       await expect
-        .poll(async () => {
-          const state = (await fake('/__fake/state')) as { sent: { id: string; message: string }[] };
-          return state.sent.filter((m) => m.id === id).at(-1)?.message ?? '';
-        })
-        .toMatch(
-          new RegExp(
-            `^${message.replace(/[()]/g, '\\$&')}\\n\\nAttached: /\\S+/uploads/${id}/\\S+-screenshot\\.png$`,
-          ),
-        );
+        .poll(async () => (await sentTo(id)).at(-1) ?? '', { timeout: 15_000 })
+        .toMatch(new RegExp(`^${esc(message)}\\n\\n(Attached: \`[^\`]+\`\\n?){3}$`));
+      const sent = (await sentTo(id)).at(-1)!;
+      expect(sent).toMatch(new RegExp(`^Attached: \`/\\S+/uploads/${id}/\\S+-screenshot\\.png\`$`, 'm'));
+      expect(sent).toMatch(new RegExp(`^Attached: \`/\\S+/uploads/${id}/\\S+-logs\\.zip\`$`, 'm'));
+      expect(sent).toContain(`Attached: \`${folder}\``);
       const log = page.getByRole('log', { name: /^Conversation with/ });
       await expect(log.getByRole('img', { name: 'screenshot.png' }).first()).toBeVisible({ timeout: 15_000 });
       // The context meter reads the latest reply's token usage.

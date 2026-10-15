@@ -142,7 +142,7 @@ test.describe('chat composer', () => {
         .poll(async () => (await sentTo(a)).at(-1) ?? '', { timeout: 15_000 })
         .toMatch(
           new RegExp(
-            `^Half a thought \\(${browserName}\\)\\n\\nAttached: /\\S+/uploads/${a}/\\S+-notes\\.txt$`,
+            `^Half a thought \\(${browserName}\\)\\n\\nAttached: \`/\\S+/uploads/${a}/\\S+-notes\\.txt\`$`,
           ),
         );
       await expect(box).toHaveValue('');

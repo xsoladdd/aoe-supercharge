@@ -251,13 +251,16 @@ export function contextInfo(
 }
 
 /**
- * Attachments ride in the message as `Attached: <path>` lines, which Claude reads with its file tool
- * (images included). The dashboard turns them back into thumbnails.
+ * Attachments ride in the message as ``Attached: `<path>` `` lines, which Claude reads with its file
+ * tool (images included). The backticks matter: a bare image path in a paste becomes an `[Image #N]`
+ * chip in Claude Code, which reads the file after the paste, and AoE's Enter is lost meanwhile, so the
+ * message sat unsent in Claude's input. Older messages have bare paths. The dashboard turns them back
+ * into thumbnails.
  */
-export const ATTACHMENT_LINE = /^Attached: (\/\S+)$/;
+export const ATTACHMENT_LINE = /^Attached: (?:`(\/[^`]+)`|(\/\S+))$/;
 
 export function withAttachments(text: string, paths: string[]): string {
-  const lines = paths.map((p) => `Attached: ${p}`);
+  const lines = paths.map((p) => `Attached: \`${p}\``);
   return [text.trim(), lines.join('\n')].filter(Boolean).join('\n\n');
 }
 
@@ -274,7 +277,7 @@ export function splitAttachments(text: string): { text: string; files: Attachmen
   const kept = text.split('\n').filter((line) => {
     const m = ATTACHMENT_LINE.exec(line.trim());
     if (!m) return true;
-    const path = m[1]!;
+    const path = (m[1] ?? m[2])!;
     const up = /\/uploads\/([A-Za-z0-9_-]+)\/([A-Za-z0-9][A-Za-z0-9._-]*)$/.exec(path);
     const name = path.split('/').pop() ?? path;
     files.push({

@@ -1060,6 +1060,34 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect((await upload('empty.txt', new Uint8Array())).status).toBe(400);
   });
 
+  it('attaches a folder or file already on this machine by its path, once it is there', async () => {
+    const auth = { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' };
+    const snap = (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const control = snap.projects[0]!.controlSessionId!;
+    await mkdir(join(home, 'My Files'), { recursive: true });
+    await writeFile(join(home, 'My Files', 'logs.zip'), 'PK');
+    const attach = async (path: string) => {
+      const r = await fetch(`${base()}/api/sessions/${control}/paths`, {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify({ path }),
+      });
+      return { status: r.status, body: (await r.json()) as { path?: string; name?: string; dir?: boolean } };
+    };
+    expect((await attach('~/My Files')).body).toEqual({
+      path: join(home, 'My Files'),
+      name: 'My Files',
+      dir: true,
+    });
+    expect((await attach(`'${home}/My\\ Files/logs.zip'`)).body).toEqual({
+      path: join(home, 'My Files', 'logs.zip'),
+      name: 'logs.zip',
+      dir: false,
+    });
+    expect((await attach('~/nope')).status).toBe(400);
+    expect((await attach('My Files')).status).toBe(400);
+  });
+
   it('plan comments: added, listed per project, sent in one batch (as plan feedback while it waits)', async () => {
     const auth = { authorization: `Bearer ${bearer}` };
     const json = { ...auth, 'content-type': 'application/json' };
@@ -1400,6 +1428,27 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(existsSync(join(home, '.local/share/supercharge/projects/throwaway'))).toBe(false);
     const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
     expect(audit).toMatch(/"action":"project_deleted","project":"throwaway"/);
+  });
+
+  it('init after a project was deleted with its sessions kept takes its control chat back', async () => {
+    const other = join(home, 'code', 'readded');
+    await mkdir(other, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: other });
+    const first = await sc(['init', '--json'], { cwd: other });
+    expect(first.code, first.stderr).toBe(0);
+    const control = JSON.parse(first.stdout).project.controlSessionId as string;
+    const del = await fetch(`${base()}/api/projects/readded`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ confirm: 'readded', deleteSessions: false }),
+    });
+    expect(del.status).toBe(200);
+    const again = await sc(['init', '--json'], { cwd: other });
+    expect(again.code, again.stderr).toBe(0);
+    const out = JSON.parse(again.stdout);
+    expect(out.controlCreated).toBe(false);
+    expect(out.project.controlSessionId).toBe(control);
+    expect(fake.state.sessions.filter((s) => s.title === 'readded control')).toHaveLength(1);
   });
 
   it("relays a session's shell to signed-in dashboard pages only, and audits a command run there", async () => {

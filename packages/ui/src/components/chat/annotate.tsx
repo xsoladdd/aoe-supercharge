@@ -1,5 +1,4 @@
 import {
-  ArrowUpIcon,
   ArrowUpRightIcon,
   ArrowCounterClockwiseIcon,
   CircleIcon,
@@ -78,20 +77,19 @@ function draw(ctx: CanvasRenderingContext2D, s: Shape) {
 }
 
 /**
- * A pasted or picked image opens here first: mark it up (circle, box, arrow, pen), add a message, then
- * Send (or Enter). "Attach" keeps it with the message you are writing instead.
+ * A pasted or picked image opens here first: mark it up (circle, box, arrow, pen), then Attach (or
+ * Enter) puts it with the message you are writing. Nothing is sent from here: Send in the chat sends
+ * the text and every attachment as one message.
  */
 export function AnnotateDialog({
   image,
   initialText,
   onClose,
-  onSend,
   onAttach,
 }: {
   image: File | null;
   initialText: string;
   onClose: () => void;
-  onSend: (png: Blob, text: string) => Promise<void>;
   onAttach: (png: Blob, text: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -102,7 +100,7 @@ export function AnnotateDialog({
   const [tool, setTool] = useState<Tool>('ellipse');
   const [color, setColor] = useState(COLORS[0]!.value);
   const [text, setText] = useState(initialText);
-  const [sending, setSending] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!image) return;
@@ -147,14 +145,14 @@ export function AnnotateDialog({
       canvasRef.current?.toBlob((b) => (b ? resolve(b) : reject(new Error('export failed'))), 'image/png');
     });
 
-  const send = async () => {
-    setSending(true);
+  const attach = async () => {
+    setBusy(true);
     try {
-      await onSend(await exportPng(), text);
+      onAttach(await exportPng(), text);
     } catch (e) {
-      setError((e as Error).message || 'Could not send.');
+      setError((e as Error).message || 'Could not attach it.');
     } finally {
-      setSending(false);
+      setBusy(false);
     }
   };
 
@@ -172,7 +170,7 @@ export function AnnotateDialog({
         <div className="flex flex-wrap items-center gap-2 pr-8">
           <DialogTitle className="mr-2 text-base">Mark up the image</DialogTitle>
           <DialogDescription className="sr-only">
-            Draw on the image, add a message, then send it to the session.
+            Draw on the image, then attach it to the message you are writing.
           </DialogDescription>
           <div
             role="radiogroup"
@@ -271,7 +269,9 @@ export function AnnotateDialog({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void send();
+            // React bubbles this through the portal to the chat's own form, which would send.
+            e.stopPropagation();
+            if (!busy) void attach();
           }}
           className="flex items-end gap-2 rounded-2xl border border-border-strong bg-card py-1.5 pr-1.5 pl-4 focus-within:border-ring/70 focus-within:ring-3 focus-within:ring-ring/25"
         >
@@ -287,35 +287,24 @@ export function AnnotateDialog({
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
-                if (!sending) void send();
+                if (!busy) void attach();
               }
             }}
             placeholder="Add a message…"
             className="block max-h-40 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-1.5 text-[0.9375rem] leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none"
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={!bitmap || sending}
-            onClick={async () => onAttach(await exportPng(), text)}
-            title="Keep it with the message you are writing"
-          >
-            <PaperclipIcon />
-            Attach
-          </Button>
           <button
             type="submit"
-            disabled={!bitmap || sending}
-            aria-label={sending ? 'Sending' : 'Send image'}
-            title="Send (Enter)"
-            className="grid size-9 shrink-0 cursor-pointer place-items-center rounded-full bg-gradient-primary text-on-gradient transition hover:brightness-[0.94] active:scale-95 disabled:opacity-50"
+            disabled={!bitmap || busy}
+            title="Attach to your message (Enter). Send it from the chat."
+            className="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full bg-gradient-primary px-4 text-sm font-medium text-on-gradient transition hover:brightness-[0.94] active:scale-95 disabled:opacity-50"
           >
-            {sending ? (
-              <CircleNotchIcon className="size-4 animate-spin" />
+            {busy ? (
+              <CircleNotchIcon className="size-4 animate-spin" aria-hidden />
             ) : (
-              <ArrowUpIcon weight="bold" className="size-4" />
+              <PaperclipIcon className="size-4" aria-hidden />
             )}
+            Attach
           </button>
         </form>
       </DialogContent>
