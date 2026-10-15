@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.5.0 (2026-10-15)
 
 - **Images you send go in.** A message with an image used to sit unsent in Claude's input box until your
   next message pushed it through, glued to it (`[Image #3]Attached:[Image #4]…`). Claude Code turns a bare
