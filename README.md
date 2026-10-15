@@ -113,7 +113,7 @@ Then talk to the control chat (in AoE, or from your phone; see [Phone access](#p
 
 **Spawning (Supercharge owns this).**
 
-- `supercharge init` registers a repository and creates its control session with `aoe add`.
+- `supercharge init` registers a repository and creates its control session with `aoe add`. If AoE still has that project's control chat (the project was deleted with its sessions kept), init takes it back instead.
 - `supercharge task new "<title>"` creates, in one step:
   - a branch,
   - a git worktree,
@@ -301,6 +301,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - While Claude is working, **Send holds** your message in Supercharge instead of typing it into the turn. It shows in the chat as held, with **Edit** (it goes back into the box) and **Cancel**, and the daemon types it in once Claude is done: one per turn, in order. Held messages, with their images and files, survive a reload and a closed tab.
   - The caret beside Send has **Send now** (Claude reads it during this turn, as Claude Code does) and **Interrupt and send** (Escape stops Claude, then it goes in). A menu on screen is never typed over. Every message is audited when it is typed in.
   - What you were writing stays with its chat, text and attachments, when you switch chats or reload, until you send it. It is kept in your browser's storage. Files upload as you add them.
+  - **Attachments** go with the message you are writing, as many as you like, and Send sends the text and all of them as one message. Paste, drop or pick any file (up to 20 MB each, zips included); a pasted or picked image opens to be marked up first, and **Attach** (or Enter) puts it in the box. **Attach a path…** in the paperclip menu takes a file or folder already on this computer (`/Users/you/project/docs`, `~/Downloads/logs.zip`), checked before it is attached; nothing is copied. A browser can't upload a dropped folder, so dropping one opens that instead. Each attachment rides in the message as an ``Attached: `<path>` `` line that Claude opens with its file tool.
   - The **context ring** opens the figures behind it: tokens used of the window, the model, the last request's input, output and cache, and when Claude Code compacts. They are Claude Code's own when its status line reports them (Supercharge's status line, `agent.statusLine`), and otherwise an estimate from the transcript.
   - What needs you stands out: a report's 🔴 NEEDS YOU, 🟡 WORKING and ✅ DONE sections, watch notices, and errors each sit on a shade of their colour.
 - **Office** (`/office`): every worker stands where its status puts it.

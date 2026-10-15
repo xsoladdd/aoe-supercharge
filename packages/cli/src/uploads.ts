@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { basename, extname, isAbsolute, join, resolve } from 'node:path';
 import { SAFE_ARG, type Paths } from '@aoe-supercharge/core/node';
 
 /** Big enough for screenshots and logs, small enough to keep the daemon light. */
@@ -60,6 +61,24 @@ export async function readUpload(
   if (!bytes) return null;
   const type = INLINE[extname(file).toLowerCase()];
   return { bytes, type: type ?? 'application/octet-stream', inline: !!type };
+}
+
+/**
+ * A file or folder already on this machine, attached by its path (`/abs`, `~/x`; quotes and a
+ * terminal's `\ ` escapes are fine). Null when nothing is there, or the path can't ride in one
+ * `Attached:` line (a newline or a backtick in it).
+ */
+export async function localPath(raw: string): Promise<{ path: string; name: string; dir: boolean } | null> {
+  const p = raw
+    .trim()
+    .replace(/^(['"])(.*)\1$/, '$2')
+    .replace(/\\ /g, ' ')
+    .replace(/^~(?=\/|$)/, homedir());
+  if (!isAbsolute(p) || /[\n\r`]/.test(p)) return null;
+  const st = await stat(p).catch(() => null);
+  if (!st) return null;
+  const path = resolve(p);
+  return { path, name: basename(path) || path, dir: st.isDirectory() };
 }
 
 /** `--add-dir <uploads>` so new sessions can read attachments without a permission prompt. */

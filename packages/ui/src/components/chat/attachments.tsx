@@ -1,7 +1,17 @@
 import { CircleNotchIcon, FileIcon, WarningCircleIcon, XIcon } from '@phosphor-icons/react';
-import { useState, useSyncExternalStore } from 'react';
+import { useId, useState, useSyncExternalStore } from 'react';
 import type { Attachment } from '@aoe-supercharge/core/shared';
-import { ApiError, uploadFile } from '@/lib/api';
+import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { ApiError, sendJson, uploadFile } from '@/lib/api';
 import { drafts } from '@/lib/drafts';
 import { cn } from '@/lib/utils';
 
@@ -119,7 +129,7 @@ export function AttachmentChips({ sessionId, files }: { sessionId: string; files
     <ul aria-label="Attachments" className="flex flex-wrap gap-2 px-3 pt-3">
       {files.map((f) => (
         <li key={f.path} className="group/file relative">
-          {f.image && f.url ? <Thumb src={f.url} name={f.name} /> : <FileChip name={f.name} />}
+          {f.image && f.url ? <Thumb src={f.url} name={f.name} /> : <FileChip name={f.name} title={f.path} />}
           <RemoveButton name={f.name} onClick={() => removeFile(f)} />
         </li>
       ))}
@@ -176,9 +186,9 @@ function Thumb({ src, name }: { src: string; name: string }) {
   );
 }
 
-function FileChip({ name }: { name: string }) {
+function FileChip({ name, title }: { name: string; title?: string }) {
   return (
-    <span className={CHIP}>
+    <span className={CHIP} title={title}>
       <FileIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       <span className="truncate">{name}</span>
     </span>
@@ -195,5 +205,108 @@ function RemoveButton({ name, onClick }: { name: string; onClick: () => void }) 
     >
       <XIcon className="size-3" aria-hidden />
     </button>
+  );
+}
+
+/**
+ * Attach a file or folder that is already on this machine by its path (a folder, a zip, anything):
+ * nothing is copied, Claude opens it where it is. The daemon checks the path is there first.
+ */
+export function PathDialog({
+  sessionId,
+  open,
+  onOpenChange,
+}: {
+  sessionId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const id = useId();
+  const [value, setValue] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const close = (o: boolean) => {
+    if (!o) {
+      setValue('');
+      setError(null);
+    }
+    onOpenChange(o);
+  };
+  const attach = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const found = await sendJson<{ path: string; name: string }>(
+        'POST',
+        `/api/sessions/${encodeURIComponent(sessionId)}/paths`,
+        { path: value },
+      );
+      const file: Attachment = { path: found.path, name: found.name, url: null, image: false };
+      drafts.update(sessionId, (d) =>
+        d.files.some((f) => f.path === file.path) ? d : { ...d, files: [...d.files, file] },
+      );
+      close(false);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Could not attach it.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open={open} onOpenChange={close}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Attach a path</DialogTitle>
+          <DialogDescription>
+            A file or folder on this computer, such as a project folder or a zip. Claude opens it where it is;
+            nothing is copied.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          id={id}
+          onSubmit={(e) => {
+            e.preventDefault();
+            // React bubbles this through the portal to the chat's own form, which would send.
+            e.stopPropagation();
+            if (!busy && value.trim()) void attach();
+          }}
+          className="space-y-1.5"
+        >
+          <label htmlFor={`${id}-path`} className="sr-only">
+            Path
+          </label>
+          <Input
+            id={`${id}-path`}
+            autoFocus
+            spellCheck={false}
+            autoComplete="off"
+            translate="no"
+            placeholder="/Users/you/Downloads/logs.zip or ~/project/docs"
+            value={value}
+            aria-invalid={!!error || undefined}
+            aria-describedby={error ? `${id}-error` : undefined}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setError(null);
+            }}
+            className="font-mono"
+          />
+          {error && (
+            <p id={`${id}-error`} role="alert" className="text-sm text-attn-error">
+              {error}
+            </p>
+          )}
+        </form>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={() => close(false)}>
+            Cancel
+          </Button>
+          <Button type="submit" form={id} disabled={busy || !value.trim()}>
+            {busy && <CircleNotchIcon className="animate-spin" aria-hidden />}
+            Attach
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- **Images you send go in.** A message with an image used to sit unsent in Claude's input box until your
+  next message pushed it through, glued to it (`[Image #3]Attached:[Image #4]…`). Claude Code turns a bare
+  image path in a paste into an `[Image #N]` chip, reading the file after the paste, and AoE's Enter landed
+  meanwhile and was lost. Attachments now ride as ``Attached: `<path>` `` lines, which Claude Code leaves
+  as text: the message submits at once and Claude opens the file itself. Older messages still show their
+  thumbnails.
+- **Attach first, send once.** Marking up an image ends in **Attach** (or Enter), which puts it in the
+  box; nothing is sent from that dialog any more. Send sends the text and every attachment as one message.
+- **Attach a folder, a zip, any file by its path.** The paperclip is now a menu: **Upload files…** (any
+  kind, several at once) and **Attach a path…**, for a file or folder already on this computer. The
+  daemon checks the path is there (`POST /api/sessions/:id/paths`); nothing is copied. Dropping a folder,
+  which a browser can't upload, opens Attach a path.
+- **Re-adding a project keeps its control chat.** After a project was deleted with its sessions kept,
+  `supercharge init` asked AoE for a second control chat with the same title and path, which AoE refuses,
+  and left the project with "Session missing". It now takes the old control chat back. A project already
+  stuck like that is fixed by running `supercharge init` in its repository again.
+
 ## 1.4.0 (2026-10-09)
 
 - **Clean up finished workers, safely.** `supercharge task cleanup <task-id>` (and `--all-done`) removes a

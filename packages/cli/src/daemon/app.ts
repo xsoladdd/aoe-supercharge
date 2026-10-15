@@ -40,7 +40,7 @@ import { CliError } from '../util/errors.ts';
 import { run } from '../util/exec.ts';
 import { PromptReader } from '../prompt.ts';
 import { listSlashCommands } from '../slash.ts';
-import { MAX_UPLOAD_BYTES, readUpload, saveUpload } from '../uploads.ts';
+import { localPath, MAX_UPLOAD_BYTES, readUpload, saveUpload } from '../uploads.ts';
 import type { TranscriptStore } from '../transcript.ts';
 import {
   adoptSessions,
@@ -854,6 +854,25 @@ export function createApp(deps: AppDeps) {
     const saved = await saveUpload(ctx.paths, id, name, bytes);
     ctx.logger.info('upload saved', { session: id, file: saved.file, bytes: bytes.length });
     return c.json(saved);
+  });
+
+  // A file or folder already on this machine, attached by its path: nothing is copied. Checked here so
+  // a typo fails in the dialog, not in Claude's turn.
+  app.post('/api/sessions/:id/paths', async (c) => {
+    const id = c.req.param('id');
+    if (!store.sessions.some((s) => s.id === id))
+      return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { path?: unknown };
+    const found = typeof body.path === 'string' ? await localPath(body.path) : null;
+    if (!found)
+      return c.json(
+        {
+          error: 'no_such_path',
+          message: 'Nothing is there. Give the full path, like /Users/you/folder or ~/folder.',
+        },
+        400,
+      );
+    return c.json(found);
   });
 
   app.get('/api/uploads/:sessionId/:file', async (c) => {

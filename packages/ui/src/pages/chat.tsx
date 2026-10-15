@@ -12,7 +12,9 @@ import {
   WarningCircleIcon,
   XCircleIcon,
   FileIcon,
+  FolderOpenIcon,
   PaperclipIcon,
+  UploadSimpleIcon,
   SidebarSimpleIcon,
   BroomIcon,
   ArrowUUpLeftIcon,
@@ -43,7 +45,7 @@ import { toast } from 'sonner';
 import { Link, useLocation, useSearch } from 'wouter';
 import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
 import { AnnotateDialog } from '@/components/chat/annotate';
-import { AttachmentChips, isImage, uploads, useUploads } from '@/components/chat/attachments';
+import { AttachmentChips, isImage, PathDialog, uploads, useUploads } from '@/components/chat/attachments';
 import { ContextMeter } from '@/components/chat/context-meter';
 import { HeldBubbles } from '@/components/chat/held';
 import { ChatMarkdown } from '@/components/chat/markdown';
@@ -531,6 +533,7 @@ function ChatComposer({
   const uploading = useUploads(sessionId);
   const [editing, setEditing] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [askPath, setAskPath] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
   const working = session.status === 'working';
   const wouldHold = working || !!session.prompt || held.length > 0;
@@ -550,15 +553,10 @@ function ChatComposer({
     setError(null);
   };
 
-  /** Send what is in the box (and `extra` files), held while Claude is busy unless `mode` says otherwise. */
-  const deliver = async (
-    text: string,
-    extra: { blob: Blob; name: string }[] = [],
-    mode: SendMode = 'hold',
-  ) => {
+  /** Send the box and every attachment as one message, held while Claude is busy unless `mode` says otherwise. */
+  const deliver = async (text: string, mode: SendMode = 'hold') => {
     if (sending) return false;
     const typed = value;
-    for (const f of extra) uploads.add(sessionId, f.blob, f.name);
     setSending(true);
     setError(null);
     try {
@@ -616,7 +614,15 @@ function ChatComposer({
         if (!e.dataTransfer.files.length) return;
         e.preventDefault();
         setDragging(false);
-        take(e.dataTransfer.files);
+        // A browser can't read a dropped folder (or tell us where it is): it takes a path instead.
+        const items = [...e.dataTransfer.items].filter((i) => i.kind === 'file');
+        const folder = (i: number) => !!items[i]?.webkitGetAsEntry?.()?.isDirectory;
+        const files = [...e.dataTransfer.files].filter((_, i) => !folder(i));
+        if (files.length) take(files);
+        if (files.length < e.dataTransfer.files.length) {
+          setError('A folder can’t be dropped in. Attach it by its path instead.');
+          setAskPath(true);
+        }
       }}
       className="mx-auto w-full max-w-3xl px-4 pb-3"
     >
@@ -678,17 +684,30 @@ function ChatComposer({
               e.target.value = '';
             }}
           />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            className="size-8 text-muted-foreground"
-            aria-label="Attach files"
-            title="Attach files (or paste, or drop them here)"
-            onClick={() => picker.current?.click()}
-          >
-            <PaperclipIcon className="size-4" />
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="size-8 text-muted-foreground"
+                aria-label="Attach"
+                title="Attach files or a folder (or paste, or drop files here)"
+              >
+                <PaperclipIcon className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-52">
+              <DropdownMenuItem onSelect={() => picker.current?.click()}>
+                <UploadSimpleIcon />
+                Upload files…
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => setAskPath(true)}>
+                <FolderOpenIcon />
+                Attach a path…
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <ModelMenu sessionId={sessionId} model={model} effort={effort} disabled={!!session.prompt} />
           <ContextMeter context={context} onStartFresh={onStartFresh} />
           <FreshButton tokens={context?.used ?? null} onClick={onStartFresh} />
@@ -699,14 +718,15 @@ function ChatComposer({
             empty={!value.trim() && !draft.files.length && !uploading.length}
             wouldHold={wouldHold}
             working={working}
-            onSend={(mode) => void deliver(value, [], mode)}
+            onSend={(mode) => void deliver(value, mode)}
           />
         </div>
       </div>
       <p id="chat-help" className="sr-only">
         Enter sends, Shift+Enter adds a line. While Claude is working, a message waits here until Claude is
-        done; the menu beside Send sends it now or stops Claude first. Paste or drop images to mark them up
-        first. Sent into the AoE session as a prompt and recorded in the audit log.
+        done; the menu beside Send sends it now or stops Claude first. Paste or drop files to attach them
+        (images open for marking up first); they go with the message when you send it. Sent into the AoE
+        session as a prompt and recorded in the audit log.
       </p>
       {error && (
         <p id="chat-error" role="alert" className="mt-1.5 text-center text-sm text-attn-error">
@@ -717,15 +737,13 @@ function ChatComposer({
         image={editing[0] ?? null}
         initialText={value}
         onClose={() => setEditing((q) => q.slice(1))}
-        onSend={async (png, text) => {
-          if (await deliver(text, [{ blob: png, name: 'screenshot.png' }])) setEditing((q) => q.slice(1));
-        }}
         onAttach={(png, text) => {
           uploads.add(sessionId, png, 'screenshot.png');
           onChange(text);
           setEditing((q) => q.slice(1));
         }}
       />
+      <PathDialog sessionId={sessionId} open={askPath} onOpenChange={setAskPath} />
     </form>
   );
 }

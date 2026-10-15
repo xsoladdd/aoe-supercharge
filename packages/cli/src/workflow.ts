@@ -254,12 +254,23 @@ export async function initProject(
   let controlCreated = false;
   const warnings: string[] = [];
   const sessions = await listAoe(ctx);
-  const existing = project.controlSessionId
+  const title = `${project.name} control`;
+  let existing = project.controlSessionId
     ? sessions.find((s) => s.id === project!.controlSessionId)
     : undefined;
   if (!existing) {
+    // A project deleted with its sessions kept leaves its control chat in AoE, and AoE refuses a second
+    // session with the same title and path: take the old one back.
+    for (const s of sessions)
+      if (s.title === title && !s.parent_session_id && (await sameDir(s.path, repo))) existing = s;
+    if (existing)
+      project = await ctx.ledger.updateProject(project.name, (p) => ({
+        ...p,
+        controlSessionId: existing!.id,
+      }));
+  }
+  if (!existing) {
     const before = new Set(sessions.map((s) => s.id));
-    const title = `${project.name} control`;
     const extraArgs = [
       '--append-system-prompt-file',
       promptFile,
