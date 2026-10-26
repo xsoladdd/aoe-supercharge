@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ASK_MENU, PERMISSION_MENU, PLAN_MENU } from '../../fake-aoe/src/server.ts';
 import {
@@ -95,6 +97,55 @@ describe('parseTerminalMenu: menus at the bottom of a Claude Code pane', () => {
     expect(promptKind('Bash', menu)).toBe('permission');
     expect(promptKind(null, menu)).toBe('plan'); // the plan wording alone
     expect(promptKind(null, parseTerminalMenu(pane(PERMISSION_MENU))!)).toBe('menu');
+  });
+});
+
+describe('parseTerminalMenu: real Claude Code 2.1.308 screens (fixtures/claude-code)', () => {
+  const screen = (name: string) =>
+    readFileSync(join(import.meta.dirname, '../../../fixtures/claude-code/2.1.308', `${name}.txt`), 'utf8');
+  const PROCEED = 'Do you want to proceed?';
+
+  // Since 2.1.29x the command sits between dashed lines, and "No" no longer asks for feedback (Tab amends).
+  it.each([
+    ['bash-permission', PROCEED, 4],
+    ['multibash-permission', PROCEED, 3],
+    ['read-permission', PROCEED, 3],
+    ['mcp-permission', PROCEED, 3],
+    ['stack-permission', PROCEED, 4],
+    ['agents-permission', PROCEED, 4], // stacked: "1 of 2" on the title line
+  ])('%s: the question under the dashed command block, and every option', (name, question, count) => {
+    const menu = parseTerminalMenu(screen(name))!;
+    expect(menu.question).toBe(question);
+    expect(menu.options.map((o) => o.n)).toEqual(Array.from({ length: count }, (_, i) => i + 1));
+    expect(menu.options.at(-1)).toMatchObject({ label: 'No', feedback: false });
+  });
+
+  it('fetch, plan approval and AskUserQuestion keep their feedback options', () => {
+    const fetch = parseTerminalMenu(screen('fetch-permission'))!;
+    expect(fetch.question).toBe('Do you want to allow Claude to fetch this content?');
+    expect(fetch.options.map((o) => o.feedback)).toEqual([false, false, true]);
+    const plan = parseTerminalMenu(screen('plan-approval'))!;
+    expect(plan.question).toBe(
+      'Claude has written up a plan and is ready to execute. Would you like to proceed?',
+    );
+    expect(plan.options.map((o) => [o.label, o.feedback])).toEqual([
+      ['Yes, and use auto mode', false],
+      ['Yes, manually approve edits', false],
+      ['Tell Claude what to change', true],
+    ]);
+    const ask = parseTerminalMenu(screen('ask-question'))!;
+    expect(ask.question).toBe('Which database should we use?');
+    expect(ask.options.map((o) => [o.label, o.hint])).toEqual([
+      ['Postgres', 'Relational, what we run today'],
+      ['SQLite', 'One file, no server'],
+      ['Type something.', null],
+      ['Chat about this', null],
+    ]);
+  });
+
+  it('is not fooled by / and @ suggestion lists or a prompt held back while typing', () => {
+    for (const name of ['slash-suggestions', 'at-suggestions', 'held-while-typing'])
+      expect(parseTerminalMenu(screen(name))).toBeNull();
   });
 });
 
