@@ -243,6 +243,21 @@
   .flash {
     animation: sc-flash 600ms ease-out 1;
   }
+  /* The check on a copy button popping in. */
+  .pop {
+    animation: sc-pop 180ms ease-out 1;
+  }
+}
+
+@keyframes sc-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @keyframes sc-flash {
