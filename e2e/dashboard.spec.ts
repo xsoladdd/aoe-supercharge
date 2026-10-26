@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PERMISSION_MENU } from '../packages/fake-aoe/src/server.ts';
+import { CONSENT_MENU, PERMISSION_MENU, trustMenu } from '../packages/fake-aoe/src/server.ts';
 import type { Locator, Page } from '@playwright/test';
 import { axe, expect, fake, test, world } from './fixtures.ts';
 
@@ -377,14 +377,54 @@ test.describe('project', () => {
       await card.getByRole('radiogroup').getByText('Yes', { exact: true }).click();
       await card.getByRole('button', { name: 'Send answer' }).click();
       await expect(page.getByText('Answer sent')).toBeVisible();
-      const state = (await fake('/__fake/state')) as { sent: { id: string; message: string }[] };
-      expect(state.sent.filter((m) => m.id === id).at(-1)?.message).toBe('1');
+      // The digit goes in as a key (no Enter after it), not as a message.
+      const state = (await fake('/__fake/state')) as { keys: { id: string; hex: string }[] };
+      expect(state.keys.filter((k) => k.id === id).at(-1)?.hex).toBe('31');
       await expect(card).toHaveCount(0, { timeout: 15_000 });
       await expect(page.getByLabel(/^Message /)).toBeVisible();
     } finally {
       await fake(`/__fake/sessions/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: 'Running', menu: null }),
+      });
+    }
+  });
+
+  test('the trust dialog of an idle session is answered from the chat', async ({ signedIn: page }) => {
+    const id = await sessionId('AA-0001');
+    // AoE says Idle at Claude Code's startup dialogs; no hook has fired.
+    await fake(`/__fake/sessions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        status: 'Idle',
+        menu: trustMenu(),
+        trust: { cursor: 1, next: CONSENT_MENU },
+      }),
+    });
+    try {
+      await page.goto('/p/apollo-api/t/AA-0001/chat');
+      const card = page.locator('section', {
+        has: page.getByRole('heading', { name: 'Claude is waiting on you' }),
+      });
+      await expect(
+        card.getByText('Quick safety check: Is this a project you created or one you trust?'),
+      ).toBeVisible({ timeout: 15_000 });
+      await card.getByRole('radiogroup').getByText('Yes, I trust this folder').click();
+      await card.getByRole('button', { name: 'Send answer' }).click();
+      await expect(page.getByText('Answer sent')).toBeVisible();
+      const state = (await fake('/__fake/state')) as { keys: { id: string; hex: string }[] };
+      expect(
+        state.keys
+          .filter((k) => k.id === id)
+          .slice(-2)
+          .map((k) => k.hex),
+      ).toEqual(['1b5b42', '0d']);
+      // Then the next screen, which nothing answered for you.
+      await expect(card.getByText('Do you accept the risk?')).toBeVisible({ timeout: 15_000 });
+    } finally {
+      await fake(`/__fake/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'Running', menu: null, trust: null }),
       });
     }
   });

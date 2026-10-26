@@ -14,9 +14,48 @@ import {
   type SessionView,
 } from '../src/shared/index.ts';
 
+const fixture = (name: string) => readFileSync(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
+
 const pane = (...parts: string[]) => [' ▐▛███▜▌   Claude Code', '', ...parts].join('\n');
 
 describe('parseTerminalMenu: menus at the bottom of a Claude Code pane', () => {
+  // Real screens, captured from Claude Code 2.1.285 in a fresh folder (tmux, left without trusting it).
+  it.each(['claude-2.1.285-trust-120.txt', 'claude-2.1.285-trust-80.txt'])(
+    'reads the real trust dialog (%s): unnumbered rows, the cursor on "No, exit", the real question',
+    (name) => {
+      const menu = parseTerminalMenu(fixture(name))!;
+      expect(menu.question).toBe('Quick safety check: Is this a project you created or one you trust?');
+      expect(menu.options.map((o) => [o.n, o.label, o.feedback])).toEqual([
+        [1, 'No, exit', false],
+        [2, 'Yes, I trust this folder', false],
+      ]);
+      expect(menu).toMatchObject({ numbered: false, cursor: 1, multi: false, tabs: [] });
+    },
+  );
+
+  it('reads the real MCP approval from a repo .mcp.json: its title is the question, the cursor is on the last row', () => {
+    const menu = parseTerminalMenu(fixture('claude-2.1.285-mcp-approval.txt'))!;
+    expect(menu.question).toBe('New MCP server found in this project: demo');
+    expect(menu.options.map((o) => o.label)).toEqual([
+      'Use this MCP server',
+      'Use this and all future MCP servers in this project',
+      'Continue without using this MCP server',
+    ]);
+    expect(menu).toMatchObject({ numbered: false, cursor: 3 });
+  });
+
+  it("tells the trust dialog's cursor row, and a numbered menu keeps its numbers", () => {
+    const down = fixture('claude-2.1.285-trust-80.txt')
+      .replace('❯ No, exit', '  No, exit')
+      .replace('  Yes, I', '❯ Yes, I');
+    expect(parseTerminalMenu(down)).toMatchObject({ cursor: 2, numbered: false });
+    expect(parseTerminalMenu(pane(PERMISSION_MENU))).toMatchObject({ cursor: 1, numbered: true });
+  });
+
+  it('ignores plain rows without the Enter-to-confirm footer', () => {
+    expect(parseTerminalMenu(pane(' ❯ No, exit', '   Yes, I trust this folder'))).toBeNull();
+  });
+
   it('reads the plan approval: question, numbered options, hints, footer ignored', () => {
     const menu = parseTerminalMenu(pane(' Some plan text above.', '', PLAN_MENU, '', ''))!;
     expect(menu.question).toBe(

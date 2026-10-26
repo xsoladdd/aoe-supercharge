@@ -19,6 +19,8 @@ import { KICKOFF_MESSAGE } from '../src/workflow.ts';
 import {
   ASK_MENU,
   PERMISSION_MENU,
+  CONSENT_MENU,
+  trustMenu,
   PLAN_MENU,
   startFakeAoe,
   type FakeAoe,
@@ -727,6 +729,69 @@ describe('daemon: security, live state and the MR watcher', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'Idle' }),
     });
+  });
+
+  it('an idle session on its startup dialogs shows them, and each answer is keys only', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const post = (path: string, body: unknown) =>
+      fetch(`${base()}${path}`, {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const snapshot = async () =>
+      (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const patch = (body: unknown) =>
+      fetch(`${fake.url}/__fake/sessions/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const id = (await snapshot()).tasks[0]!.aoeSessionId;
+    const keys = () => fake.state.keys.filter((k) => k.id === id).map((k) => k.hex);
+    const keysBefore = keys().length;
+    const sentBefore = fake.state.sent.length;
+    // The trust dialog, as Claude Code draws it: AoE still says Idle, since no hook has fired.
+    await patch({
+      status: 'Idle',
+      menu: trustMenu(),
+      trust: { cursor: 1, next: CONSENT_MENU },
+    });
+    const snap = await until(async () => {
+      const s = await snapshot();
+      return s.sessions.find((x) => x.id === id)?.prompt ? s : null;
+    });
+    const view = snap.sessions.find((x) => x.id === id)!;
+    expect(view).toMatchObject({ rawStatus: 'Idle', status: 'waiting' });
+    expect(view.prompt).toMatchObject({
+      kind: 'menu',
+      question: 'Quick safety check: Is this a project you created or one you trust?',
+      answerable: true,
+    });
+    expect(view.prompt!.options.map((o) => o.label)).toEqual(['No, exit', 'Yes, I trust this folder']);
+    expect(snap.needsYou.some((n) => n.sessionId === id)).toBe(true);
+    expect((await post(`/api/sessions/${id}/send`, { message: 'hi' })).status).toBe(409);
+
+    // "Yes": the cursor goes down one row and Enter confirms it, with nothing sent over REST.
+    expect((await post(`/api/sessions/${id}/answer`, { key: view.prompt!.key, option: 2 })).status).toBe(200);
+    expect(keys().slice(keysBefore)).toEqual(['1b5b42', '0d']);
+    expect(fake.state.sent.slice(sentBefore)).toEqual([]);
+    // The consent screen after it is shown, and is not answered by anything we pressed.
+    const next = await until(async () => {
+      const p = (await snapshot()).sessions.find((x) => x.id === id)?.prompt;
+      return p?.question === 'Do you accept the risk?' ? p : null;
+    });
+    await sleep(1_000);
+    expect(keys().slice(keysBefore)).toEqual(['1b5b42', '0d']);
+    // A numbered option goes in as its digit alone.
+    expect((await post(`/api/sessions/${id}/answer`, { key: next.key, option: 2 })).status).toBe(200);
+    expect(keys().slice(keysBefore)).toEqual(['1b5b42', '0d', '32']);
+    expect(fake.state.sent.length).toBe(sentBefore);
+    await until(async () => !(await snapshot()).sessions.find((x) => x.id === id)?.prompt);
+    expect((await snapshot()).sessions.find((x) => x.id === id)!.status).toBe('idle');
+    await patch({ status: 'Idle', menu: null, trust: null });
+    // The next test counts the keys it typed.
+    fake.state.keys = fake.state.keys.filter((k) => k.id !== id);
   });
 
   it("answers Claude's own multiple-choice questions: Escape through the live terminal, then the answers", async () => {

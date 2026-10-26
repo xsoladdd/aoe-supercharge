@@ -31,6 +31,8 @@ export interface FakeSession {
   parent_session_id: string | null;
   /** Fake only: a Claude Code menu drawn at the bottom of the pane (see PLAN_MENU). Never sent over REST. */
   menu?: string | null;
+  /** Fake only: the trust dialog is open: which row the cursor is on, and the menu that comes after it. */
+  trust?: { cursor: 1 | 2; next: string | null } | null;
   /** Fake only: background shells the pane's footer reports ("· 2 shells ·"). Never sent over REST. */
   shells?: number;
   /** Fake only: the `aoe add --extra-args` string, so tests can see the claude flags. Never sent over REST. */
@@ -96,15 +98,40 @@ export const PERMISSION_MENU = [
   '   3. No, and tell Claude what to do differently (esc)',
 ].join('\n');
 
-/** The folder-trust dialog a new Claude Code session can open on (wording approximate). */
-export const TRUST_MENU = [
+/**
+ * The folder-trust dialog a new Claude Code session opens on, as 2.1.285 draws it: no numbers, the
+ * cursor on "No, exit", and AoE still reports Idle (no hook has fired). `cursor` is 1 or 2.
+ */
+export const trustMenu = (cursor: 1 | 2 = 1) =>
+  [
+    '────────────────────────────────────────────────────────────────────────────────',
+    ' Accessing workspace:',
+    '',
+    ' /tmp/some/project',
+    '',
+    ' Quick safety check: Is this a project you created or one you trust? (Like your',
+    ' own code, a well-known open source project, or work from your team). If not,',
+    " take a moment to review what's in this folder first.",
+    '',
+    " Claude Code'll be able to read, edit, and execute files here.",
+    '',
+    ' Security guide',
+    '',
+    ` ${cursor === 1 ? '❯' : ' '} No, exit`,
+    ` ${cursor === 2 ? '❯' : ' '} Yes, I trust this folder`,
+    '',
+    ' Enter to confirm · Esc to cancel',
+  ].join('\n');
+
+/** A numbered screen that can follow the trust dialog: its highlighted option is "No, exit". */
+export const CONSENT_MENU = [
   '────────────────────────────────────────────────────────────────────────────────',
-  ' Accessing workspace:',
+  ' WARNING: Claude Code running in Bypass Permissions mode',
   '',
-  ' Quick safety check: Is this a project you created or one you trust?',
+  ' Do you accept the risk?',
   '',
-  ' ❯ 1. Yes, I trust this folder',
-  '   2. No, exit',
+  ' ❯ 1. No, exit',
+  '   2. Yes, I accept',
   '',
   ' Enter to confirm · Esc to cancel',
 ].join('\n');
@@ -187,6 +214,7 @@ function toRest(s: FakeSession) {
   const {
     parent_session_id: _p,
     menu: _m,
+    trust: _t,
     shells: _sh,
     extra_args: _x,
     swallow: _s,
@@ -265,7 +293,7 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     const s = state.sessions.find((x) => x.id === id);
     if (!s) return;
     // A digit picks an option of an open menu (Claude Code confirms on the digit alone).
-    if (s.menu && /^\d$/.test(message.trim())) {
+    if (s.menu && !s.trust && /^\d$/.test(message.trim())) {
       s.menu = null;
       return;
     }
@@ -315,7 +343,14 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
   app.post('/__fake/sessions', async (c) => {
     const body = (await c.req.json()) as Partial<FakeSession> & { title: string; project_path: string };
     const s = makeSession(body);
-    if (s.menu === 'trust') Object.assign(s, { status: 'Waiting', menu: TRUST_MENU });
+    // FAKE_AOE_START_MENU=trust-consent: the trust dialog, then a consent screen.
+    if (s.menu === 'trust' || s.menu === 'trust-consent')
+      Object.assign(s, {
+        status: 'Idle',
+        idle_entered_at: new Date().toISOString(),
+        menu: trustMenu(),
+        trust: { cursor: 1, next: s.menu === 'trust-consent' ? CONSENT_MENU : null },
+      });
     state.sessions.push(s);
     // Claude Code's SessionStart hook: a launched session's Claude id is known before any message.
     if (transcripts && s.hooks !== false && (s.status === 'Starting' || s.menu))
@@ -628,7 +663,20 @@ function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: F
         const bytes = Buffer.from(data as Buffer);
         state.keys.push({ id: s.id, hex: bytes.toString('hex'), at: new Date().toISOString() });
         setTimeout(frame, 0);
-        if (bytes.length === 1 && bytes[0] === 0x1b && s.menu) {
+        const key = bytes.toString('latin1');
+        if (s.trust && (key === '\x1b[B' || key === '\x1b[A')) {
+          s.trust.cursor = key === '\x1b[B' ? 2 : 1;
+          s.menu = trustMenu(s.trust.cursor);
+        } else if (s.trust && key === '\r') {
+          // Enter confirms the highlighted row: "No, exit" quits Claude, "Yes" goes on to the next screen.
+          const { cursor, next } = s.trust;
+          s.trust = null;
+          s.menu = cursor === 1 ? null : next;
+          if (cursor === 1) Object.assign(s, { status: 'Stopped' });
+        } else if (s.menu && !s.trust && /^\d$/.test(key)) {
+          // Claude Code confirms a numbered option on the digit alone.
+          s.menu = null;
+        } else if (bytes.length === 1 && bytes[0] === 0x1b && s.menu) {
           s.menu = null;
           transcripts?.get(s.id)?.rejectPending();
         } else if (bytes.length === 1 && bytes[0] === 0x1b && s.status === 'Running') {

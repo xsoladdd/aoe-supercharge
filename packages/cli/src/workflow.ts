@@ -21,6 +21,7 @@ import {
   type Actor,
   type LiveStatus,
   type MrState,
+  type ParsedMenu,
   type ProjectRecord,
   type Stage,
   type TaskRecord,
@@ -1630,11 +1631,49 @@ async function deliver(ctx: Ctx, sessionId: string, text: string) {
   }
 }
 
+const DOWN = '\x1b[B';
+const UP = '\x1b[A';
+
 /**
- * Answer the menu a session is showing by typing the option's number, as you would in the terminal.
- * Claude Code confirms a numbered option on the digit alone; AoE's Enter after it lands on the empty
- * prompt. For an option that means telling Claude something, the digit focuses (or picks) it, the menu
- * closes, and the text then goes in as a normal message. Only delivered while the same menu is on screen.
+ * Pick an option by keys alone, never through REST `send`: its Enter would also answer whatever screen
+ * comes next (on Claude Code's startup, trust and then a consent screen whose highlighted option is
+ * "No, exit"). A numbered menu confirms on the digit; the trust dialog has no numbers, so the cursor
+ * moves to the row and Enter confirms it.
+ */
+async function pressOption(
+  ctx: Ctx,
+  sessionId: string,
+  menu: ParsedMenu,
+  n: number,
+  wait: (ms: number) => Promise<void>,
+) {
+  const press = async (keys: string[]) => {
+    try {
+      await ctx.aoe.pressKeys(sessionId, keys);
+    } catch (err) {
+      if (err instanceof TerminalBusyError) throw new TerminalBusyCliError(err.message);
+      throw new CliError(`Could not answer the menu: ${(err as Error).message}`);
+    }
+  };
+  if (!menu.numbered) {
+    const step = n - menu.cursor;
+    return press([...Array<string>(Math.abs(step)).fill(step > 0 ? DOWN : UP), '\r']);
+  }
+  await press([String(n)]);
+  // A menu that does not take the digit stays open; if it only moved the cursor, Enter finishes it.
+  await wait(600);
+  const now = await menuOnScreen(ctx, sessionId);
+  if (now?.key !== menu.key) return;
+  if (now.cursor !== n)
+    throw new CliError('The menu did not take the answer. Check the terminal.', EXIT.usage);
+  await press(['\r']);
+}
+
+/**
+ * Answer the menu a session is showing, with the keys you would press in the terminal (`pressOption`).
+ * For an option that means telling Claude something, the digit only focuses it and AoE's Enter closes the
+ * menu, so that one goes through `send`; the text then goes in as a normal message. Only delivered
+ * while the same menu is on screen.
  */
 export async function answerPrompt(
   ctx: Ctx,
@@ -1666,7 +1705,8 @@ export async function answerPrompt(
     sessionId: opts.sessionId,
     text: `${option.n}. ${option.label}${menu.question ? ` (to: ${menu.question})` : ''}`,
   });
-  await deliver(ctx, opts.sessionId, String(option.n));
+  if (option.feedback) await deliver(ctx, opts.sessionId, String(option.n));
+  else await pressOption(ctx, opts.sessionId, menu, option.n, wait);
   if (!text) return;
   for (let i = 0; ; i++) {
     await wait(250);

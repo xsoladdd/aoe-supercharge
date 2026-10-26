@@ -12,6 +12,17 @@
 - **Task audit entries name who started the task.** `task_created` said `cli` whoever ran it; it now says
   `user` (you, at the CLI or in the dashboard) or `control` (the control chat). A dashboard task's first
   message is audited as `ui`.
+- **Startup prompts show in the dashboard.** Claude Code's "Quick safety check: Is this a project you created
+  or one you trust?" (and the MCP approval for a repo's `.mcp.json`) never reached Supercharge: AoE reports
+  Idle while they wait, menus were read only for waiting sessions, and Claude Code 2.1.285 draws these
+  dialogs without numbers, which the parser did not know. A fresh `supercharge init` left you attaching
+  the tmux session by hand. Now idle sessions are read too (once per idle spell, on every poll in a
+  session's first two minutes, and while a menu is open), the real dialogs are parsed from captured
+  screens, and the chat shows the answer card with a Needs-you item, for control chats and workers.
+- **Menus are answered with keys only.** An option went in through REST `send`, whose trailing Enter would
+  also answer the next screen (a consent screen's highlighted option is "No, exit"). Now the digit, or the
+  arrows and Enter for a menu without numbers, are pressed through the live terminal; only "Tell Claude…"
+  options still use `send`.
 - **A live terminal in the chat.** The chat's **Terminal** view is now the session's own terminal, live and
   in colour, instead of a text copy that refreshed every 2 seconds. Every key goes straight in: arrows,
   Enter, Escape, Tab, Ctrl-C and paste. Keys typed there skip the message checks (no `prompt_sent` audit,

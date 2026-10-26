@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { defaultConfig, resolvePaths } from '@aoe-supercharge/core/node';
-import type { MrState, NeedsYouItem, TaskRecord } from '@aoe-supercharge/core/shared';
+import {
+  parseTerminalMenu,
+  type MrState,
+  type NeedsYouItem,
+  type SessionView,
+  type TaskRecord,
+} from '@aoe-supercharge/core/shared';
 import {
   AoeAboutSchema,
   AoeCliListSchema,
@@ -18,6 +24,9 @@ import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '..
 import { renderCaddyfile } from '../src/commands/proxy.ts';
 import { landedOn, markLanded } from '../src/daemon/branch-watcher.ts';
 import { MrWatcher } from '../src/daemon/mr-watcher.ts';
+import { AoeWatcher } from '../src/daemon/watchers.ts';
+import { answerPrompt } from '../src/workflow.ts';
+import { CONSENT_MENU, trustMenu } from '../../fake-aoe/src/server.ts';
 import { CostWatcher, OfficeWatcher, WeatherWatcher } from '../src/daemon/office.ts';
 import { at, project, session as view, T0, task as taskRecord } from '../../core/test/office-fixtures.ts';
 import { RunTerminals } from '../src/daemon/run-terminals.ts';
@@ -922,5 +931,77 @@ describe('attach in a terminal', () => {
     });
     expect(findTmuxWindow('aoe_Live_termina_01234567\t0\t80\t24', '0123456789abcdef')?.attached).toBe(false);
     expect(findTmuxWindow(listing, 'ffffffffffffffff')).toBeNull();
+  });
+});
+
+describe('startup dialogs: reading an idle session, answering without a stray Enter', () => {
+  const watcher = () =>
+    new AoeWatcher({} as never, {} as never) as unknown as {
+      menuRead: Map<string, string>;
+      menuOpen: Set<string>;
+      menuReadDue: (v: Partial<SessionView>) => boolean;
+    };
+  const idle = (o: Partial<SessionView> = {}) => ({
+    id: 's1',
+    status: 'idle' as const,
+    statusSince: '2026-10-26T10:00:00Z',
+    createdAt: '2020-01-01T00:00:00Z',
+    ...o,
+  });
+
+  it('reads waiting sessions every poll, a long-idle one once per idle spell, a young or open one every poll', () => {
+    const w = watcher();
+    expect(w.menuReadDue({ ...idle(), status: 'waiting' })).toBe(true);
+    expect(w.menuReadDue({ ...idle(), status: 'working' })).toBe(false);
+    expect(w.menuReadDue(idle())).toBe(true); // never read
+    w.menuRead.set('s1', '2026-10-26T10:00:00Z');
+    expect(w.menuReadDue(idle())).toBe(false); // read in this spell
+    expect(w.menuReadDue(idle({ statusSince: '2026-10-26T10:05:00Z' }))).toBe(true); // a new spell
+    expect(w.menuReadDue(idle({ createdAt: new Date().toISOString() }))).toBe(true); // just started
+    w.menuOpen.add('s1');
+    expect(w.menuReadDue(idle())).toBe(true); // a menu is open: watch it clear
+  });
+
+  const press = (screens: string[]) => {
+    const keys: string[][] = [];
+    const ctx = {
+      aoe: {
+        output: async () => ({ content: screens.length > 1 ? screens.shift()! : screens[0]! }),
+        pressKeys: async (_id: string, k: string[]) => void keys.push(k),
+        send: async () => {
+          throw new Error('REST send adds an Enter');
+        },
+      },
+      paths: { auditFile: join(tmpdir(), 'sc-audit-test.jsonl') },
+    };
+    return { ctx: ctx as never, keys };
+  };
+  const answer = (ctx: never, key: string, option: number) =>
+    answerPrompt(ctx, { sessionId: 's1', key, option, actor: 'ui' }, async () => {});
+
+  it("moves the trust dialog's cursor and presses Enter, upwards too", async () => {
+    const key = parseTerminalMenu(trustMenu())!.key;
+    const down = press([trustMenu()]);
+    await answer(down.ctx, key, 2);
+    expect(down.keys).toEqual([['\x1b[B', '\r']]);
+    const up = press([trustMenu(2)]);
+    await answer(up.ctx, key, 1);
+    expect(up.keys).toEqual([['\x1b[A', '\r']]);
+  });
+
+  it('sends a numbered option as its digit, and presses Enter only if the digit just moved the cursor', async () => {
+    const key = parseTerminalMenu(CONSENT_MENU)!.key;
+    const taken = press([CONSENT_MENU, '❯ ']);
+    await answer(taken.ctx, key, 2);
+    expect(taken.keys).toEqual([['2']]);
+    const moved = press([
+      CONSENT_MENU,
+      CONSENT_MENU.replace('❯ 1. No', '  1. No').replace('  2. Yes', '❯ 2. Yes'),
+    ]);
+    await answer(moved.ctx, key, 2);
+    expect(moved.keys).toEqual([['2'], ['\r']]);
+    const ignored = press([CONSENT_MENU]);
+    await expect(answer(ignored.ctx, key, 2)).rejects.toThrow(/did not take the answer/);
+    expect(ignored.keys).toEqual([['2']]);
   });
 });
