@@ -49,6 +49,7 @@ const TOGGLE: Record<NeedsYouKind, keyof Config['notifications'] | null> = {
   session_missing: 'error',
   mr_ready: 'readyForReview',
   mr_closed: 'readyForReview',
+  schedule_failed: 'error',
 };
 
 const TITLE: Record<NeedsYouKind, string> = {
@@ -65,6 +66,7 @@ const TITLE: Record<NeedsYouKind, string> = {
   session_missing: 'Session missing',
   mr_ready: 'Ready for review',
   mr_closed: 'MR closed',
+  schedule_failed: 'Scheduled prompt failed',
 };
 
 /**

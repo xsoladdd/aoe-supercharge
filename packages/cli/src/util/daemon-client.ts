@@ -12,6 +12,7 @@ export async function daemonRequest<T = unknown>(
   method: string,
   path: string,
   body?: unknown,
+  timeoutMs = 5_000,
 ): Promise<DaemonResponse<T> | null> {
   const token = await readToken(ctx.paths);
   try {
@@ -22,7 +23,7 @@ export async function daemonRequest<T = unknown>(
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
     const text = await res.text();
     let parsed: unknown = text;

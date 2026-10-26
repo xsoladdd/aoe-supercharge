@@ -1,5 +1,7 @@
 import {
   computeNeedsYou,
+  EMPTY_GENERAL,
+  type GeneralRecord,
   type Health,
   type HeldMessage,
   type NeedsYouItem,
@@ -8,6 +10,7 @@ import {
   type MrState,
   type SessionCost,
   type ProjectRecord,
+  type ScheduleView,
   type SessionView,
   type Snapshot,
   type SnapshotEvent,
@@ -38,6 +41,7 @@ export class Store {
   private listeners = new Set<Listener>();
   sessions: SessionView[] = [];
   projects: ProjectRecord[] = [];
+  general: GeneralRecord = EMPTY_GENERAL;
   tasks: TaskRecord[] = [];
   needsYou: NeedsYouItem[] = [];
   notes: NoteRecord[] = [];
@@ -47,6 +51,7 @@ export class Store {
   sessionMrs: Record<string, MrState> = {};
   watch: Record<string, WatchSummary> = {};
   held: Record<string, HeldMessage[]> = {};
+  schedules: ScheduleView[] = [];
   ui: Snapshot['ui'] = {
     theme: 'dark',
     density: 'comfortable',
@@ -75,6 +80,7 @@ export class Store {
       health: this.health,
       sessions: this.sessions,
       projects: this.projects,
+      general: this.general,
       tasks: this.tasks,
       needsYou: this.needsYou,
       notes: this.notes,
@@ -84,6 +90,7 @@ export class Store {
       sessionMrs: this.sessionMrs,
       watch: this.watch,
       held: this.held,
+      schedules: this.schedules,
       ui: this.ui,
     };
   }
@@ -143,6 +150,13 @@ export class Store {
       changed = true;
     }
     if (changed) this.recomputeNeedsYou();
+  }
+
+  setGeneral(general: GeneralRecord) {
+    if (same(general, this.general)) return;
+    this.general = general;
+    this.emit({ type: 'general', data: general });
+    this.recomputeNeedsYou();
   }
 
   /** Every note; the dashboard gets the ones not archived. */
@@ -228,6 +242,13 @@ export class Store {
     this.emit({ type: 'held', data: kept });
   }
 
+  setSchedules(schedules: ScheduleView[]) {
+    if (same(schedules, this.schedules)) return;
+    this.schedules = schedules;
+    this.emit({ type: 'schedules', data: schedules });
+    this.recomputeNeedsYou();
+  }
+
   setWatch(watch: Record<string, WatchSummary>) {
     if (same(watch, this.watch)) return;
     this.watch = watch;
@@ -254,6 +275,8 @@ export class Store {
       tasks: this.tasks,
       sessions: this.sessions,
       projects: this.projects,
+      schedules: this.schedules,
+      general: this.general,
       aoeReachable: this.health.aoe.state === 'ok' && this.sessionsLoaded,
       now: new Date(),
       waitingDebounceSeconds: this.opts.waitingDebounceSeconds(),

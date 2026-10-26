@@ -12,6 +12,8 @@ import {
 import {
   asksFromChat,
   countActiveWorkers,
+  countBusyGeneral,
+  generalSessionIds,
   deskChanges,
   normalizeAoeStatus,
   pickWorkerName,
@@ -30,6 +32,9 @@ import type { TranscriptStore } from '../transcript.ts';
 import type { Store } from './store.ts';
 import { advanceKickoff, kickoffUnconfirmed } from '../workflow.ts';
 
+/** A new session is read for startup dialogs on every poll for this long. */
+const MENU_YOUNG_MS = 2 * 60_000;
+
 const nowIso = () => new Date().toISOString();
 
 /**
@@ -47,6 +52,9 @@ export class AoeWatcher {
   private stopped = false;
   /** Each control chat's NEEDS YOU list, kept while it works on its next reply. */
   private asks = new Map<string, { at: string; items: ControlAsk[] } | null>();
+  /** Idle sessions whose pane was read: the idle spell it was read in. A menu found stays in `menuOpen` until it clears. */
+  private menuRead = new Map<string, string | null>();
+  private menuOpen = new Set<string>();
 
   constructor(
     private ctx: Ctx,
@@ -165,13 +173,20 @@ export class AoeWatcher {
     const locks = new Set(await this.ctx.ledger.readLocks().catch(() => [] as string[]));
     const views = live.map((s) => this.toView(s, locks));
     // A waiting session may be showing a menu (plan approval, permission); read it so the dashboard can answer.
+    // So may an idle one: Claude Code's startup dialogs (trust, MCP approval) fire no hook, so AoE says Idle.
     if (this.prompts) {
       const reader = this.prompts;
       await Promise.all(
         views
-          .filter((v) => v.status === 'waiting' && !v.archived)
+          .filter((v) => !v.archived && this.menuReadDue(v))
           .map(async (v) => {
             v.prompt = await reader.read(v.id, v.projectPath).catch(() => null);
+            if (v.status === 'waiting') return;
+            this.menuRead.set(v.id, v.statusSince);
+            if (!v.prompt) return void this.menuOpen.delete(v.id);
+            this.menuOpen.add(v.id);
+            // Waiting on you, whatever AoE calls it: the sidebar, Needs you and the office all key on it.
+            v.status = 'waiting';
           }),
       );
     }
@@ -182,6 +197,7 @@ export class AoeWatcher {
     );
     await this.kickoff(views);
     for (const id of [...this.since.keys()]) if (!live.some((s) => s.id === id)) this.since.delete(id);
+    for (const id of [...this.menuRead.keys()]) if (!live.some((s) => s.id === id)) this.menuRead.delete(id);
     await this.followRemovedSessions(new Set(live.map((s) => s.id)), trashed).catch((err) =>
       this.ctx.logger.warn('could not sync removed workers', { err: (err as Error).message }),
     );
@@ -196,6 +212,18 @@ export class AoeWatcher {
   }
 
   /**
+   * Waiting sessions are read every poll. An idle (or unknown) one costs an `output` call per read, so it
+   * is read once per idle spell, every poll in its first two minutes (the startup dialogs come up
+   * within seconds, and AoE's Idle can come before they are drawn), and while a menu is open on it.
+   */
+  private menuReadDue(v: SessionView): boolean {
+    if (v.status === 'waiting') return true;
+    if (v.status !== 'idle' && v.status !== 'unknown') return false;
+    const age = v.createdAt ? Date.now() - Date.parse(v.createdAt) : Infinity;
+    return this.menuOpen.has(v.id) || this.menuRead.get(v.id) !== v.statusSince || age < MENU_YOUNG_MS;
+  }
+
+  /**
    * What each control chat's latest reply lists under NEEDS YOU. Read once a reply is finished (idle,
    * or waiting on a menu); while it works on the next one the last list stands, so its lead keeps its
    * place at your door. The list keeps the time it first had something on it, and a reply to a watch
@@ -207,6 +235,7 @@ export class AoeWatcher {
     const controls = new Set<string>([
       ...this.store.projects.map((p) => p.controlSessionId).filter((x): x is string => !!x),
       ...views.map((v) => v.parentId).filter((x): x is string => !!x),
+      ...(this.store.general.controlSessionId ? [this.store.general.controlSessionId] : []),
     ]);
     await Promise.all(
       views
@@ -323,7 +352,14 @@ export class AoeWatcher {
   async refreshUsage(): Promise<void> {
     // Archived workers are stopped, whatever status AoE last had for them.
     const status = new Map(this.store.sessions.map((v) => [v.id, v.archived ? 'stopped' : v.status]));
-    const active = countActiveWorkers(this.store.tasks, (id) => status.get(id) ?? null);
+    const general = generalSessionIds(this.store.general, this.store.sessions);
+    const active =
+      countActiveWorkers(this.store.tasks, (id) => status.get(id) ?? null) +
+      countBusyGeneral(
+        general,
+        (id) => status.get(id) ?? null,
+        (id) => !!this.store.held[id]?.length,
+      );
     this.store.setUsage(usageReport(await readUsage(this.ctx.paths), active, this.ctx.config.limits));
   }
 
@@ -450,6 +486,7 @@ export class LedgerWatcher {
         for (const m of moves) await this.ctx.ledger.deskTask(m.project, m.id, m.desk);
         tasks = await this.ctx.ledger.listTasks();
       }
+      this.store.setGeneral(await this.ctx.ledger.getGeneral());
       this.store.setLedger(projects, tasks);
     } catch (err) {
       this.ctx.logger.error('ledger reload failed', { err });

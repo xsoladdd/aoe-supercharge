@@ -1,0 +1,38 @@
+❯ please MULTIBASH now
+
+⏺ Done.
+
+✻ Baked for 0s · done 1:49 PM
+
+❯ please FETCH now
+
+⏺ Fetch(https://example.com/docs)
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Cooked for 0s · done 1:49 PM
+
+❯ please READ now
+
+⏺ Done.
+
+✻ Brewed for 0s · done 1:49 PM
+
+❯ please MCP now
+
+⏺ Calling scratch…
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Tool use
+ scratch — Echo Tool: (MCP)
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ text: "hello from mcp"
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ About the scratch — Echo Tool:
+ │ Echo text back
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for scratch — Echo commands in /tmp/scratch…
+   3. No
+
+ Esc to cancel · Tab to amend

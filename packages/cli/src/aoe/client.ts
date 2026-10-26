@@ -23,6 +23,8 @@ export class AoeError extends Error {
     message: string,
     public kind: AoeErrorKind,
     public status?: number,
+    /** AoE's `error` field, e.g. `session_archived`. */
+    public code?: string,
   ) {
     super(message);
   }
@@ -100,6 +102,7 @@ export class AoeClient {
         `${method} ${path} failed (${res.status}): ${msg ?? 'unknown error'}`,
         'http',
         res.status,
+        (json as { error?: string })?.error,
       );
     }
     const parsed = schema.safeParse(json);
@@ -209,6 +212,15 @@ export class AoeClient {
     };
   }
 
+  /** Where to connect to the agent pane's own live view (see `pressKeys`), with the auth AoE wants. */
+  async agentSocket(id: string): Promise<{ url: string; headers: Record<string, string> }> {
+    if (!this.origin) await this.discover();
+    return {
+      url: `${this.origin!.replace(/^http/, 'ws')}/sessions/${encodeURIComponent(id)}/live-ws`,
+      headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
+    };
+  }
+
   /** `live` leaves out archived and trashed sessions; `all` has every session, marked by its `*_at` fields. */
   async listSessions(scope: 'live' | 'all' = 'live'): Promise<AoeSession[]> {
     return (await this.request('GET', `/api/sessions?state=${scope}`, AoeSessionsResponseSchema)).sessions;
@@ -229,7 +241,7 @@ export class AoeClient {
     return this.lifecycle('PATCH', id, 'archive', { archived, kill_pane: true });
   }
 
-  /** Into AoE's trash: restorable until AoE purges it (session.trash_retention_days, 30 by default). */
+  /** Into AoE's trash: restorable until AoE purges it (session.trash_retention_minutes). */
   trashSession(id: string) {
     return this.lifecycle('POST', id, 'trash', { kill_pane: true });
   }

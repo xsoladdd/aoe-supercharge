@@ -3,7 +3,9 @@ import { run, type RunResult } from '../util/exec.ts';
 import { AoeCliListSchema, type AoeCliListEntry } from './schemas.ts';
 
 export interface AddSessionOptions {
-  path: string;
+  path?: string;
+  /** A fresh directory under AoE's scratch/, deleted with the session (`--scratch`), instead of `path`. */
+  scratch?: boolean;
   title: string;
   group?: string;
   parent?: string;
@@ -82,7 +84,8 @@ export class AoeCli {
   }
 
   async add(o: AddSessionOptions): Promise<RunResult> {
-    const args = ['add', o.path, '-t', o.title, '--tool', o.tool, '-p', this.profile];
+    const where = o.scratch ? '--scratch' : (o.path ?? '');
+    const args = ['add', where, '-t', o.title, '--tool', o.tool, '-p', this.profile];
     if (o.group) args.push('-g', o.group);
     if (o.parent) args.push('-P', o.parent);
     if (o.worktreeBranch) args.push('-w', o.worktreeBranch);

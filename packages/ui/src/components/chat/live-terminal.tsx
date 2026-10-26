@@ -60,11 +60,17 @@ function paint(term: Terminal, f: Frame) {
 
 export type LiveState = 'connecting' | 'live' | 'elsewhere' | 'closed';
 
-/** A message from the daemon or AoE other than a frame: `size_owner`, `sc_error`, `sc_note`, `sc_ran`. */
+/**
+ * A message from the daemon or AoE other than a frame: `size_owner`, `sc_error`, `sc_note`, `sc_ran`, and
+ * `sc_window` (the agent's pane: whether you are attached to it in a terminal, and that window's size).
+ */
 export interface LiveMessage {
   type?: string;
   is_owner?: boolean;
   message?: string;
+  attached?: boolean;
+  cols?: number;
+  rows?: number;
 }
 
 export interface LiveTerminalHandle {
@@ -76,9 +82,10 @@ export interface LiveTerminalHandle {
 }
 
 /**
- * One of a session's shells, through the daemon: AoE's live view of a paired terminal, drawn with
- * xterm.js. Type in it as in any terminal; scroll back through its last 1000 lines. Reconnects when
- * `attempt` changes.
+ * One of a session's shells or its agent's pane, through the daemon: AoE's live view, drawn with xterm.js.
+ * Type in it as in any terminal; scroll back through its last 1000 lines. It sizes the window to fit,
+ * except while you are attached to the agent's pane in a terminal: then it draws at that terminal's size
+ * and leaves it alone. Reconnects when `attempt` changes.
  */
 export function LiveTerminal({
   path,
@@ -141,7 +148,10 @@ export function LiveTerminal({
     const send = (m: object) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m));
     };
+    // The size of the terminal you are attached in, which the dashboard draws at instead of fitting.
+    let mirror: { cols: number; rows: number } | null = null;
     const resize = () => {
+      if (mirror) return;
       fit.fit();
       send({ type: 'resize', cols: t.cols, rows: t.rows });
     };
@@ -163,6 +173,15 @@ export function LiveTerminal({
       }
       if (m.type === 'size_owner') handlers.current.onState(m.is_owner ? 'live' : 'elsewhere');
       else if (m.type === 'sc_ran') t.focus();
+      else if (m.type === 'sc_window') {
+        mirror = m.attached && m.cols && m.rows ? { cols: m.cols, rows: m.rows } : null;
+        el.style.overflow = mirror ? 'auto' : '';
+        if (mirror) {
+          t.resize(mirror.cols, mirror.rows);
+          // Type without resizing: a vacant lock only, so AoE's own view keeps it if it has it.
+          send({ type: 'claim_if_vacant' });
+        } else resize();
+      }
       handlers.current.onMessage?.(m);
     };
     ws.onclose = () => handlers.current.onState('closed');

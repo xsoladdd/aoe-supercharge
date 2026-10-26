@@ -4,19 +4,29 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { defaultConfig, resolvePaths } from '@aoe-supercharge/core/node';
-import type { MrState, NeedsYouItem, TaskRecord } from '@aoe-supercharge/core/shared';
+import {
+  parseTerminalMenu,
+  type MrState,
+  type NeedsYouItem,
+  type SessionView,
+  type TaskRecord,
+} from '@aoe-supercharge/core/shared';
 import {
   AoeAboutSchema,
   AoeCliListSchema,
   AoeSessionsResponseSchema,
   AoeStatusCountsSchema,
 } from '../src/aoe/schemas.ts';
+import { attachCommand, findTmuxWindow, openInTerminal, osascriptArgs, terminalApp } from '../src/attach.ts';
 import { parseUpdateCheck, releaseAsset } from '../src/commands/aoe-upgrade.ts';
-import { claudeModelsCheck } from '../src/commands/doctor.ts';
+import { claudeModelsCheck, hookConsentFix } from '../src/commands/doctor.ts';
 import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '../src/statusline.ts';
 import { renderCaddyfile } from '../src/commands/proxy.ts';
 import { landedOn, markLanded } from '../src/daemon/branch-watcher.ts';
 import { MrWatcher } from '../src/daemon/mr-watcher.ts';
+import { AoeWatcher } from '../src/daemon/watchers.ts';
+import { answerPrompt } from '../src/workflow.ts';
+import { CONSENT_MENU, trustMenu } from '../../fake-aoe/src/server.ts';
 import { CostWatcher, OfficeWatcher, WeatherWatcher } from '../src/daemon/office.ts';
 import { at, project, session as view, T0, task as taskRecord } from '../../core/test/office-fixtures.ts';
 import { RunTerminals } from '../src/daemon/run-terminals.ts';
@@ -28,7 +38,9 @@ import { removeManagedBlock, upsertManagedBlock } from '../src/skills.ts';
 import { parseRemote } from '../src/util/git.ts';
 import { run } from '../src/util/exec.ts';
 import { redact } from '../src/util/logger.ts';
-import { controlPick, modelArgs, setSessionModel, workerModel } from '../src/workflow.ts';
+import { controlPick, modelArgs, setSessionModel, unarchiving, workerModel } from '../src/workflow.ts';
+import { AoeError } from '../src/aoe/client.ts';
+import type { Ctx } from '../src/context.ts';
 
 const FIXTURES = join(import.meta.dirname, '../../../fixtures/aoe');
 
@@ -684,6 +696,41 @@ describe('doctor: Claude Code knows the 5.5 models', () => {
   });
 });
 
+describe('doctor: hook consent', () => {
+  it('points at "aoe hooks approve" from AoE 1.19, the TUI before', () => {
+    expect(hookConsentFix('1.21.0')).toMatch(/aoe hooks approve/);
+    expect(hookConsentFix('1.19.0')).toMatch(/aoe hooks approve/);
+    expect(hookConsentFix('1.18.0')).toMatch(/Run "aoe" once/);
+  });
+});
+
+describe('AoE 1.18+ refuses archived and trashed sessions (409)', () => {
+  const refuse = (code: string) => new AoeError(`failed (409): ${code}`, 'http', 409, code);
+  const setup = (first: unknown) => {
+    const setArchived = vi.fn(async () => ({}));
+    const call = vi.fn().mockRejectedValueOnce(first).mockResolvedValue('sent');
+    return { ctx: { aoe: { setArchived } } as unknown as Ctx, setArchived, call };
+  };
+
+  it('unarchives an archived session and tries once more', async () => {
+    const { ctx, setArchived, call } = setup(refuse('session_archived'));
+    expect(await unarchiving(ctx, 's1', call)).toBe('sent');
+    expect(setArchived).toHaveBeenCalledWith('s1', false);
+    expect(call).toHaveBeenCalledTimes(2);
+  });
+
+  it('says to restore a trashed session, and leaves other errors alone', async () => {
+    const trashed = setup(refuse('session_trashed'));
+    await expect(unarchiving(trashed.ctx, 's1', trashed.call)).rejects.toThrow(/in the trash/);
+    const busy = setup(refuse('session_transient'));
+    await expect(unarchiving(busy.ctx, 's1', busy.call)).rejects.toThrow(/session_transient/);
+    for (const t of [trashed, busy]) {
+      expect(t.setArchived).not.toHaveBeenCalled();
+      expect(t.call).toHaveBeenCalledTimes(1);
+    }
+  });
+});
+
 describe('usage --connect: Supercharge status line in your Claude Code settings', () => {
   it('keeps your other settings and your own status line, backs up, and undoes cleanly', async () => {
     const home = await mkdtemp(join(tmpdir(), 'sc-statusline-'));
@@ -816,5 +863,145 @@ describe('RunTerminals: the terminals a Run opened in a chat', () => {
     } finally {
       await rm(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe('attach in a terminal', () => {
+  const ok = { code: 0, stdout: '', stderr: '', error: null, timedOut: false };
+  const command = attachCommand('0123456789abcdef', 'main');
+
+  it('builds the command with the profile', () => {
+    expect(command).toBe('aoe session attach -p main 0123456789abcdef');
+  });
+
+  it('passes the command to osascript as argv, never inside the script', () => {
+    for (const app of ['iTerm2', 'Terminal'] as const) {
+      const args = osascriptArgs(app, 'x"; do shell script "rm -rf ~');
+      expect(args.at(-1)).toBe('x"; do shell script "rm -rf ~');
+      const script = args.slice(0, -1).filter((_, i) => i % 2 === 1);
+      expect(
+        args
+          .slice(0, -1)
+          .filter((_, i) => i % 2 === 0)
+          .every((a) => a === '-e'),
+      ).toBe(true);
+      expect(script.join('\n')).not.toContain('rm -rf');
+      expect(script.join('\n')).toContain('(item 1 of argv)');
+    }
+  });
+
+  it('picks iTerm2 when it is installed, else Terminal', () => {
+    expect(terminalApp((p) => p === '/Applications/iTerm.app')).toBe('iTerm2');
+    expect(terminalApp(() => false)).toBe('Terminal');
+  });
+
+  it('opens the tab on macOS and says why it could not elsewhere', async () => {
+    const exec = vi.fn(async () => ok);
+    expect(await openInTerminal(command, { platform: 'darwin', app: 'iTerm2', exec })).toEqual({
+      opened: true,
+      app: 'iTerm2',
+    });
+    expect(exec).toHaveBeenCalledWith('osascript', osascriptArgs('iTerm2', command));
+    const linux = await openInTerminal(command, { platform: 'linux', exec });
+    expect(linux.opened).toBe(false);
+    expect(exec).toHaveBeenCalledTimes(1);
+    const denied = await openInTerminal(command, {
+      platform: 'darwin',
+      app: 'Terminal',
+      exec: async () => ({
+        ...ok,
+        code: 1,
+        stderr: 'Not authorized to send Apple events to Terminal. (-1743)',
+      }),
+    });
+    expect(denied).toEqual({ opened: false, message: expect.stringContaining('Automation') });
+  });
+
+  it("finds a session's tmux window by AoE's name suffix", () => {
+    const listing = [
+      'main\t1\t200\t50',
+      'aoe_Other_chat_aaaaaaaa\t1\t100\t30',
+      'aoe_Live_termina_01234567\t1\t157\t42',
+    ].join('\n');
+    expect(findTmuxWindow(listing, '0123456789abcdef')).toEqual({
+      name: 'aoe_Live_termina_01234567',
+      attached: true,
+      cols: 157,
+      rows: 42,
+    });
+    expect(findTmuxWindow('aoe_Live_termina_01234567\t0\t80\t24', '0123456789abcdef')?.attached).toBe(false);
+    expect(findTmuxWindow(listing, 'ffffffffffffffff')).toBeNull();
+  });
+});
+
+describe('startup dialogs: reading an idle session, answering without a stray Enter', () => {
+  const watcher = () =>
+    new AoeWatcher({} as never, {} as never) as unknown as {
+      menuRead: Map<string, string>;
+      menuOpen: Set<string>;
+      menuReadDue: (v: Partial<SessionView>) => boolean;
+    };
+  const idle = (o: Partial<SessionView> = {}) => ({
+    id: 's1',
+    status: 'idle' as const,
+    statusSince: '2026-10-26T10:00:00Z',
+    createdAt: '2020-01-01T00:00:00Z',
+    ...o,
+  });
+
+  it('reads waiting sessions every poll, a long-idle one once per idle spell, a young or open one every poll', () => {
+    const w = watcher();
+    expect(w.menuReadDue({ ...idle(), status: 'waiting' })).toBe(true);
+    expect(w.menuReadDue({ ...idle(), status: 'working' })).toBe(false);
+    expect(w.menuReadDue(idle())).toBe(true); // never read
+    w.menuRead.set('s1', '2026-10-26T10:00:00Z');
+    expect(w.menuReadDue(idle())).toBe(false); // read in this spell
+    expect(w.menuReadDue(idle({ statusSince: '2026-10-26T10:05:00Z' }))).toBe(true); // a new spell
+    expect(w.menuReadDue(idle({ createdAt: new Date().toISOString() }))).toBe(true); // just started
+    w.menuOpen.add('s1');
+    expect(w.menuReadDue(idle())).toBe(true); // a menu is open: watch it clear
+  });
+
+  const press = (screens: string[]) => {
+    const keys: string[][] = [];
+    const ctx = {
+      aoe: {
+        output: async () => ({ content: screens.length > 1 ? screens.shift()! : screens[0]! }),
+        pressKeys: async (_id: string, k: string[]) => void keys.push(k),
+        send: async () => {
+          throw new Error('REST send adds an Enter');
+        },
+      },
+      paths: { auditFile: join(tmpdir(), 'sc-audit-test.jsonl') },
+    };
+    return { ctx: ctx as never, keys };
+  };
+  const answer = (ctx: never, key: string, option: number) =>
+    answerPrompt(ctx, { sessionId: 's1', key, option, actor: 'ui' }, async () => {});
+
+  it("moves the trust dialog's cursor and presses Enter, upwards too", async () => {
+    const key = parseTerminalMenu(trustMenu())!.key;
+    const down = press([trustMenu()]);
+    await answer(down.ctx, key, 2);
+    expect(down.keys).toEqual([['\x1b[B', '\r']]);
+    const up = press([trustMenu(2)]);
+    await answer(up.ctx, key, 1);
+    expect(up.keys).toEqual([['\x1b[A', '\r']]);
+  });
+
+  it('sends a numbered option as its digit, and presses Enter only if the digit just moved the cursor', async () => {
+    const key = parseTerminalMenu(CONSENT_MENU)!.key;
+    const taken = press([CONSENT_MENU, '❯ ']);
+    await answer(taken.ctx, key, 2);
+    expect(taken.keys).toEqual([['2']]);
+    const moved = press([
+      CONSENT_MENU,
+      CONSENT_MENU.replace('❯ 1. No', '  1. No').replace('  2. Yes', '❯ 2. Yes'),
+    ]);
+    await answer(moved.ctx, key, 2);
+    expect(moved.keys).toEqual([['2'], ['\r']]);
+    const ignored = press([CONSENT_MENU]);
+    await expect(answer(ignored.ctx, key, 2)).rejects.toThrow(/did not take the answer/);
+    expect(ignored.keys).toEqual([['2']]);
   });
 });

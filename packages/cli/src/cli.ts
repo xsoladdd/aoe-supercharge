@@ -31,6 +31,7 @@ import { printDoctor, runDoctor } from './commands/doctor.ts';
 import { proxyCommand } from './commands/proxy.ts';
 import { runDaemon } from './daemon/index.ts';
 import { serviceManager, servicePathEnv } from './service/index.ts';
+import { listGeneral, sendToGeneral, type NewGeneralSession } from './general.ts';
 import { findNote, formatNotes, noteAuthor, noteScope, type ScopeOpts } from './notes.ts';
 import { installUserSkills, removeUserSkills } from './skills.ts';
 import { connectStatusLine, disconnectStatusLine, statusLine, statusLineConnected } from './statusline.ts';
@@ -630,7 +631,7 @@ export function buildProgram(): Command {
 
   program
     .command('whoami')
-    .description('show the role of this session (control | worker | none)')
+    .description('show the role of this session (control | worker | general-control | general | none)')
     .option('--json')
     .action(async (o: { json?: boolean }) => {
       const { record: _r, projectRecord: _p, ...who } = await whoami(await ctx(), cwd());
@@ -709,6 +710,106 @@ export function buildProgram(): Command {
         actor: who?.role === 'control' ? 'control' : 'cli',
       });
       out(`${sym.ok} Sent and recorded in the audit log`);
+    });
+
+  const general = program
+    .command('general')
+    .description('General chats and workers: Claude sessions with no project, in scratch directories');
+  general
+    .command('new <title>')
+    .description(
+      'start a General worker (from the General control chat) or a General chat (anywhere else); needs the daemon',
+    )
+    .option('--brief <text>', 'its first message')
+    .option('--brief-file <path>', 'read the first message from a file')
+    .option('-m, --model <model>', 'model: opus, sonnet, fable, haiku or a full id')
+    .option('--effort <level>', 'effort: low, medium, high, xhigh or max')
+    .option('--force', 'start even when your usage or the worker cap says to wait')
+    .option('--json', 'machine-readable output')
+    .action(
+      async (
+        title: string,
+        o: {
+          brief?: string;
+          briefFile?: string;
+          model?: string;
+          effort?: string;
+          force?: boolean;
+          json?: boolean;
+        },
+      ) => {
+        const x = await ctx();
+        const brief = o.briefFile ? await readFile(o.briefFile, 'utf8') : o.brief;
+        const who = await whoami(x, cwd()).catch(() => null);
+        const r = await daemonRequest<
+          NewGeneralSession & { message?: string; hint?: string; error?: string }
+        >(
+          x,
+          'POST',
+          '/api/general/sessions',
+          {
+            title,
+            message: brief,
+            model: o.model,
+            effort: o.effort,
+            worker: who?.role === 'general-control',
+            force: !!o.force,
+          },
+          180_000,
+        );
+        if (!r)
+          throw new CliError(
+            'The Supercharge daemon is not running.',
+            EXIT.error,
+            'Start it with "supercharge start", then run this again.',
+          );
+        if (r.status >= 300)
+          throw new CliError(
+            r.body.message ?? `The daemon answered ${r.status}.`,
+            r.body.error === 'limited' ? EXIT.limited : r.status === 400 ? EXIT.usage : EXIT.error,
+            r.body.hint ?? null,
+          );
+        const s = r.body;
+        if (o.json) return json(s);
+        for (const w of s.warnings) out(`${sym.warn} ${w}`);
+        out(`${sym.ok} ${c.bold(s.name)}${s.title !== s.name ? ` ${s.title}` : ''}`);
+        out(`  session  ${s.sessionId}${s.worker ? ' (under the General control chat)' : ''}`);
+        out(`  folder   ${s.path} (deleted with the session)`);
+        out(`  model    ${s.model ?? 'Claude Code default'}${s.effort ? `, effort ${s.effort}` : ''}`);
+        out(`  usage    ${s.usage.advice}`);
+      },
+    );
+  general
+    .command('list')
+    .description('the General chats and workers in AoE')
+    .option('--json')
+    .action(async (o: { json?: boolean }) => {
+      const g = await listGeneral(await ctx());
+      if (o.json) return json(g);
+      if (!g.sessions.length) return out('No General chats or workers.');
+      for (const s of g.sessions)
+        out(
+          `${(s.name ?? '').padEnd(14)} ${s.status.padEnd(8)} ${s.worker ? 'worker' : 'chat  '} ${s.title}`,
+        );
+    });
+  general
+    .command('send <name> <message>')
+    .description('send a message to a General chat or worker, by name or session id (explicit, audited)')
+    .option('-y, --yes', 'send without asking')
+    .action(async (name: string, message: string, o: { yes?: boolean }) => {
+      const x = await ctx();
+      out(`To ${c.bold(name)}:\n  ${message}`);
+      if (!o.yes && !(await confirm('Send this message?'))) {
+        out('Not sent.');
+        return;
+      }
+      const who = await whoami(x, cwd()).catch(() => null);
+      const s = await sendToGeneral(x, {
+        target: name,
+        message,
+        actor: who?.role === 'general-control' ? 'control' : 'cli',
+      });
+      out(`${sym.ok} Sent to ${s.name ?? s.title} and recorded in the audit log`);
     });
 
   program

@@ -4,6 +4,7 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
+import { z } from 'zod';
 import {
   appendAudit,
   ConfigValidationError,
@@ -24,8 +25,12 @@ import {
 import {
   buildOffice,
   contextInfo,
+  EFFORT_LEVELS,
+  MODEL_ALIASES,
   markChange,
+  SCHEDULE_DAYS,
   SEND_MODES,
+  TIME_OF_DAY,
   type OfficeAction,
   type SendMode,
   type SendResult,
@@ -36,7 +41,7 @@ import {
 import { checkCleanup, cleanupAllDone, cleanupTask } from '../cleanup.ts';
 import { VERSION, type Ctx } from '../context.ts';
 import { buildProjectStatus } from '../status.ts';
-import { CliError } from '../util/errors.ts';
+import { CliError, EXIT } from '../util/errors.ts';
 import { run } from '../util/exec.ts';
 import { PromptReader } from '../prompt.ts';
 import { listSlashCommands } from '../slash.ts';
@@ -50,6 +55,7 @@ import {
   detectAdoptedMrs,
   answerQuestions,
   MenuOpenError,
+  newTask,
   PromptChangedError,
   replyToTask,
   runInSession,
@@ -65,10 +71,12 @@ import {
   type SessionAction,
 } from '../workflow.ts';
 import type { OfficeWatcher } from './office.ts';
+import { generalRoutes } from './general-routes.ts';
 import { terminalRoutes, type RunTerminals } from './run-terminals.ts';
 import type { Store } from './store.ts';
 import type { WorkerWatch } from './worker-watch.ts';
 import { HeldBusyError, type HeldMessages } from './held.ts';
+import type { Scheduler } from './scheduler.ts';
 
 export interface AppDeps {
   ctx: Ctx;
@@ -87,6 +95,7 @@ export interface AppDeps {
   /** Terminals a chat's Run opened under its command. */
   terminals?: RunTerminals;
   held?: HeldMessages;
+  scheduler?: Scheduler;
 }
 
 export const SESSION_COOKIE = 'sc_session';
@@ -671,6 +680,49 @@ export function createApp(deps: AppDeps) {
     }
   });
 
+  // The one place the dashboard spawns a worker: an explicit submit of the New task form (SPEC §8.2).
+  // `aoe add` can take up to 120 s, so this answers when the session exists; the daemon sends the first message.
+  app.post('/api/projects/:name/tasks', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const { title, brief, model, effort, base, force } = body;
+    const optional = (v: unknown) => v === undefined || v === null || typeof v === 'string';
+    if (typeof title !== 'string' || !title.trim() || !optional(brief) || !optional(base))
+      return c.json({ error: 'bad_request', message: 'A task needs a title.' }, 400);
+    if (typeof model !== 'string' || !(MODEL_ALIASES as readonly string[]).includes(model))
+      return c.json(
+        { error: 'bad_request', message: `Model must be one of: ${MODEL_ALIASES.join(', ')}.` },
+        400,
+      );
+    if (typeof effort !== 'string' || !(EFFORT_LEVELS as readonly string[]).includes(effort))
+      return c.json(
+        { error: 'bad_request', message: `Effort must be one of: ${EFFORT_LEVELS.join(', ')}.` },
+        400,
+      );
+    const project = store.projects.find((p) => p.name === c.req.param('name'));
+    if (!project) return c.json({ error: 'not_found', message: 'Unknown project' }, 404);
+    try {
+      const task = await newTask(ctx, {
+        cwd: project.repoPath,
+        project: project.name,
+        title,
+        brief: brief ?? undefined,
+        base: base?.trim() || undefined,
+        model,
+        effort,
+        force: force === true,
+        actor: 'user',
+        kickoff: { timeoutMs: 0, actor: 'ui' },
+      });
+      deps.onClientConnected();
+      return c.json(task);
+    } catch (err) {
+      // Usage limits are a question for the user, not a failure: the form offers "Start anyway".
+      if (err instanceof CliError && err.exitCode === EXIT.limited)
+        return c.json({ error: 'limited', message: err.message.replace(/^Not starting "[^"]*": /, '') }, 409);
+      return sendError(c, err, 'task_failed');
+    }
+  });
+
   // Live conversation of any known AoE session (control chats, workers, others). Text only, no ANSI.
   app.get('/api/sessions/:id/output', async (c) => {
     const id = c.req.param('id');
@@ -758,7 +810,8 @@ export function createApp(deps: AppDeps) {
         }
       }
       // Busy, a menu open, others already waiting, or no status read since the last typing: hold it.
-      if (mode === 'hold' && held) {
+      // An interrupt for a session that is no longer working lands here too: nothing to stop.
+      if (mode !== 'now' && held) {
         const release =
           held.has(id) || session.status === 'working' || session.prompt ? null : store.claimTyping(id);
         if (!release) return c.json({ held: await held.hold(id, message) } satisfies SendResult);
@@ -831,6 +884,9 @@ export function createApp(deps: AppDeps) {
 
   // Run in a new terminal: one of AoE's extra paired terminals, under the command in the chat.
   if (deps.terminals) terminalRoutes(app, { ctx, store, terminals: deps.terminals });
+
+  // General chats and the General control chat: sessions with no project, in AoE scratch directories.
+  generalRoutes(app, { ctx, store, held: deps.held, poll: deps.onClientConnected });
 
   // A file you attach in a chat: saved outside the repo, under the session's uploads folder. The chat
   // then sends its path in the message, and Claude opens it (the Read tool shows images to the model).
@@ -1090,6 +1146,74 @@ export function createApp(deps: AppDeps) {
       return c.json({ note });
     } catch (err) {
       return c.json({ error: 'bad_request', message: (err as Error).message }, 400);
+    }
+  });
+
+  // ── Scheduled prompts (SPEC §8.5). The list arrives with the snapshot. ──
+  const scheduleBody = z.strictObject({
+    name: z.string().trim().min(1).max(100),
+    sessionId: z.string().min(1),
+    prompt: z.string().trim().min(1).max(20_000),
+    time: z.string().regex(TIME_OF_DAY, 'Expected a time like 00:00'),
+    days: z.enum(SCHEDULE_DAYS),
+    enabled: z.boolean(),
+  });
+  const scheduleError = (c: Context, err: unknown) =>
+    c.json({ error: 'bad_request', message: (err as Error).message }, 400);
+  const parseSchedule = async (c: Context, partial: boolean) => {
+    const parsed = (partial ? scheduleBody.partial() : scheduleBody).safeParse(
+      await c.req.json().catch(() => null),
+    );
+    if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid scheduled prompt' };
+    const id = parsed.data.sessionId;
+    if (id && !store.sessions.some((s) => s.id === id)) return { error: 'That chat is not in AoE.' };
+    return { data: parsed.data };
+  };
+
+  app.post('/api/schedules', async (c) => {
+    if (!deps.scheduler) return c.json({ error: 'not_found', message: 'No scheduler' }, 404);
+    const p = await parseSchedule(c, false);
+    if (!p.data) return c.json({ error: 'bad_request', message: p.error }, 400);
+    try {
+      return c.json({ schedule: await deps.scheduler.add(p.data as z.infer<typeof scheduleBody>) }, 201);
+    } catch (err) {
+      return scheduleError(c, err);
+    }
+  });
+
+  app.patch('/api/schedules/:id', async (c) => {
+    if (!deps.scheduler) return c.json({ error: 'not_found', message: 'No scheduler' }, 404);
+    const p = await parseSchedule(c, true);
+    if (!p.data) return c.json({ error: 'bad_request', message: p.error }, 400);
+    try {
+      const schedule = await deps.scheduler.update(c.req.param('id'), p.data);
+      if (!schedule) return c.json({ error: 'not_found', message: 'No scheduled prompt with that id' }, 404);
+      return c.json({ schedule });
+    } catch (err) {
+      return scheduleError(c, err);
+    }
+  });
+
+  app.delete('/api/schedules/:id', async (c) => {
+    if (!deps.scheduler) return c.json({ error: 'not_found', message: 'No scheduler' }, 404);
+    try {
+      if (!(await deps.scheduler.remove(c.req.param('id'))))
+        return c.json({ error: 'not_found', message: 'No scheduled prompt with that id' }, 404);
+      return c.json({ ok: true });
+    } catch (err) {
+      return scheduleError(c, err);
+    }
+  });
+
+  // Run now: answers with how it went (queued, skipped by a usage limit, or failed).
+  app.post('/api/schedules/:id/run', async (c) => {
+    if (!deps.scheduler) return c.json({ error: 'not_found', message: 'No scheduler' }, 404);
+    try {
+      const result = await deps.scheduler.runNow(c.req.param('id'));
+      if (!result) return c.json({ error: 'not_found', message: 'No scheduled prompt with that id' }, 404);
+      return c.json({ result });
+    } catch (err) {
+      return scheduleError(c, err);
     }
   });
 

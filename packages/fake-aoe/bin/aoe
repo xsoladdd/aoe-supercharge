@@ -3,6 +3,7 @@
 // `add -w <branch> -b` creates a real git worktree so worker commands can run inside it.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
 const url = process.env.FAKE_AOE_URL;
@@ -71,6 +72,15 @@ if (cmd === '--version' || cmd === '-V') {
   const branch = val('-w', '--worktree') ?? null;
   const base = val('--base-branch') ?? 'main';
   let path = repo;
+  // --scratch: a fresh folder of its own, as AoE makes under <app_dir>/scratch/<id>/.
+  if (has('--scratch')) {
+    path = join(
+      tmpdir(),
+      'fake-aoe-scratch',
+      `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+    );
+    mkdirSync(path, { recursive: true });
+  }
   if (branch) {
     path = join(dirname(repo), `${basename(repo)}-worktrees`, branch.replace(/[/@#\\:*?"<>|]/g, '-'));
     mkdirSync(dirname(path), { recursive: true });
@@ -105,8 +115,10 @@ if (cmd === '--version' || cmd === '-V') {
       extra_args: val('--extra-args') ?? null,
       group_path: parentSession?.group_path ?? val('-g', '--group') ?? '',
       status: has('-l') ? 'Starting' : 'Idle',
-      // FAKE_AOE_START_MENU=trust: the session opens on the folder-trust dialog.
-      ...(process.env.FAKE_AOE_START_MENU === 'trust' && has('-l') ? { menu: 'trust' } : {}),
+      // FAKE_AOE_START_MENU=trust (or trust-consent): the session opens on the folder-trust dialog.
+      ...(/^trust/.test(process.env.FAKE_AOE_START_MENU ?? '') && has('-l')
+        ? { menu: process.env.FAKE_AOE_START_MENU }
+        : {}),
       // FAKE_AOE_SWALLOW_SENDS=N: the first N messages sent to it are lost.
       ...(process.env.FAKE_AOE_SWALLOW_SENDS ? { swallow: Number(process.env.FAKE_AOE_SWALLOW_SENDS) } : {}),
       // FAKE_AOE_NO_HOOKS=1: no Claude id is known until the first message goes in.

@@ -95,7 +95,9 @@ function SidebarProvider({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
-        (event.metaKey || event.ctrlKey)
+        (event.metaKey || event.ctrlKey) &&
+        // Ctrl-B typed in a terminal is for the terminal (Claude Code backgrounds a task with it).
+        !(event.target as Element | null)?.closest?.(".xterm")
       ) {
         event.preventDefault()
         toggleSidebar()

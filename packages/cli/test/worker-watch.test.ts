@@ -254,4 +254,21 @@ describe('WorkerWatch: notices for a control chat', () => {
     expect(store.watch.alpha!.held).toBe('The control chat is archived');
     expect(existsSync(join(home, '.local/state/supercharge/watch/book.json'))).toBe(true);
   });
+
+  it('tells the General control chat about its workers, by name and with no project', async () => {
+    store.general = { schema: 1, controlSessionId: 'gctl', sessions: { g1: 'Wilfred' } };
+    const gctl = session('gctl', 'idle', { title: 'General control', statusSince: ago(5) });
+    const g1 = (status: SessionView['status'], extra: Partial<SessionView> = {}) =>
+      session('g1', status, { title: 'Nightly report', parentId: 'gctl', statusSince: ago(1), ...extra });
+    sessions(ctl(), gctl, g1('working'));
+    const w = make();
+    await tick(w);
+    sessions(ctl(), gctl, g1('error', { lastError: 'tmux died' }));
+    await tick(w);
+    expect(sent.map((m) => m.id)).toEqual(['gctl']);
+    const n = parseWatchLine(sent[0]!.message)!;
+    expect(n).toMatchObject({ worker: 'Nightly report', name: 'Wilfred', kind: 'error', session: 'g1' });
+    expect(n.project ?? null).toBeNull();
+    expect(store.watch._general).toMatchObject({ enabled: true, watching: 1 });
+  });
 });

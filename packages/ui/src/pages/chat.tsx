@@ -12,6 +12,7 @@ import {
   WarningCircleIcon,
   XCircleIcon,
   FileIcon,
+  GitMergeIcon,
   FolderOpenIcon,
   PaperclipIcon,
   UploadSimpleIcon,
@@ -20,6 +21,7 @@ import {
   ArrowUUpLeftIcon,
   CpuIcon,
   ArrowClockwiseIcon,
+  ClipboardTextIcon,
 } from '@phosphor-icons/react';
 import {
   LIVE_STATUS_LABEL,
@@ -37,10 +39,22 @@ import {
   type SendResult,
   type SessionView,
   type Snapshot,
+  mrLabel,
   splitAttachments,
   withAttachments,
+  type MrState,
 } from '@aoe-supercharge/core/shared';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { toast } from 'sonner';
 import { Link, useLocation, useSearch } from 'wouter';
 import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
@@ -59,8 +73,9 @@ import { ControlPanel } from '@/components/control-panel';
 import { shortPath, ToolCall } from '@/components/chat/tool-call';
 import { useChat } from '@/components/chat/use-chat';
 import { useMarkRead } from '@/components/chat/use-mark-read';
+import { AttachButton, useAttachCommand } from '@/components/attach';
 import { CommandLine, copyText } from '@/components/copy';
-import { Conversation, useSessionOutput } from '@/components/session-chat';
+import { useSessionOutput } from '@/components/session-chat';
 import { LiveStatus } from '@/components/status';
 import {
   AlertDialog,
@@ -88,6 +103,8 @@ import { useSearchParam } from '@/lib/nav';
 import { useRunTerminals } from '@/lib/run-terminals';
 import { hasShellRuns, useShellRunVersion } from '@/lib/shell-runs';
 import { cn } from '@/lib/utils';
+
+const AgentTerminal = lazy(() => import('@/components/chat/agent-terminal'));
 
 type Tool = Extract<ChatBlock, { kind: 'tool' }>;
 type Shell = Extract<ChatBlock, { kind: 'shell' }>;
@@ -120,6 +137,8 @@ interface Role {
 function roleOf(snap: Snapshot, id: string): Role {
   const project = snap.projects.find((p) => p.controlSessionId === id);
   if (project) return { kind: 'control', project: project.name, taskId: null, taskTitle: null };
+  if (id === snap.general?.controlSessionId)
+    return { kind: 'control', project: 'General', taskId: null, taskTitle: null };
   const task = snap.tasks.find((t) => t.aoeSessionId === id);
   if (task) return { kind: 'worker', project: task.project, taskId: task.id, taskTitle: task.title };
   return { kind: 'other', project: null, taskId: null, taskTitle: null };
@@ -475,6 +494,24 @@ function FreshButton({ tokens, onClick }: { tokens: number | null; onClick: () =
   );
 }
 
+/** Status update, on control chats only: asks the chat where things stand. */
+function StatusButton({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="h-8 gap-1.5 px-2 text-xs text-muted-foreground"
+      title="Ask this chat for a status update. If it is busy the message waits its turn; it never interrupts."
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <ClipboardTextIcon className="size-4" />
+      Status update
+    </Button>
+  );
+}
+
 /** "Working 12s" while Claude runs, like the terminal's own spinner line. */
 function WorkingClock({ since }: { since: string | null }) {
   const [now, setNow] = useState(Date.now());
@@ -508,6 +545,7 @@ function ChatComposer({
   effort,
   context,
   held,
+  control,
   onStartFresh,
 }: {
   session: SessionView;
@@ -521,6 +559,8 @@ function ChatComposer({
   context: ContextInfo | null;
   /** Messages the daemon holds for this session: while there are any, Send joins the line. */
   held: HeldMessage[];
+  /** A control chat: it gets the Status update button. */
+  control: boolean;
   onStartFresh: () => void;
 }) {
   const sessionId = session.id;
@@ -553,8 +593,36 @@ function ChatComposer({
     setError(null);
   };
 
-  /** Send the box and every attachment as one message, held while Claude is busy unless `mode` says otherwise. */
-  const deliver = async (text: string, mode: SendMode = 'hold') => {
+  /** The normal send path: POST the message, then note it held or show it as sent. */
+  const post = async (message: string, mode: SendMode, previews: string[] = []) => {
+    const res = await sendJson<SendResult>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/send`, {
+      message,
+      mode,
+    });
+    if ('held' in res) {
+      if (res.note) toast(res.note);
+    } else onSent(message, previews);
+  };
+
+  /** Status update never interrupts: a busy control chat holds it, so it is not cut off mid-spawn. */
+  const statusUpdate = async () => {
+    if (sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      await post('Status update', 'hold');
+    } catch (e) {
+      setError(
+        `${e instanceof ApiError ? e.message : 'Could not send.'} Try again, or type in AoE directly.`,
+      );
+      toast.error('Message not sent');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  /** Send the box and every attachment as one message. Enter and Send interrupt while Claude works. */
+  const deliver = async (text: string, mode: SendMode = working ? 'interrupt' : 'hold') => {
     if (sending) return false;
     const typed = value;
     setSending(true);
@@ -574,18 +642,12 @@ function ChatComposer({
         text,
         files.map((f) => f.path),
       );
-      const res = await sendJson<SendResult>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/send`, {
+      await post(
         message,
         mode,
-      });
+        files.filter((f) => f.image && f.url).map((f) => f.url!),
+      );
       drafts.update(sessionId, (d) => clearSent(d, { text: typed, paths: files.map((f) => f.path) }));
-      if ('held' in res) {
-        if (res.note) toast(res.note);
-      } else
-        onSent(
-          message,
-          files.filter((f) => f.image && f.url).map((f) => f.url!),
-        );
       return true;
     } catch (e) {
       setError(
@@ -711,6 +773,7 @@ function ChatComposer({
           <ModelMenu sessionId={sessionId} model={model} effort={effort} disabled={!!session.prompt} />
           <ContextMeter context={context} onStartFresh={onStartFresh} />
           <FreshButton tokens={context?.used ?? null} onClick={onStartFresh} />
+          {control && <StatusButton disabled={sending} onClick={() => void statusUpdate()} />}
           <span className="flex-1" />
           {working && <WorkingClock since={session.statusSince} />}
           <SendButton
@@ -723,9 +786,9 @@ function ChatComposer({
         </div>
       </div>
       <p id="chat-help" className="sr-only">
-        Enter sends, Shift+Enter adds a line. While Claude is working, a message waits here until Claude is
-        done; the menu beside Send sends it now or stops Claude first. Paste or drop files to attach them
-        (images open for marking up first); they go with the message when you send it. Sent into the AoE
+        Enter sends, Shift+Enter adds a line. While Claude is working, Enter stops Claude and sends; the menu
+        beside Send holds the message until Claude is done, or sends it now. Paste or drop files to attach
+        them (images open for marking up first); they go with the message when you send it. Sent into the AoE
         session as a prompt and recorded in the audit log.
       </p>
       {error && (
@@ -977,6 +1040,7 @@ function ChatHeader({
   basePath,
   rcUrl,
   aoeOrigin,
+  mr,
   embedded,
   panel,
   onStartFresh,
@@ -988,13 +1052,15 @@ function ChatHeader({
   basePath: string;
   rcUrl: string | null;
   aoeOrigin: string | null;
+  /** The worker's merge request, once it has one. */
+  mr: MrState | null;
   /** Inside the task page, which already shows the title. */
   embedded: boolean;
   /** Control chats: the side panel's show/hide switch. */
   panel?: { open: boolean; toggle: () => void };
   onStartFresh: () => void;
 }) {
-  const attach = `aoe session attach ${session.id}`;
+  const attach = useAttachCommand(session.id);
   return (
     <HeaderActions>
       {!embedded && (
@@ -1003,6 +1069,7 @@ function ChatHeader({
         </span>
       )}
       <LiveStatus status={session.status} unread={session.unread} className="max-sm:[&>span]:sr-only" />
+      <AttachButton sessionId={session.id} />
       <nav aria-label="View" className="flex rounded-lg border border-border bg-background p-0.5">
         {(
           [
@@ -1064,6 +1131,14 @@ function ChatHeader({
               <a href={aoeOrigin} target="_blank" rel="noreferrer">
                 <ArrowSquareOutIcon />
                 Open in AoE
+              </a>
+            </DropdownMenuItem>
+          )}
+          {mr && (
+            <DropdownMenuItem asChild>
+              <a href={mr.url} target="_blank" rel="noreferrer">
+                <GitMergeIcon />
+                Open MR {mrLabel(mr)}
               </a>
             </DropdownMenuItem>
           )}
@@ -1148,7 +1223,9 @@ export function SessionChat({
   const role = useMemo(() => roleOf(snap, session.id), [snap, session.id]);
   const { chat, error, refresh } = useChat(session.id);
   useMarkRead(session.id, !!session.unread);
-  const terminal = useSessionOutput(session.id, view === 'terminal' ? 2000 : 15_000);
+  // Only for the claude.ai link now: the Terminal view is live.
+  const terminal = useSessionOutput(session.id, 15_000);
+  const attach = useAttachCommand(session.id);
   const [draft, updateDraft] = useDraft(session.id);
   const setDraft = (v: string) => updateDraft((d) => ({ ...d, text: v }));
   const held = snap.held?.[session.id] ?? NO_HELD;
@@ -1258,6 +1335,7 @@ export function SessionChat({
           basePath={basePath}
           rcUrl={terminal.output?.rcUrl ?? null}
           aoeOrigin={snap.health.aoe.origin}
+          mr={snap.tasks.find((t) => t.aoeSessionId === session.id)?.mr ?? null}
           embedded={embedded}
           panel={
             role.kind === 'control' ? { open: panelOpen, toggle: () => setPanelOpen(!panelOpen) } : undefined
@@ -1277,16 +1355,14 @@ export function SessionChat({
 
         {view === 'terminal' ? (
           <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-4 lg:px-6">
-            <Conversation
-              content={terminal.output?.content ?? null}
-              error={terminal.error}
-              className="min-h-0 flex-1"
-            />
+            <Suspense fallback={<p className="text-sm text-muted-foreground">Opening the terminal…</p>}>
+              <AgentTerminal sessionId={session.id} />
+            </Suspense>
             <details className="text-sm text-muted-foreground">
               <summary className="cursor-pointer select-none hover:text-foreground">
                 Attach in a terminal instead
               </summary>
-              <CommandLine command={`aoe session attach ${session.id}`} className="mt-2 max-w-xl" />
+              <CommandLine command={attach} className="mt-2 max-w-xl" />
             </details>
           </div>
         ) : (
@@ -1439,6 +1515,7 @@ export function SessionChat({
                 effort={chat?.effort ?? null}
                 context={chat?.context ?? null}
                 held={held}
+                control={role.kind === 'control'}
                 onStartFresh={() => setFresh(true)}
               />
             </>

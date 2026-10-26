@@ -33,6 +33,7 @@ import { cn } from '@/lib/utils';
 import { NotesPage } from '@/pages/notes';
 import { OverviewPage } from '@/pages/overview';
 import { ProjectPage } from '@/pages/project';
+import { SchedulesPage } from '@/pages/schedules';
 import { SettingsPage } from '@/pages/settings';
 import { ProjectSettingsPage } from '@/pages/project-settings';
 import { TaskPage, type TaskTab } from '@/pages/task';
@@ -50,6 +51,7 @@ function crumbsFor(location: string, snap: Snapshot): Crumb[] {
   if (parts[0] === 'settings') return [{ label: 'Settings' }];
   if (parts[0] === 'office') return [{ label: 'Office' }];
   if (parts[0] === 'notes') return [{ label: 'Notes' }];
+  if (parts[0] === 'schedules') return [{ label: 'Schedules' }];
   if (parts[0] === 'p' && parts[1]) {
     const c: Crumb[] = [{ label: parts[1], href: `/p/${parts[1]}` }];
     if (parts[2] === 'settings') c.push({ label: 'Settings' });
@@ -72,6 +74,11 @@ function crumbsFor(location: string, snap: Snapshot): Crumb[] {
         { label: 'Chat' },
       ];
     const session = snap.sessions.find((s) => s.id === id);
+    // General: the control chat, and the chats and workers with no project.
+    const general = snap.general;
+    if (general?.controlSessionId === id) return [{ label: 'General' }, { label: 'Control chat' }];
+    if (general?.sessions[id] || (session?.parentId && session.parentId === general?.controlSessionId))
+      return [{ label: 'General' }, { label: general.sessions[id] ?? session?.title ?? id }];
     const lead = session?.parentId
       ? snap.projects.find((p) => p.controlSessionId === session.parentId)
       : null;
@@ -375,6 +382,9 @@ export function App() {
                     </Route>
                     <Route path="/notes">
                       <NotesPage snap={snap} />
+                    </Route>
+                    <Route path="/schedules">
+                      <SchedulesPage snap={snap} />
                     </Route>
                     <Route path="/settings">
                       <SettingsPage

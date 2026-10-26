@@ -37,6 +37,12 @@ export function aoeAppDir(env: NodeJS.ProcessEnv, home: string): string {
 
 export { MODELS_55_SINCE };
 
+/** How to acknowledge AoE's agent hooks: `aoe hooks approve` since AoE 1.19, the TUI's dialog before. */
+export const hookConsentFix = (aoeVersion: string) =>
+  versionAtLeast(aoeVersion, [1, 19, 0])
+    ? 'Run "aoe hooks approve" (or "aoe hooks status" to see what it writes).'
+    : 'Run "aoe" once and approve the agent hook paths it asks about.';
+
 export function claudeModelsCheck(versionLine: string): Check | null {
   const ok = versionAtLeast(versionLine, MODELS_55_SINCE);
   if (ok === null) return null;
@@ -118,7 +124,7 @@ export async function runDoctor(ctx: Ctx): Promise<Check[]> {
       name: 'hook consent',
       status: acked ? 'ok' : 'warn',
       detail: acked ? 'agent hook paths acknowledged' : 'not acknowledged yet; new sessions will not launch',
-      fix: acked ? undefined : 'Run "aoe" once and approve the agent hook paths it asks about.',
+      fix: acked ? undefined : hookConsentFix(installed),
     });
     const running = await ctx.aoeCli.serveRunning();
     add({

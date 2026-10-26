@@ -31,6 +31,8 @@ export interface FakeSession {
   parent_session_id: string | null;
   /** Fake only: a Claude Code menu drawn at the bottom of the pane (see PLAN_MENU). Never sent over REST. */
   menu?: string | null;
+  /** Fake only: the trust dialog is open: which row the cursor is on, and the menu that comes after it. */
+  trust?: { cursor: 1 | 2; next: string | null } | null;
   /** Fake only: background shells the pane's footer reports ("· 2 shells ·"). Never sent over REST. */
   shells?: number;
   /** Fake only: the `aoe add --extra-args` string, so tests can see the claude flags. Never sent over REST. */
@@ -96,15 +98,40 @@ export const PERMISSION_MENU = [
   '   3. No, and tell Claude what to do differently (esc)',
 ].join('\n');
 
-/** The folder-trust dialog a new Claude Code session can open on (wording approximate). */
-export const TRUST_MENU = [
+/**
+ * The folder-trust dialog a new Claude Code session opens on, as 2.1.285 draws it: no numbers, the
+ * cursor on "No, exit", and AoE still reports Idle (no hook has fired). `cursor` is 1 or 2.
+ */
+export const trustMenu = (cursor: 1 | 2 = 1) =>
+  [
+    '────────────────────────────────────────────────────────────────────────────────',
+    ' Accessing workspace:',
+    '',
+    ' /tmp/some/project',
+    '',
+    ' Quick safety check: Is this a project you created or one you trust? (Like your',
+    ' own code, a well-known open source project, or work from your team). If not,',
+    " take a moment to review what's in this folder first.",
+    '',
+    " Claude Code'll be able to read, edit, and execute files here.",
+    '',
+    ' Security guide',
+    '',
+    ` ${cursor === 1 ? '❯' : ' '} No, exit`,
+    ` ${cursor === 2 ? '❯' : ' '} Yes, I trust this folder`,
+    '',
+    ' Enter to confirm · Esc to cancel',
+  ].join('\n');
+
+/** A numbered screen that can follow the trust dialog: its highlighted option is "No, exit". */
+export const CONSENT_MENU = [
   '────────────────────────────────────────────────────────────────────────────────',
-  ' Accessing workspace:',
+  ' WARNING: Claude Code running in Bypass Permissions mode',
   '',
-  ' Quick safety check: Is this a project you created or one you trust?',
+  ' Do you accept the risk?',
   '',
-  ' ❯ 1. Yes, I trust this folder',
-  '   2. No, exit',
+  ' ❯ 1. No, exit',
+  '   2. Yes, I accept',
   '',
   ' Enter to confirm · Esc to cancel',
 ].join('\n');
@@ -123,6 +150,8 @@ export interface FakeState {
   viewers: Record<string, boolean | 'stuck'>;
   /** Claims made through the live-terminal websocket, in order. */
   claims: { id: string; type: string; owner: boolean }[];
+  /** `resize` messages on the agent pane's live view. */
+  resizes: { id: string; rows: number }[];
   /**
    * Fake only: each session's paired shells (`shellKey`): what they printed and the line being typed.
    * Index 0 is the session's own; 1 to 31 are extra ones.
@@ -173,11 +202,19 @@ function inScope(s: FakeSession, scope: string | undefined): boolean {
   return true;
 }
 
+/** AoE 1.18+'s 409 body for a session that will not take input or start, or null. */
+function shelved(s: FakeSession) {
+  if (s.trashed_at) return { error: 'session_trashed', message: 'Session is in the trash' };
+  if (s.archived_at) return { error: 'session_archived', message: 'Session is archived' };
+  return null;
+}
+
 /** REST shape: AoE 1.17.2 omits the parent link from SessionResponse. */
 function toRest(s: FakeSession) {
   const {
     parent_session_id: _p,
     menu: _m,
+    trust: _t,
     shells: _sh,
     extra_args: _x,
     swallow: _s,
@@ -256,7 +293,7 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     const s = state.sessions.find((x) => x.id === id);
     if (!s) return;
     // A digit picks an option of an open menu (Claude Code confirms on the digit alone).
-    if (s.menu && /^\d$/.test(message.trim())) {
+    if (s.menu && !s.trust && /^\d$/.test(message.trim())) {
       s.menu = null;
       return;
     }
@@ -306,7 +343,14 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
   app.post('/__fake/sessions', async (c) => {
     const body = (await c.req.json()) as Partial<FakeSession> & { title: string; project_path: string };
     const s = makeSession(body);
-    if (s.menu === 'trust') Object.assign(s, { status: 'Waiting', menu: TRUST_MENU });
+    // FAKE_AOE_START_MENU=trust-consent: the trust dialog, then a consent screen.
+    if (s.menu === 'trust' || s.menu === 'trust-consent')
+      Object.assign(s, {
+        status: 'Idle',
+        idle_entered_at: new Date().toISOString(),
+        menu: trustMenu(),
+        trust: { cursor: 1, next: s.menu === 'trust-consent' ? CONSENT_MENU : null },
+      });
     state.sessions.push(s);
     // Claude Code's SessionStart hook: a launched session's Claude id is known before any message.
     if (transcripts && s.hooks !== false && (s.status === 'Starting' || s.menu))
@@ -432,6 +476,8 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     const id = c.req.param('id');
     if (!state.sessions.some((s) => s.id === id))
       return c.json({ error: 'not_found', message: 'No such session' }, 404);
+    const refused = shelved(state.sessions.find((s) => s.id === id)!);
+    if (refused) return c.json(refused, 409);
     const { message } = (await c.req.json()) as { message: string };
     state.sent.push({ id, message, at: new Date().toISOString() });
     const s = state.sessions.find((x) => x.id === id)!;
@@ -442,22 +488,7 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
   app.get('/api/sessions/:id/output', (c) => {
     const s = state.sessions.find((x) => x.id === c.req.param('id'));
     if (!s) return c.json({ error: 'not_found', message: 'No such session' }, 404);
-    const lines = [
-      ' ▐▛███▛█   Claude Code (fake agent)',
-      `  ${s.title}`,
-      ...(s.title.endsWith(' control')
-        ? ['  /remote-control is active · Continue at https://claude.ai/code/session_FAKE0123']
-        : []),
-      '',
-      ...state.sent
-        .filter((m) => m.id === s.id)
-        .flatMap((m) => [`❯ ${m.message}`, '', '⏺ Got it. Working on that now.', '']),
-      // What Claude Code shows during a turn, and once Escape has stopped one.
-      ...(s.status === 'Running' ? ['✻ Working… (3s · ↓ 1.2k tokens)', ''] : []),
-      ...(s.interrupted ? ['  ⎿  Interrupted · What should Claude do instead?', ''] : []),
-      ...(s.menu ? [s.menu] : ['❯ ']),
-      ...(s.shells ? [`  ⏵⏵ auto mode on · ${s.shells} shells · ← for agents`] : []),
-    ];
+    const lines = paneLines(state, s);
     return c.json({
       id: s.id,
       lines: Number(c.req.query('lines') ?? 50),
@@ -465,7 +496,8 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
       content: lines.join('\n'),
     });
   });
-  // Lifecycle, as AoE 1.17.2 does it (src/server/api/sessions/lifecycle.rs, ensure.rs).
+  // Lifecycle, as AoE does it (src/server/api/sessions/lifecycle.rs, ensure.rs); start and ensure
+  // refuse archived and trashed sessions like send (AoE 1.18+).
   const lifecycle = (
     method: 'patch' | 'post',
     action: string,
@@ -474,6 +506,8 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     app[method](`/api/sessions/:id/${action}`, async (c) => {
       const s = state.sessions.find((x) => x.id === c.req.param('id'));
       if (!s) return c.json({ error: 'not_found', message: 'Session not found' }, 404);
+      const refused = (action === 'start' || action === 'ensure') && shelved(s);
+      if (refused) return c.json(refused, 409);
       const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
       const out = apply(s, body);
       return c.json(out ?? toRest(s));
@@ -535,6 +569,7 @@ export async function startFakeAoe(
     keys: [],
     viewers: {},
     claims: [],
+    resizes: [],
     shells: {},
     shellRan: [],
     killedTerminals: [],
@@ -558,11 +593,32 @@ export async function startFakeAoe(
   };
 }
 
+/** What the agent pane shows: Claude Code's banner, the conversation so far, and its prompt or menu. */
+function paneLines(state: FakeState, s: FakeSession): string[] {
+  return [
+    ' ▐▛███▛█   Claude Code (fake agent)',
+    `  ${s.title}`,
+    ...(s.title.endsWith(' control')
+      ? ['  /remote-control is active · Continue at https://claude.ai/code/session_FAKE0123']
+      : []),
+    '',
+    ...state.sent
+      .filter((m) => m.id === s.id)
+      .flatMap((m) => [`❯ ${m.message}`, '', '⏺ Got it. Working on that now.', '']),
+    // What Claude Code shows during a turn, and once Escape has stopped one.
+    ...(s.status === 'Running' ? ['✻ Working… (3s · ↓ 1.2k tokens)', ''] : []),
+    ...(s.interrupted ? ['  ⎿  Interrupted · What should Claude do instead?', ''] : []),
+    ...(s.menu ? [s.menu] : ['❯ ']),
+    ...(s.shells ? [`  ⏵⏵ auto mode on · ${s.shells} shells · ← for agents`] : []),
+  ];
+}
+
 /**
  * AoE's live-terminal websocket, reduced to what Supercharge uses (src/server/live_ws.rs): bearer auth,
  * `claim_if_vacant` (only when nobody views the session) and `claim` (take over) answered with
- * `size_owner`, binary frames as raw pane input. Escape on a menu closes it and rejects the call it was
- * about, like Claude Code does.
+ * `size_owner`, `resize` (takes a vacant lock only), binary frames as raw pane input, and a `frame` of the
+ * pane after each of them. Escape on a menu closes it and rejects the call it was about, like Claude Code
+ * does.
  */
 function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: FakeTranscripts | null) {
   const wss = new WebSocketServer({ noServer: true });
@@ -579,21 +635,48 @@ function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: F
     wss.handleUpgrade(req, socket, head, (ws) => {
       if (shell) return fakeShell(ws, s.id, index, state);
       let owner = false;
+      let rows = 24;
+      const frame = () => {
+        const all = paneLines(state, s);
+        while (all.length < rows) all.push('');
+        ws.send(JSON.stringify({ type: 'frame', content: all.join('\n'), rows, cursor: null }));
+      };
       ws.on('message', (data, isBinary) => {
         if (!isBinary) {
-          const msg = JSON.parse(String(data)) as { type?: string };
+          const msg = JSON.parse(String(data)) as { type?: string; rows?: number };
           if (msg.type === 'claim_if_vacant' || msg.type === 'claim') {
             const viewer = state.viewers[s.id];
             owner = msg.type === 'claim' ? viewer !== 'stuck' : !viewer;
             state.claims.push({ id: s.id, type: msg.type, owner });
             ws.send(JSON.stringify({ type: 'size_owner', is_owner: owner }));
+            frame();
+          } else if (msg.type === 'resize') {
+            if (msg.rows) rows = msg.rows;
+            owner ||= !state.viewers[s.id];
+            state.resizes.push({ id: s.id, rows });
+            ws.send(JSON.stringify({ type: 'size_owner', is_owner: owner }));
+            frame();
           }
           return;
         }
         if (!owner) return;
         const bytes = Buffer.from(data as Buffer);
         state.keys.push({ id: s.id, hex: bytes.toString('hex'), at: new Date().toISOString() });
-        if (bytes.length === 1 && bytes[0] === 0x1b && s.menu) {
+        setTimeout(frame, 0);
+        const key = bytes.toString('latin1');
+        if (s.trust && (key === '\x1b[B' || key === '\x1b[A')) {
+          s.trust.cursor = key === '\x1b[B' ? 2 : 1;
+          s.menu = trustMenu(s.trust.cursor);
+        } else if (s.trust && key === '\r') {
+          // Enter confirms the highlighted row: "No, exit" quits Claude, "Yes" goes on to the next screen.
+          const { cursor, next } = s.trust;
+          s.trust = null;
+          s.menu = cursor === 1 ? null : next;
+          if (cursor === 1) Object.assign(s, { status: 'Stopped' });
+        } else if (s.menu && !s.trust && /^\d$/.test(key)) {
+          // Claude Code confirms a numbered option on the digit alone.
+          s.menu = null;
+        } else if (bytes.length === 1 && bytes[0] === 0x1b && s.menu) {
           s.menu = null;
           transcripts?.get(s.id)?.rejectPending();
         } else if (bytes.length === 1 && bytes[0] === 0x1b && s.status === 'Running') {

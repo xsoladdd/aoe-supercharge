@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PERMISSION_MENU } from '../packages/fake-aoe/src/server.ts';
+import { CONSENT_MENU, PERMISSION_MENU, trustMenu } from '../packages/fake-aoe/src/server.ts';
 import type { Locator, Page } from '@playwright/test';
 import { axe, expect, fake, test, world } from './fixtures.ts';
 
@@ -142,11 +142,50 @@ test.describe('overview', () => {
     await expect(page.getByRole('heading', { name: 'Start the conversation' })).toBeVisible();
     await page.getByRole('link', { name: 'Terminal' }).click();
     await expect(page).toHaveURL(/\?view=terminal$/);
-    await expect(page.getByRole('log', { name: 'Session conversation' })).toContainText(
-      'Claude Code (fake agent)',
-    );
+    // The agent's pane, live: what you type goes straight in, arrows and all.
+    const terminal = page.getByLabel('Session terminal');
+    await expect(terminal.locator('.xterm-rows')).toContainText('Claude Code (fake agent)', {
+      timeout: 15_000,
+    });
+    const id = page.url().match(/chat\/([0-9a-f]{16})/)![1]!;
+    const keys = async () =>
+      ((await fake('/__fake/state')) as { keys: { id: string; hex: string }[] }).keys
+        .filter((k) => k.id === id)
+        .map((k) => k.hex);
+    await terminal.locator('.xterm').click();
+    await page.keyboard.type('hi');
+    await page.keyboard.press('ArrowUp');
+    await expect.poll(keys).toEqual(expect.arrayContaining(['68', '69', '1b5b41']));
     await page.getByText('Attach in a terminal instead').click();
-    await expect(page.getByText(/aoe session attach [0-9a-f]{16}/)).toBeVisible();
+    await expect(page.getByText(/aoe session attach -p \S+ [0-9a-f]{16}/)).toBeVisible();
+  });
+
+  test('the play buttons open a terminal tab attached to the chat', async ({ signedIn: page }) => {
+    // Not a control chat: opening one marks its reply read, which the tests above look for on every engine.
+    const id = await sessionId('flaky e2e triage');
+    const worker = await sessionId('NW-0001');
+    const opened = () => {
+      try {
+        return readFileSync(join(world().home, 'osascript.log'), 'utf8');
+      } catch {
+        return '';
+      }
+    };
+    await page.goto(`/chat/${id}`);
+    await page.getByRole('button', { name: 'Attach in a terminal' }).click();
+    // The fake osascript (packages/fake-aoe/bin) records the command; elsewhere than macOS it is copied.
+    if (process.platform === 'darwin') {
+      await expect(page.getByText(/^Opened in (iTerm2|Terminal)$/)).toBeVisible();
+      await expect.poll(opened).toContain(`"aoe session attach -p main ${id}"`);
+    } else await expect(page.getByText(/attach command|Could not open/).first()).toBeVisible();
+    const play = page.getByRole('button', { name: 'Attach Build page templates in a terminal' });
+    // It shows over the row's icon while you point at the row.
+    await play.locator('..').hover();
+    await expect(play).toBeVisible();
+    await axe(page, 'sidebar play button');
+    await play.click();
+    if (process.platform === 'darwin')
+      await expect.poll(opened).toContain(`"aoe session attach -p main ${worker}"`);
   });
 
   test('the sidebar shows your 5-hour and weekly usage and how many workers may run', async ({
@@ -175,6 +214,19 @@ test.describe('overview', () => {
     await expect(page.getByText('Started a fresh conversation')).toBeVisible();
     const state = (await fake('/__fake/state')) as { sent: { message: string }[] };
     expect(state.sent.some((s) => s.message === '/clear')).toBe(true);
+  });
+
+  test("the chat menu opens the worker's merge request, only when it has one", async ({ signedIn: page }) => {
+    await page.goto('/p/northwind-web/t/NW-0001/chat');
+    await page.getByRole('button', { name: 'More session actions' }).click();
+    const item = page.getByRole('menuitem', { name: 'Open MR !41' });
+    await expect(item).toHaveAttribute('href', /merge_requests\/41$/);
+    await expect(item).toHaveAttribute('target', '_blank');
+    await page.keyboard.press('Escape');
+    await page.goto(`/chat/${await sessionId('flaky e2e triage')}`);
+    await page.getByRole('button', { name: 'More session actions' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Start fresh (/clear)…' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /^Open MR/ })).toHaveCount(0);
   });
 
   test('typing / suggests commands and skills; Tab completes', async ({ signedIn: page }) => {
@@ -325,14 +377,54 @@ test.describe('project', () => {
       await card.getByRole('radiogroup').getByText('Yes', { exact: true }).click();
       await card.getByRole('button', { name: 'Send answer' }).click();
       await expect(page.getByText('Answer sent')).toBeVisible();
-      const state = (await fake('/__fake/state')) as { sent: { id: string; message: string }[] };
-      expect(state.sent.filter((m) => m.id === id).at(-1)?.message).toBe('1');
+      // The digit goes in as a key (no Enter after it), not as a message.
+      const state = (await fake('/__fake/state')) as { keys: { id: string; hex: string }[] };
+      expect(state.keys.filter((k) => k.id === id).at(-1)?.hex).toBe('31');
       await expect(card).toHaveCount(0, { timeout: 15_000 });
       await expect(page.getByLabel(/^Message /)).toBeVisible();
     } finally {
       await fake(`/__fake/sessions/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: 'Running', menu: null }),
+      });
+    }
+  });
+
+  test('the trust dialog of an idle session is answered from the chat', async ({ signedIn: page }) => {
+    const id = await sessionId('AA-0001');
+    // AoE says Idle at Claude Code's startup dialogs; no hook has fired.
+    await fake(`/__fake/sessions/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        status: 'Idle',
+        menu: trustMenu(),
+        trust: { cursor: 1, next: CONSENT_MENU },
+      }),
+    });
+    try {
+      await page.goto('/p/apollo-api/t/AA-0001/chat');
+      const card = page.locator('section', {
+        has: page.getByRole('heading', { name: 'Claude is waiting on you' }),
+      });
+      await expect(
+        card.getByText('Quick safety check: Is this a project you created or one you trust?'),
+      ).toBeVisible({ timeout: 15_000 });
+      await card.getByRole('radiogroup').getByText('Yes, I trust this folder').click();
+      await card.getByRole('button', { name: 'Send answer' }).click();
+      await expect(page.getByText('Answer sent')).toBeVisible();
+      const state = (await fake('/__fake/state')) as { keys: { id: string; hex: string }[] };
+      expect(
+        state.keys
+          .filter((k) => k.id === id)
+          .slice(-2)
+          .map((k) => k.hex),
+      ).toEqual(['1b5b42', '0d']);
+      // Then the next screen, which nothing answered for you.
+      await expect(card.getByText('Do you accept the risk?')).toBeVisible({ timeout: 15_000 });
+    } finally {
+      await fake(`/__fake/sessions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'Running', menu: null, trust: null }),
       });
     }
   });
@@ -1075,15 +1167,55 @@ test.describe('project', () => {
     await expect(page.getByRole('dialog', { name: 'Adopt as a project' })).toBeVisible();
   });
 
-  test('new task dialog builds the CLI command (dashboard never spawns agents)', async ({
-    signedIn: page,
-  }) => {
+  test('new task form starts a worker and opens its task', async ({ signedIn: page }) => {
     await page.goto('/p/apollo-api');
     await page.getByRole('button', { name: 'New task' }).click();
-    await page.getByLabel('Title').fill('Add request tracing');
-    await expect(
-      page.getByRole('dialog').getByText('supercharge task new "Add request tracing" --project apollo-api'),
-    ).toBeVisible();
+    const dialog = page.getByRole('dialog', { name: 'New task' });
+    await expect(dialog.getByRole('button', { name: 'Start task' })).toBeDisabled();
+    await dialog.getByLabel('Title').fill('Add request tracing');
+    await dialog.getByLabel('Brief').fill('Trace every request id through the API.');
+    await dialog.getByLabel('Model').click();
+    await page.getByRole('option', { name: 'Sonnet' }).click();
+    await dialog.getByLabel('Effort').click();
+    await page.getByRole('option', { name: 'Low' }).click();
+    await dialog.getByRole('button', { name: 'Start task' }).click();
+    // The demo world is at its worker cap, so the first try is held until the user says otherwise.
+    await expect(dialog.getByRole('alert')).toContainText(/\d+ are already active/);
+    await dialog.getByRole('button', { name: 'Start anyway' }).click();
+    await expect(page).toHaveURL(/\/p\/apollo-api\/t\/[A-Z]+-\d+$/);
+    await expect(page.getByRole('heading', { name: 'Add request tracing' })).toBeVisible();
+  });
+
+  test('new task form shows the usage limit and only forces on "Start anyway"', async ({
+    signedIn: page,
+  }) => {
+    const bodies: Array<Record<string, unknown>> = [];
+    await page.route('**/api/projects/apollo-api/tasks', async (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      bodies.push(body);
+      if (body.force !== true)
+        return route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'limited', message: '5-hour limit at 90%: wait until it resets.' }),
+        });
+      return route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: '{"message":"aoe add failed"}',
+      });
+    });
+    await page.goto('/p/apollo-api');
+    await page.getByRole('button', { name: 'New task' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New task' });
+    await dialog.getByLabel('Title').fill('Add request tracing');
+    await dialog.getByRole('button', { name: 'Start task' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('5-hour limit at 90%');
+    expect(bodies.map((b) => b.force)).toEqual([false]);
+    await dialog.getByRole('button', { name: 'Start anyway' }).click();
+    // A failure shows inline and leaves the form open.
+    await expect(dialog.getByRole('alert')).toContainText('aoe add failed');
+    expect(bodies.map((b) => b.force)).toEqual([false, true]);
   });
 });
 

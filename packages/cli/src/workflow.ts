@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   appendAudit,
   applyStage,
+  readHeld,
   readUsage,
   SAFE_ARG,
   writeFileAtomic,
@@ -20,12 +21,15 @@ import {
   type Actor,
   type LiveStatus,
   type MrState,
+  type ParsedMenu,
   type ProjectRecord,
   type Stage,
   type TaskRecord,
   EFFORT_LEVELS,
   MODEL_ALIASES,
   countActiveWorkers,
+  countBusyGeneral,
+  generalSessionIds,
   normalizeAoeStatus,
   pickDesk,
   pickWorkerName,
@@ -37,7 +41,7 @@ import type { AoeCliListEntry } from './aoe/schemas.ts';
 import { VERSION, type Ctx } from './context.ts';
 import { mrProviders, toMrState } from './mr/index.ts';
 import { installUserSkills, readTemplate, render, SKILL_NAMES, upsertManagedBlock } from './skills.ts';
-import { TerminalBusyError } from './aoe/client.ts';
+import { AoeError, TerminalBusyError } from './aoe/client.ts';
 import { menuOnScreen } from './prompt.ts';
 import { uploadArgs } from './uploads.ts';
 import { transcriptStore, type TranscriptStore } from './transcript.ts';
@@ -54,7 +58,7 @@ import {
   revParse,
 } from './util/git.ts';
 
-function assertSafeArg(value: string, what: string) {
+export function assertSafeArg(value: string, what: string) {
   if (!SAFE_ARG.test(value)) {
     throw new CliError(
       `${what} contains spaces or shell metacharacters: ${value}`,
@@ -67,7 +71,8 @@ function assertSafeArg(value: string, what: string) {
 // ── whoami ────────────────────────────────────────────────────────────────────
 
 export interface WhoAmI {
-  role: 'control' | 'worker' | 'none';
+  /** `general-control` and `general`: the General control chat, and a General chat or worker (no project). */
+  role: 'control' | 'worker' | 'general-control' | 'general' | 'none';
   project: string | null;
   /** How finished work reaches the base branch: a merge request, or the branch itself (`projects.<name>.mr = "none"`). */
   merge: MergeMode;
@@ -94,6 +99,22 @@ export async function whoami(
   cwd: string,
 ): Promise<WhoAmI & { record: TaskRecord | null; projectRecord: ProjectRecord | null }> {
   const sessionId = ctx.env.AOE_INSTANCE_ID || null;
+  if (sessionId) {
+    const general = await ctx.ledger.getGeneral();
+    const control = sessionId === general.controlSessionId;
+    if (control || general.sessions[sessionId])
+      return {
+        role: control ? 'general-control' : 'general',
+        project: null,
+        merge: 'mr',
+        sessionId,
+        branch: null,
+        task: null,
+        actor: control ? 'control' : 'user',
+        record: null,
+        projectRecord: null,
+      };
+  }
   const repo = await mainCheckout(cwd);
   const project = repo ? await ctx.ledger.findProjectByRepo(repo) : null;
   const branch = await currentBranch(cwd);
@@ -164,7 +185,7 @@ export interface InitResult {
 }
 
 /** AoE can create a session but fail to launch it (e.g. hook paths not yet acknowledged). */
-function launchWarning(
+export function launchWarning(
   r: { code: number | null; stderr: string; stdout: string },
   sessionId: string,
 ): string | null {
@@ -177,7 +198,7 @@ function launchWarning(
   return `AoE created session ${sessionId} but could not launch it: ${msg.replace(/^(Warning|Error):\s*/i, '')}\n  Fix the cause, then run: aoe session start ${sessionId}`;
 }
 
-async function listAoe(ctx: Ctx): Promise<AoeCliListEntry[]> {
+export async function listAoe(ctx: Ctx): Promise<AoeCliListEntry[]> {
   try {
     return await ctx.aoeCli.list();
   } catch (err) {
@@ -370,18 +391,7 @@ export async function newTask(
 ): Promise<TaskRecord & { warnings?: string[]; usage?: UsageReport }> {
   const title = opts.title.trim();
   if (!title) throw new CliError('A task needs a title.', EXIT.usage);
-  if (opts.model !== undefined && !MODEL_ID.test(opts.model))
-    throw new CliError(
-      `"${opts.model}" is not a model.`,
-      EXIT.usage,
-      `Use an alias (${MODEL_ALIASES.join(', ')}) or a full model id.`,
-    );
-  if (opts.effort !== undefined && !(EFFORT_LEVELS as readonly string[]).includes(opts.effort))
-    throw new CliError(
-      `Unknown effort "${opts.effort}".`,
-      EXIT.usage,
-      `Use one of: ${EFFORT_LEVELS.join(', ')}.`,
-    );
+  checkModelPick(opts);
   const project = await resolveProject(ctx, opts.cwd, opts.project);
   if (!project.controlSessionId)
     throw new CliError(
@@ -493,7 +503,7 @@ export async function newTask(
     throw err;
   }
   await appendAudit(ctx.paths, {
-    actor: 'cli',
+    actor: opts.actor ?? 'cli',
     action: 'task_created',
     project: project.name,
     taskId: id,
@@ -528,6 +538,8 @@ export async function newTask(
 
 export interface KickoffWait {
   timeoutMs?: number;
+  /** Who the first message's audit entry names; `cli` when unset. */
+  actor?: KickoffOpts['actor'];
   wait?: (ms: number) => Promise<void>;
 }
 
@@ -540,13 +552,14 @@ async function kickoffNewWorker(ctx: Ctx, task: TaskRecord, o: KickoffWait = {})
   const {
     timeoutMs = Number.isFinite(envMs) && envMs >= 0 ? envMs : 30_000,
     wait = (ms) => new Promise<void>((r) => setTimeout(r, ms)),
+    actor = 'cli',
   } = o;
   const transcripts = transcriptStore(ctx);
   const until = Date.now() + timeoutMs;
   for (;;) {
     const s = (await ctx.aoe.listSessions().catch(() => [])).find((x) => x.id === task.aoeSessionId);
     const status = normalizeAoeStatus(s?.status);
-    const r = await advanceKickoff(ctx, task, { status, transcripts, actor: 'cli' }).catch((err) => {
+    const r = await advanceKickoff(ctx, task, { status, transcripts, actor }).catch((err) => {
       ctx.logger.warn('could not send the first message', { task: task.id, err: (err as Error).message });
       return 'waiting' as const;
     });
@@ -561,13 +574,23 @@ export async function usageNow(ctx: Ctx, sessions?: AoeCliListEntry[]): Promise<
   // Run status comes from the REST list; `aoe list` only says a session exists (its `state` is
   // live/archived), so without the daemon every existing worker counts as running.
   const rest = await ctx.aoe.listSessions().catch(() => null);
+  const listed = sessions ?? (await listAoe(ctx));
   const status = new Map<string, string>(
-    rest
-      ? rest.map((s) => [s.id, normalizeAoeStatus(s.status)])
-      : (sessions ?? (await listAoe(ctx))).map((s) => [s.id, 'unknown']),
+    rest ? rest.map((s) => [s.id, normalizeAoeStatus(s.status)]) : listed.map((s) => [s.id, 'unknown']),
   );
   const tasks = await ctx.ledger.listTasks();
-  const active = countActiveWorkers(tasks, (id) => status.get(id) ?? null);
+  const general = generalSessionIds(
+    await ctx.ledger.getGeneral(),
+    listed.map((s) => ({ id: s.id, parentId: s.parent_session_id ?? null })),
+  );
+  const held = general.size ? await readHeld(ctx.paths).catch(() => null) : null;
+  const active =
+    countActiveWorkers(tasks, (id) => status.get(id) ?? null) +
+    countBusyGeneral(
+      general,
+      (id) => status.get(id) ?? null,
+      (id) => !!held?.[id]?.length,
+    );
   return usageReport(await readUsage(ctx.paths), active, ctx.config.limits);
 }
 
@@ -849,7 +872,7 @@ export async function sessionAction(
     permanent?: boolean;
     deleteWorktree?: boolean;
     deleteBranch?: boolean;
-    actor: 'cli' | 'ui';
+    actor: 'cli' | 'ui' | 'daemon';
   },
 ): Promise<void> {
   const id = opts.sessionId;
@@ -882,7 +905,7 @@ export async function sessionAction(
       await aoe.stopSession(id);
       break;
     case 'start':
-      await aoe.startSession(id);
+      await unarchiving(ctx, id, () => aoe.startSession(id));
       break;
     case 'archive':
       await aoe.setArchived(id, true);
@@ -1147,6 +1170,22 @@ export function controlPick(config: Config): { model: string; effort: string } {
 /** An alias or a full model id; it lands on AoE's shell line, so nothing else. */
 const MODEL_ID = /^[A-Za-z0-9._-]{1,80}$/;
 
+/** Refuses a `--model` or `--effort` that is not one, before anything is started. */
+export function checkModelPick(pick: { model?: string; effort?: string }) {
+  if (pick.model !== undefined && !MODEL_ID.test(pick.model))
+    throw new CliError(
+      `"${pick.model}" is not a model.`,
+      EXIT.usage,
+      `Use an alias (${MODEL_ALIASES.join(', ')}) or a full model id.`,
+    );
+  if (pick.effort !== undefined && !(EFFORT_LEVELS as readonly string[]).includes(pick.effort))
+    throw new CliError(
+      `Unknown effort "${pick.effort}".`,
+      EXIT.usage,
+      `Use one of: ${EFFORT_LEVELS.join(', ')}.`,
+    );
+}
+
 /**
  * `--model` / `--effort` for a new session: the task's own choice, else config. Session-only, unlike
  * a /model typed later.
@@ -1304,7 +1343,7 @@ export const kickoffUnconfirmed = (t: TaskRecord) =>
 interface KickoffOpts {
   status: LiveStatus;
   transcripts?: TranscriptStore | null;
-  actor: 'cli' | 'daemon';
+  actor: 'cli' | 'ui' | 'control' | 'daemon';
 }
 
 /**
@@ -1557,11 +1596,34 @@ export class MenuOpenError extends CliError {
 /** The menu someone tried to answer is no longer the one on screen. */
 export class PromptChangedError extends CliError {}
 
+/**
+ * AoE 1.18+ refuses `/send` and `/start` on an archived or trashed session (409); 1.17 unarchived it on
+ * send. So unarchive and try once more, as sending always did; a trashed session has to be restored first.
+ */
+export async function unarchiving<T>(ctx: Ctx, sessionId: string, call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (err) {
+    if (!(err instanceof AoeError) || err.status !== 409) throw err;
+    if (err.code === 'session_trashed')
+      throw new CliError(
+        'This session is in the trash, so nothing was sent.',
+        EXIT.usage,
+        'Restore it from the trash first.',
+      );
+    if (err.code !== 'session_archived') throw err;
+    await ctx.aoe.setArchived(sessionId, false);
+    return call();
+  }
+}
+
 /** REST first, the CLI as fallback (SPEC §8.4). Tells `ctx.onTyped`, even on failure: it may have typed. */
 async function deliver(ctx: Ctx, sessionId: string, text: string) {
   try {
-    await ctx.aoe.send(sessionId, text);
+    await unarchiving(ctx, sessionId, () => ctx.aoe.send(sessionId, text));
   } catch (err) {
+    // A trashed session: `aoe send` refuses it too.
+    if (err instanceof CliError) throw err;
     const r = await ctx.aoeCli.send(sessionId, text);
     if (r.code !== 0) throw new CliError(`Could not deliver the message: ${(err as Error).message}`);
   } finally {
@@ -1569,11 +1631,49 @@ async function deliver(ctx: Ctx, sessionId: string, text: string) {
   }
 }
 
+const DOWN = '\x1b[B';
+const UP = '\x1b[A';
+
 /**
- * Answer the menu a session is showing by typing the option's number, as you would in the terminal.
- * Claude Code confirms a numbered option on the digit alone; AoE's Enter after it lands on the empty
- * prompt. For an option that means telling Claude something, the digit focuses (or picks) it, the menu
- * closes, and the text then goes in as a normal message. Only delivered while the same menu is on screen.
+ * Pick an option by keys alone, never through REST `send`: its Enter would also answer whatever screen
+ * comes next (on Claude Code's startup, trust and then a consent screen whose highlighted option is
+ * "No, exit"). A numbered menu confirms on the digit; the trust dialog has no numbers, so the cursor
+ * moves to the row and Enter confirms it.
+ */
+async function pressOption(
+  ctx: Ctx,
+  sessionId: string,
+  menu: ParsedMenu,
+  n: number,
+  wait: (ms: number) => Promise<void>,
+) {
+  const press = async (keys: string[]) => {
+    try {
+      await ctx.aoe.pressKeys(sessionId, keys);
+    } catch (err) {
+      if (err instanceof TerminalBusyError) throw new TerminalBusyCliError(err.message);
+      throw new CliError(`Could not answer the menu: ${(err as Error).message}`);
+    }
+  };
+  if (!menu.numbered) {
+    const step = n - menu.cursor;
+    return press([...Array<string>(Math.abs(step)).fill(step > 0 ? DOWN : UP), '\r']);
+  }
+  await press([String(n)]);
+  // A menu that does not take the digit stays open; if it only moved the cursor, Enter finishes it.
+  await wait(600);
+  const now = await menuOnScreen(ctx, sessionId);
+  if (now?.key !== menu.key) return;
+  if (now.cursor !== n)
+    throw new CliError('The menu did not take the answer. Check the terminal.', EXIT.usage);
+  await press(['\r']);
+}
+
+/**
+ * Answer the menu a session is showing, with the keys you would press in the terminal (`pressOption`).
+ * For an option that means telling Claude something, the digit only focuses it and AoE's Enter closes the
+ * menu, so that one goes through `send`; the text then goes in as a normal message. Only delivered
+ * while the same menu is on screen.
  */
 export async function answerPrompt(
   ctx: Ctx,
@@ -1605,7 +1705,8 @@ export async function answerPrompt(
     sessionId: opts.sessionId,
     text: `${option.n}. ${option.label}${menu.question ? ` (to: ${menu.question})` : ''}`,
   });
-  await deliver(ctx, opts.sessionId, String(option.n));
+  if (option.feedback) await deliver(ctx, opts.sessionId, String(option.n));
+  else await pressOption(ctx, opts.sessionId, menu, option.n, wait);
   if (!text) return;
   for (let i = 0; ; i++) {
     await wait(250);

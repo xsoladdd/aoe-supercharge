@@ -19,6 +19,8 @@ import { KICKOFF_MESSAGE } from '../src/workflow.ts';
 import {
   ASK_MENU,
   PERMISSION_MENU,
+  CONSENT_MENU,
+  trustMenu,
   PLAN_MENU,
   startFakeAoe,
   type FakeAoe,
@@ -477,6 +479,43 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(ok.headers.get('access-control-allow-origin')).toBeNull();
   });
 
+  it('POST /api/projects/:name/tasks validates, answers 409 over the usage limit, and starts when forced', async () => {
+    const post = (name: string, body: unknown) =>
+      fetch(`${base()}/api/projects/${name}/tasks`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const ok = { title: 'From the dashboard', brief: 'Do it.', model: 'sonnet', effort: 'low' };
+    expect((await post('northwind', { ...ok, title: '  ' })).status).toBe(400);
+    expect((await post('northwind', { ...ok, model: 'gpt' })).status).toBe(400);
+    expect((await post('northwind', { ...ok, effort: 'extreme' })).status).toBe(400);
+    expect((await post('nope', ok)).status).toBe(404);
+    // 90% of the 5-hour window is used: nothing is created until the user says to start anyway.
+    const held = await post('northwind', ok);
+    expect(held.status).toBe(409);
+    expect(await held.json()).toMatchObject({
+      error: 'limited',
+      message: expect.stringMatching(/5-hour limit at 90%/),
+    });
+    expect((await post('northwind', { ...ok, force: 'yes' })).status).toBe(409);
+    const forced = await post('northwind', { ...ok, force: true });
+    expect(forced.status).toBe(200);
+    const task = (await forced.json()) as TaskRecord;
+    expect(task).toMatchObject({
+      title: 'From the dashboard',
+      model: 'opusplan',
+      effort: 'low',
+      stage: 'planning',
+    });
+    const audit = (await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { action: string; actor: string; taskId?: string });
+    expect(audit.find((a) => a.action === 'task_created' && a.taskId === task.id)?.actor).toBe('user');
+    expect((await sc(['stage', 'done'], { cwd: task.worktreePath })).code).toBe(0);
+  });
+
   it('snapshot merges the ledger with AoE sessions (parent links from aoe list)', async () => {
     const snap = await until(async () => {
       const s = (await (
@@ -690,6 +729,69 @@ describe('daemon: security, live state and the MR watcher', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'Idle' }),
     });
+  });
+
+  it('an idle session on its startup dialogs shows them, and each answer is keys only', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const post = (path: string, body: unknown) =>
+      fetch(`${base()}${path}`, {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const snapshot = async () =>
+      (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+    const patch = (body: unknown) =>
+      fetch(`${fake.url}/__fake/sessions/${id}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const id = (await snapshot()).tasks[0]!.aoeSessionId;
+    const keys = () => fake.state.keys.filter((k) => k.id === id).map((k) => k.hex);
+    const keysBefore = keys().length;
+    const sentBefore = fake.state.sent.length;
+    // The trust dialog, as Claude Code draws it: AoE still says Idle, since no hook has fired.
+    await patch({
+      status: 'Idle',
+      menu: trustMenu(),
+      trust: { cursor: 1, next: CONSENT_MENU },
+    });
+    const snap = await until(async () => {
+      const s = await snapshot();
+      return s.sessions.find((x) => x.id === id)?.prompt ? s : null;
+    });
+    const view = snap.sessions.find((x) => x.id === id)!;
+    expect(view).toMatchObject({ rawStatus: 'Idle', status: 'waiting' });
+    expect(view.prompt).toMatchObject({
+      kind: 'menu',
+      question: 'Quick safety check: Is this a project you created or one you trust?',
+      answerable: true,
+    });
+    expect(view.prompt!.options.map((o) => o.label)).toEqual(['No, exit', 'Yes, I trust this folder']);
+    expect(snap.needsYou.some((n) => n.sessionId === id)).toBe(true);
+    expect((await post(`/api/sessions/${id}/send`, { message: 'hi' })).status).toBe(409);
+
+    // "Yes": the cursor goes down one row and Enter confirms it, with nothing sent over REST.
+    expect((await post(`/api/sessions/${id}/answer`, { key: view.prompt!.key, option: 2 })).status).toBe(200);
+    expect(keys().slice(keysBefore)).toEqual(['1b5b42', '0d']);
+    expect(fake.state.sent.slice(sentBefore)).toEqual([]);
+    // The consent screen after it is shown, and is not answered by anything we pressed.
+    const next = await until(async () => {
+      const p = (await snapshot()).sessions.find((x) => x.id === id)?.prompt;
+      return p?.question === 'Do you accept the risk?' ? p : null;
+    });
+    await sleep(1_000);
+    expect(keys().slice(keysBefore)).toEqual(['1b5b42', '0d']);
+    // A numbered option goes in as its digit alone.
+    expect((await post(`/api/sessions/${id}/answer`, { key: next.key, option: 2 })).status).toBe(200);
+    expect(keys().slice(keysBefore)).toEqual(['1b5b42', '0d', '32']);
+    expect(fake.state.sent.length).toBe(sentBefore);
+    await until(async () => !(await snapshot()).sessions.find((x) => x.id === id)?.prompt);
+    expect((await snapshot()).sessions.find((x) => x.id === id)!.status).toBe('idle');
+    await patch({ status: 'Idle', menu: null, trust: null });
+    // The next test counts the keys it typed.
+    fake.state.keys = fake.state.keys.filter((k) => k.id !== id);
   });
 
   it("answers Claude's own multiple-choice questions: Escape through the live terminal, then the answers", async () => {
@@ -1278,6 +1380,17 @@ describe('daemon: security, live state and the MR watcher', () => {
     await until(async () => (await view(id))?.archived);
     expect((await act('unarchive', [id])).results[0]!.ok).toBe(true);
     expect(fake.state.sessions.find((s) => s.id === id)).toMatchObject({ archived_at: null, status: 'Idle' });
+    // AoE 1.18+ refuses to send to an archived session (409): sending unarchives it first, as 1.17 did.
+    const sendTo = (message: string) =>
+      fetch(`${base()}/api/sessions/${id}/send`, {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify({ message }),
+      });
+    expect((await act('archive', [id])).results[0]!.ok).toBe(true);
+    expect((await sendTo('Back to work.')).status).toBe(200);
+    expect(fake.state.sessions.find((s) => s.id === id)?.archived_at).toBeNull();
+    expect(fake.state.sent.at(-1)).toMatchObject({ id, message: 'Back to work.' });
 
     expect((await act('pin', [id])).results[0]!.ok).toBe(true);
     await until(async () => (await view(id))?.pinned);
@@ -1288,6 +1401,10 @@ describe('daemon: security, live state and the MR watcher', () => {
 
     expect((await act('delete', [id])).results[0]!.ok).toBe(true);
     expect(fake.state.sessions.find((s) => s.id === id)?.trashed_at).toBeTruthy();
+    const refused = await sendTo('Still there?');
+    expect(refused.ok).toBe(false);
+    expect(await refused.text()).toMatch(/in the trash/);
+    expect(fake.state.sent.at(-1)?.message).toBe('Back to work.');
     expect(existsSync(taskFile(made.id))).toBe(false);
     const removed = join(home, '.local/share/supercharge/projects/northwind/removed', made.id, 'task.json');
     expect(existsSync(removed)).toBe(true);
@@ -1507,6 +1624,98 @@ describe('daemon: security, live state and the MR watcher', () => {
     big.send(Buffer.alloc((1 << 20) + 1));
     expect(await closed).toBe(1009);
     expect((await fetch(`${base()}/healthz`)).status).toBe(200);
+  });
+
+  it("relays the agent's pane, typing straight in, and leaves the size alone while you are attached in a terminal", async () => {
+    const r = await sc(['open', '--print']);
+    const url = new URL(r.stdout.trim());
+    const cb = await fetch(`${base()}${url.pathname}${url.search}`, { redirect: 'manual' });
+    const jar = (cb.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const control = (
+      (await (await fetch(`${base()}/api/snapshot`, { headers: { cookie: jar } })).json()) as Snapshot
+    ).projects[0]!.controlSessionId!;
+    const wsUrl = `${base().replace(/^http/, 'ws')}/api/sessions/${control}/agent/ws`;
+    const origin = `http://127.0.0.1:${port}`;
+    const refused = (headers: Record<string, string>) =>
+      new Promise<number>((resolve) => {
+        const ws = new WebSocket(wsUrl, { headers });
+        ws.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+        ws.on('open', () => resolve(101));
+        ws.on('error', () => {});
+      });
+    expect(await refused({ origin })).toBe(401);
+    expect(await refused({ origin: 'http://evil.example', cookie: jar })).toBe(403);
+
+    // The fake tmux (packages/fake-aoe/bin/tmux) says you are attached, in a 132×40 window.
+    const sessions = join(home, 'tmux-sessions.txt');
+    await writeFile(sessions, `aoe_readme_${control.slice(0, 8)}\t1\t132\t40\n`);
+    const ws = new WebSocket(wsUrl, { headers: { origin, cookie: jar } });
+    const got: { type: string; content?: string; is_owner?: boolean; attached?: boolean; cols?: number }[] =
+      [];
+    ws.on('message', (d) => got.push(JSON.parse(String(d))));
+    await new Promise((resolve, reject) => {
+      ws.on('open', resolve);
+      ws.on('error', reject);
+    });
+    const resizes = () => fake.state.resizes.filter((x) => x.id === control).length;
+    const before = resizes();
+    ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 12 }));
+    await until(async () => got.find((m) => m.type === 'sc_window' && m.attached && m.cols === 132));
+    // Your terminal gets its own size back, and the dashboard's resize never reaches AoE.
+    await until(async () =>
+      (await readFile(join(home, 'tmux.log'), 'utf8')).includes('"window-size","latest"'),
+    );
+    ws.send(JSON.stringify({ type: 'claim' }));
+    await until(async () => got.some((m) => m.type === 'size_owner' && m.is_owner));
+    expect(resizes()).toBe(before);
+    ws.send(Buffer.from('x'));
+    await until(async () => fake.state.keys.some((k) => k.id === control && k.hex === '78'));
+    await until(async () =>
+      got.some((m) => m.type === 'frame' && m.content?.includes('Claude Code (fake agent)')),
+    );
+
+    // Detached: the dashboard sizes the window again.
+    await rm(sessions);
+    await until(async () => got.find((m) => m.type === 'sc_window' && !m.attached), 6000);
+    ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 12 }));
+    await until(async () => resizes() > before);
+    ws.close();
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit.match(/"action":"terminal_opened"[^\n]*"where":"agent"/g)).toHaveLength(1);
+  });
+
+  it('opens a new terminal tab attached to a known session, and only that', async () => {
+    const r = await sc(['open', '--print']);
+    const url = new URL(r.stdout.trim());
+    const cb = await fetch(`${base()}${url.pathname}${url.search}`, { redirect: 'manual' });
+    const jar = (cb.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const origin = `http://127.0.0.1:${port}`;
+    const { token: csrf } = (await (
+      await fetch(`${base()}/api/csrf`, { headers: { cookie: jar } })
+    ).json()) as { token: string };
+    const control = (
+      (await (await fetch(`${base()}/api/snapshot`, { headers: { cookie: jar } })).json()) as Snapshot
+    ).projects[0]!.controlSessionId!;
+    const attach = (id: string, headers: Record<string, string> = { 'x-csrf-token': csrf }) =>
+      fetch(`${base()}/api/sessions/${id}/attach`, {
+        method: 'POST',
+        headers: { cookie: jar, origin, ...headers },
+      });
+
+    expect((await attach(control, {})).status).toBe(403);
+    expect((await attach('ffffffffffffffff')).status).toBe(404);
+    const res = await attach(control);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { opened: boolean; command: string };
+    expect(body.command).toBe(`aoe session attach -p main ${control}`);
+    if (process.platform === 'darwin') {
+      expect(body.opened).toBe(true);
+      // The fake osascript (packages/fake-aoe/bin) records its argv: the command is the last one, alone.
+      const calls = (await readFile(join(home, 'osascript.log'), 'utf8')).trim().split('\n');
+      expect(JSON.parse(calls.at(-1)!).at(-1)).toBe(body.command);
+    } else expect(body.opened).toBe(false);
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toContain(`"action":"session_attach"`);
   });
 
   it('opens a terminal of its own for a Run, types the command once, keeps it across reloads, and closes it', async () => {
@@ -1881,5 +2090,85 @@ describe('daemon: security, live state and the MR watcher', () => {
       return x.stage === 'done' ? x : null;
     }, 30_000);
     expect(done.history.at(-1)).toMatchObject({ by: 'daemon', note: 'Branch landed on main' });
+  }, 60_000);
+
+  it('General: a control chat, a worker it starts (refused when limited, unless --force), and a dashboard chat', async () => {
+    const headers = { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' };
+    const post = (path: string, body?: unknown) =>
+      fetch(`${base()}${path}`, {
+        method: 'POST',
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    const ctl = await post('/api/general/control');
+    expect(ctl.status).toBe(201);
+    const { sessionId: controlId } = (await ctl.json()) as { sessionId: string };
+    expect((await post('/api/general/control')).status).toBe(200);
+    const control = fake.state.sessions.find((s) => s.id === controlId);
+    expect(control).toMatchObject({ title: 'General control', group_path: 'supercharge/general' });
+    expect(control?.project_path).toMatch(/fake-aoe-scratch/);
+    expect(control?.extra_args).toContain('general/control-prompt.md');
+    const asControl = { extraEnv: { AOE_INSTANCE_ID: controlId } };
+    expect(JSON.parse((await sc(['whoami', '--json'], asControl)).stdout)).toMatchObject({
+      role: 'general-control',
+      project: null,
+    });
+
+    // This world's 5-hour usage is at 90%: nothing starts unless the user says so.
+    const limited = await sc(['general', 'new', 'Nightly report', '--brief', 'Write the report.'], asControl);
+    expect(limited.code).toBe(6);
+    const r = await sc(
+      [
+        'general',
+        'new',
+        'Nightly report',
+        '-m',
+        'sonnet',
+        '--effort',
+        'medium',
+        '--brief',
+        'Write the report.',
+      ].concat(['--force', '--json']),
+      asControl,
+    );
+    expect(r.code, r.stderr).toBe(0);
+    const w = JSON.parse(r.stdout) as { sessionId: string; name: string; worker: boolean; title: string };
+    expect(w).toMatchObject({ worker: true, title: 'Nightly report' });
+    const ws = fake.state.sessions.find((s) => s.id === w.sessionId);
+    expect(ws?.parent_session_id).toBe(controlId);
+    expect(ws?.extra_args).toMatch(/--model sonnet --effort medium/);
+    expect(ws?.extra_args).not.toMatch(/--permission-mode/);
+    // The brief is its first message, typed in once it is at its prompt.
+    await until(async () =>
+      fake.state.sent.some((m) => m.id === w.sessionId && m.message === 'Write the report.'),
+    );
+    expect(
+      JSON.parse((await sc(['whoami', '--json'], { extraEnv: { AOE_INSTANCE_ID: w.sessionId } })).stdout)
+        .role,
+    ).toBe('general');
+    const list = JSON.parse((await sc(['general', 'list', '--json'])).stdout) as {
+      sessions: { name: string; worker: boolean }[];
+    };
+    expect(list.sessions).toContainEqual(expect.objectContaining({ name: w.name, worker: true }));
+    const sent = await sc(['general', 'send', w.name, 'Also add totals.', '--yes']);
+    expect(sent.code, sent.stderr).toBe(0);
+    expect(fake.state.sent.at(-1)).toMatchObject({ id: w.sessionId, message: 'Also add totals.' });
+
+    // From the dashboard: a chat on its own; a model that is not one is refused.
+    expect((await post('/api/general/sessions', { model: 'not a model', force: true })).status).toBe(400);
+    const chat = await post('/api/general/sessions', { title: 'Scratchpad', force: true });
+    expect(chat.status).toBe(201);
+    const c1 = (await chat.json()) as { sessionId: string; worker: boolean; held: boolean };
+    expect(c1).toMatchObject({ worker: false, held: false });
+    expect(fake.state.sessions.find((s) => s.id === c1.sessionId)?.group_path).toBe('supercharge/general');
+    const snap = await until(async () => {
+      const s = (await (await fetch(`${base()}/api/snapshot`, { headers })).json()) as Snapshot;
+      return s.general.sessions[c1.sessionId] && s.sessions.some((x) => x.id === c1.sessionId) ? s : null;
+    });
+    expect(snap.general.controlSessionId).toBe(controlId);
+    expect(snap.general.sessions[w.sessionId]).toBe(w.name);
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"actor":"control","action":"general_session_created"/);
+    expect(audit).toMatch(/"actor":"cli","action":"general_session_created".*"control":true/);
   }, 60_000);
 });

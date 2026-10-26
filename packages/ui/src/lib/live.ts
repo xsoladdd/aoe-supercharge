@@ -7,12 +7,14 @@ import type {
   NeedsYouItem,
   NoteRecord,
   ProjectRecord,
+  GeneralRecord,
   SessionView,
   Snapshot,
   TaskRecord,
   UsageReport,
   WatchSummary,
   HeldMessage,
+  ScheduleView,
 } from '@aoe-supercharge/core/shared';
 import { ApiError, getJson } from './api';
 
@@ -75,6 +77,7 @@ function connectEvents() {
     patchSnapshot({ tasks });
   });
   on<ProjectRecord[]>('projects', (projects) => patchSnapshot({ projects }));
+  on<GeneralRecord>('general', (general) => patchSnapshot({ general }));
   on<NeedsYouItem[]>('needs_you', (needsYou) => patchSnapshot({ needsYou }));
   on<NoteRecord[]>('notes', (notes) => patchSnapshot({ notes }));
   on<Health>('health', (health) => patchSnapshot({ health }));
@@ -84,6 +87,7 @@ function connectEvents() {
   on<Record<string, MrState>>('session_mrs', (sessionMrs) => patchSnapshot({ sessionMrs }));
   on<Record<string, WatchSummary>>('watch', (watch) => patchSnapshot({ watch }));
   on<Record<string, HeldMessage[]>>('held', (held) => patchSnapshot({ held }));
+  on<ScheduleView[]>('schedules', (schedules) => patchSnapshot({ schedules }));
   source.onopen = () => set({ connection: 'live' });
   source.onerror = async () => {
     set({ connection: 'reconnecting' });

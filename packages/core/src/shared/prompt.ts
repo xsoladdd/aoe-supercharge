@@ -47,6 +47,7 @@ export interface SessionPrompt {
 
 const OPTION = /^(?:❯|›|>)?\s*(\d{1,2})\.\s+(\S.*?)\s*$/;
 const CURSOR = /^(?:❯|›|>)\s*\d/;
+const CURSOR_MARK = /^(?:❯|›|>)\s*/;
 const RULE = /^[╭╰┌└]?[─━╌═\-_]{8,}[╮╯┐┘]?$/;
 const FEEDBACK = /tell claude|what to change|type something/i;
 /** Hint lines under an option are indented (two spaces in AskUserQuestion, more in other menus). */
@@ -75,6 +76,10 @@ export interface ParsedMenu {
   tabs: string[];
   /** Options drawn with checkboxes. */
   multi: boolean;
+  /** False for a menu drawn without numbers (the trust dialog): no digit picks a row, the arrows and Enter do. */
+  numbered: boolean;
+  /** The `n` of the highlighted option. */
+  cursor: number;
 }
 
 const TAB_MARK = /[☐☒✔✓]/;
@@ -98,7 +103,10 @@ export function parseTerminalMenu(content: string): ParsedMenu | null {
   let end = lines.length - 1;
   while (end >= 0 && !lines[end]!.trim()) end--;
   if (end < 0) return null;
+  return parseNumbered(lines, end) ?? parseUnnumbered(lines, end);
+}
 
+function parseNumbered(lines: string[], end: number): ParsedMenu | null {
   // Find the last option line, allowing a short footer (hints like "Esc to cancel") after it.
   let last = -1;
   for (let i = end; i >= Math.max(0, end - 8); i--) {
@@ -114,12 +122,12 @@ export function parseTerminalMenu(content: string): ParsedMenu | null {
   // Walk up through the options and the indented hint lines under them. AskUserQuestion puts its
   // "Chat about this" option under a rule, so a rule with options above it stays inside the block.
   let first = last;
-  let cursor = false;
+  let cursor = 0;
   for (let i = last; i >= 0; i--) {
     const raw = lines[i]!;
     const t = raw.trim();
     if (OPTION.test(t)) {
-      if (CURSOR.test(t)) cursor = true;
+      if (CURSOR.test(t)) cursor = Number(OPTION.exec(t)![1]);
       first = i;
     } else if (RULE.test(t) && i === first - 1 && !!lines[i - 1]?.trim()) {
       continue;
@@ -161,6 +169,54 @@ export function parseTerminalMenu(content: string): ParsedMenu | null {
     options,
     tabs,
     multi,
+    numbered: true,
+    cursor,
+  };
+}
+
+const CONFIRM_FOOTER = /^Enter to confirm\s*·\s*Esc to cancel/i;
+
+/**
+ * Claude Code's trust dialog (2.1.285) draws plain rows, no numbers, above "Enter to confirm · Esc to
+ * cancel": the cursor row starts with ❯, the others are indented to match. Rows are numbered 1..n here
+ * so the rest of Supercharge can name them; answering moves the cursor and presses Enter. Its question
+ * is the paragraph with the "?" ("Quick safety check: Is this a project you ... trust?"), not the
+ * "Security guide" link right above the rows. The MCP approval ("New MCP server found in this project")
+ * is drawn the same way, with the cursor on its last row.
+ */
+function parseUnnumbered(lines: string[], end: number): ParsedMenu | null {
+  if (!CONFIRM_FOOTER.test(lines[end]!.trim())) return null;
+  let i = end - 1;
+  while (i >= 0 && !lines[i]!.trim()) i--;
+  const raw: string[] = [];
+  for (; i >= 0 && lines[i]!.trim(); i--) raw.unshift(lines[i]!);
+  const cursor = raw.findIndex((r) => CURSOR_MARK.test(r.trim())) + 1;
+  const labels = raw.map((r) => r.trim().replace(CURSOR_MARK, ''));
+  if (!cursor || labels.length < 2 || labels.some((l) => OPTION.test(l))) return null;
+  const options = labels.map((label, k) => ({ n: k + 1, label, hint: null, feedback: false }));
+
+  const paragraphs: string[] = [];
+  let para: string[] = [];
+  for (; i >= 0 && !RULE.test(lines[i]!.trim()); i--) {
+    const t = lines[i]!.trim();
+    if (t) para.unshift(t);
+    else if (para.length) {
+      paragraphs.push(para.join(' '));
+      para = [];
+    }
+  }
+  if (para.length) paragraphs.push(para.join(' '));
+  // Without a "?" (the MCP approval), the title at the top of the screen.
+  const ask = paragraphs.find((p) => p.includes('?')) ?? paragraphs.at(-1) ?? '';
+  const question = (ask.includes('?') ? ask.slice(0, ask.indexOf('?') + 1) : ask).replace(/\s+/g, ' ');
+  return {
+    key: hash(`${question}\n${options.map((o) => `${o.n}.${o.label}`).join('\n')}`),
+    question,
+    options,
+    tabs: [],
+    multi: false,
+    numbered: false,
+    cursor,
   };
 }
 

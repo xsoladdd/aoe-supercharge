@@ -1,6 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ApiError, getJson } from '@/lib/api';
-import { cn } from '@/lib/utils';
 
 interface Output {
   content: string;
@@ -38,55 +37,4 @@ export function useSessionOutput(sessionId: string, intervalMs = 2000) {
     };
   }, [sessionId, intervalMs, tick]);
   return { output, error, refresh: () => setTick((t) => t + 1) };
-}
-
-/** The session's terminal, as text. Sticks to the bottom unless you scrolled up to read. */
-export function Conversation({
-  content,
-  error,
-  className,
-}: {
-  content: string | null;
-  error: string | null;
-  className?: string;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const stick = useRef(true);
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [content]);
-  return (
-    <div
-      ref={ref}
-      onScroll={(e) => {
-        const el = e.currentTarget;
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
-      }}
-      role="log"
-      // Focusable so keyboard users can scroll the conversation.
-      tabIndex={0}
-      aria-live="polite"
-      aria-label="Session conversation"
-      className={cn(
-        'overflow-auto overscroll-contain rounded-lg border border-border bg-background',
-        className,
-      )}
-    >
-      {error ? (
-        <p role="alert" className="p-4 text-[0.9375rem] text-st-red">
-          {error} It retries by itself.
-        </p>
-      ) : content === null ? (
-        <p className="p-4 text-[0.9375rem] text-muted-foreground">Loading the conversation…</p>
-      ) : (
-        <pre
-          translate="no"
-          className="min-w-max p-4 font-mono text-[0.8125rem] leading-[1.45] text-foreground"
-        >
-          {content || '(no output yet)'}
-        </pre>
-      )}
-    </div>
-  );
 }

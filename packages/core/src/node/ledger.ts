@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { readdir, readFile, rename, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { Stage } from '../shared/stages.ts';
-import type { Actor, PlanComment, ProjectRecord, TaskRecord } from '../shared/types.ts';
+import { EMPTY_GENERAL } from '../shared/general.ts';
+import type { Actor, GeneralRecord, PlanComment, ProjectRecord, TaskRecord } from '../shared/types.ts';
 import { formatTaskId } from '../shared/util.ts';
 import { appendLine, ensureDir, readJson, withLock, writeFileAtomic, writeJsonAtomic } from './fs.ts';
 import type { Paths } from './paths.ts';
@@ -313,6 +314,31 @@ export class Ledger {
     });
   }
 
+  get generalDir() {
+    return join(this.paths.dataDir, 'general');
+  }
+  get generalFile() {
+    return join(this.generalDir, 'general.json');
+  }
+  get generalControlPromptFile() {
+    return join(this.generalDir, 'control-prompt.md');
+  }
+  get generalSessionPromptFile() {
+    return join(this.generalDir, 'session-prompt.md');
+  }
+
+  async getGeneral(): Promise<GeneralRecord> {
+    return (await readJson<GeneralRecord>(this.generalFile)) ?? EMPTY_GENERAL;
+  }
+
+  async updateGeneral(fn: (g: GeneralRecord) => GeneralRecord): Promise<GeneralRecord> {
+    return withLock(this.generalDir, async () => {
+      const next = fn(await this.getGeneral());
+      await writeJsonAtomic(this.generalFile, next);
+      return next;
+    });
+  }
+
   /** Forget a project: its record, tasks, plans, comments and notes (the ledger folder). */
   async removeProject(project: string): Promise<void> {
     await rm(this.projectDir(project), { recursive: true, force: true });
@@ -344,13 +370,17 @@ export interface AuditEntry {
     | 'daemon_restart'
     | 'task_created'
     | 'project_init'
+    | 'general_session_created'
     | 'sessions_adopted'
     | 'project_deleted'
     | 'session_action'
     | 'task_removed'
     | 'task_restored'
     | 'task_cleaned_up'
-    | 'aoe_upgrade';
+    | 'aoe_upgrade'
+    | 'terminal_opened'
+    | 'session_attach'
+    | 'scheduled_prompt';
   project?: string | null;
   taskId?: string | null;
   sessionId?: string | null;

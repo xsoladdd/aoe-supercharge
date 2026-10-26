@@ -1,7 +1,8 @@
 /**
  * How the chat composer sends: `hold` keeps a message in Supercharge while Claude is busy and types it
- * once Claude is done (the default); `now` types it straight away (Claude Code takes it mid-turn);
- * `interrupt` presses Escape to stop the turn, then types it.
+ * once Claude is done (the default when a menu is open or messages wait); `now` types it straight away
+ * (Claude Code takes it mid-turn); `interrupt` presses Escape to stop the turn, then types it (the
+ * default while Claude is working).
  */
 export type SendMode = 'hold' | 'now' | 'interrupt';
 export const SEND_MODES: readonly SendMode[] = ['hold', 'now', 'interrupt'];
