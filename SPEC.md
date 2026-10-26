@@ -486,6 +486,7 @@ Both skills start with the same guard: *"Run `supercharge whoami --json`. If `ro
   3. call `aoe send <session> <msg>`,
   4. set `openQuestion.answeredAt`.
 - The task stays `blocked` until the worker moves it.
+- **Keys typed in the chat's Terminal view are the exception** (approved 2026-10-26). They go to the agent's pane as raw input, as if you were attached: no `prompt_sent` audit per message and no open-menu guard (`menu_open`). The daemon audits one `terminal_opened` per connection and marks the session typed into, so held messages still wait for a fresh status.
 
 ---
 
@@ -638,6 +639,8 @@ Bound to **127.0.0.1 only**. Requests are rejected unless the `Host` header is `
 | POST | `/api/notifications/test` | ✓+CSRF | |
 | POST | `/api/tasks/:id/reply` | ✓+CSRF | Phase 4. Body `{ message, confirm: true }` → audit + `aoe send` |
 | GET (WebSocket) | `/api/sessions/:id/shell/ws` | cookie + dashboard `Origin` | The session's paired shell (AoE's Terminal tab), relayed from AoE's `/sessions/{id}/terminal/live-ws`. A `{type:"run",command}` message is audited (`command_run`, `where: terminal`), then pasted (bracketed) and entered |
+| GET (WebSocket) | `/api/sessions/:id/agent/ws` | cookie + dashboard `Origin` | The agent's own pane (the chat's Terminal view), relayed from AoE's `/sessions/{id}/live-ws`. Binary frames are your keys, typed straight in (§8.4); each marks the session typed into. One `terminal_opened` audit per connection. While a tmux client is attached to the session, `resize` is dropped and `{type:"sc_window",attached,cols,rows}` tells the browser the window's size (§20) |
+| POST | `/api/sessions/:id/attach` | ✓+CSRF | Opens a new iTerm2 tab (else Terminal.app) running `aoe session attach -p <profile> <id>` through `osascript`, the command as argv. Only a known, unarchived session id (404 otherwise); audited (`session_attach`). `{ opened: true, app, command }`, or `{ opened: false, message, command }` on Linux or when osascript fails, and the UI copies the command |
 | GET | `/api/notes[?archived=1]` | ✓ | Notes and todos (§14.6) not archived, or only the archived ones |
 | POST | `/api/notes` | ✓+CSRF | Body `{ kind: "note" \| "todo", text, project }` (`project: null` is global); `by: you` |
 | PATCH | `/api/notes/:id` | ✓+CSRF | Body `{ done }`, `{ text }` or `{ archived }`: tick a todo, edit, archive or restore |
@@ -1083,6 +1086,10 @@ All four phases are built. The verification behind each claim below is listed in
   - `/sessions/{id}/terminal/live-ws` speaks the agent pane's protocol. Down: JSON `frame` messages, each the whole window as ANSI text (history lines first, the live screen as the last `rows` lines), with `cursor`, plus `size_owner`. Up: binary raw input, and JSON `resize` (takes the size lock and sizes the window), `claim`, `window` (lines of history), `cadence`.
   - The dashboard's Shell tab relays it through the daemon (`/api/sessions/:id/shell/ws`), so AoE's token stays server-side. It never asks for `caps`, so frames stay JSON text. It paints each frame into xterm.js whole.
   - A command run there is pasted as `ESC[200~…ESC[201~` and then entered. In a sandboxed AoE 1.17.2 with zsh, a two-line paste waited whole at the prompt until the Enter, then ran both lines.
+- **The agent's pane in the dashboard, and `aoe session attach` (AoE 1.17.2, `src/server/live_ws.rs`, `src/tmux/session.rs`).** The chat's Terminal view relays `/sessions/{id}/live-ws` like the Shell tab.
+  - `resize` takes the size lock only when it is vacant (`claim_size_owner`); `claim` steals it. The lock is shared by AoE's web view and TUI through tmux user options, but a plain `aoe session attach` (a tmux client) never takes it, and AoE's resize does not check `#{session_attached}`. A resize from the dashboard would switch the window to a fixed size under your attached terminal.
+  - So while an agent socket is open the daemon reads `tmux list-sessions` every 2 s, finds the session by AoE's name `aoe_<title>_<first 8 of id>` (`Session::generate_name`), and while a client is attached it drops the browser's `resize`, sends `sc_window` with the window's size (the browser draws at that size and asks only `claim_if_vacant`), and once runs `tmux set-option -t <name> window-size latest`, what AoE's TUI does before it attaches (`reset_size_to_latest_client`). If tmux can't be read, nobody counts as attached.
+- **Attach in a terminal.** `osascript` with `on run argv`; the command is `item 1 of argv`. iTerm2 (when `/Applications/iTerm.app` or `~/Applications/iTerm.app` exists): `create window with default profile` when it has no window, else `create tab with default profile` in the current one, then `write text` into that tab's login shell. Terminal.app: `do script`. The launchd daemon needs macOS Automation permission for the app; a refusal is error -1743.
 - **Claude Code does not always write an AskUserQuestion call to the transcript before it is answered**, while ExitPlanMode is written while waiting. So the question on screen, its options and descriptions, and the other questions' headers (from the tab bar) are read from the pane. The full set is used when the transcript has it.
   - The daemon reads menus from the pane (`parseTerminalMenu`) for waiting sessions only. It takes the kind (plan, permission, question) from the pending tool call in the transcript. An answer is delivered only while a menu with the same key is still on screen.
 

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PERMISSION_MENU } from '../packages/fake-aoe/src/server.ts';
 import type { Locator, Page } from '@playwright/test';
@@ -142,11 +142,48 @@ test.describe('overview', () => {
     await expect(page.getByRole('heading', { name: 'Start the conversation' })).toBeVisible();
     await page.getByRole('link', { name: 'Terminal' }).click();
     await expect(page).toHaveURL(/\?view=terminal$/);
-    await expect(page.getByRole('log', { name: 'Session conversation' })).toContainText(
-      'Claude Code (fake agent)',
-    );
+    // The agent's pane, live: what you type goes straight in, arrows and all.
+    const terminal = page.getByLabel('Session terminal');
+    await expect(terminal.locator('.xterm-rows')).toContainText('Claude Code (fake agent)', {
+      timeout: 15_000,
+    });
+    const id = page.url().match(/chat\/([0-9a-f]{16})/)![1]!;
+    const keys = async () =>
+      ((await fake('/__fake/state')) as { keys: { id: string; hex: string }[] }).keys
+        .filter((k) => k.id === id)
+        .map((k) => k.hex);
+    await terminal.locator('.xterm').click();
+    await page.keyboard.type('hi');
+    await page.keyboard.press('ArrowUp');
+    await expect.poll(keys).toEqual(expect.arrayContaining(['68', '69', '1b5b41']));
     await page.getByText('Attach in a terminal instead').click();
-    await expect(page.getByText(/aoe session attach [0-9a-f]{16}/)).toBeVisible();
+    await expect(page.getByText(/aoe session attach -p \S+ [0-9a-f]{16}/)).toBeVisible();
+  });
+
+  test('the play buttons open a terminal tab attached to the chat', async ({ signedIn: page }) => {
+    const id = await sessionId('northwind-web control');
+    const opened = () => {
+      try {
+        return readFileSync(join(world().home, 'osascript.log'), 'utf8');
+      } catch {
+        return '';
+      }
+    };
+    await page.goto(`/chat/${id}`);
+    await page.getByRole('button', { name: 'Attach in a terminal' }).click();
+    // The fake osascript (packages/fake-aoe/bin) records the command; elsewhere than macOS it is copied.
+    if (process.platform === 'darwin') {
+      await expect(page.getByText(/^Opened in (iTerm2|Terminal)$/)).toBeVisible();
+      await expect.poll(opened).toContain(`"aoe session attach -p main ${id}"`);
+    } else await expect(page.getByText(/attach command|Could not open/).first()).toBeVisible();
+    const play = page.getByRole('button', { name: 'Attach northwind-web control chat in a terminal' });
+    // It shows over the row's icon while you point at the row.
+    await play.locator('..').hover();
+    await expect(play).toBeVisible();
+    await axe(page, 'sidebar play button');
+    await play.click();
+    if (process.platform === 'darwin')
+      await expect.poll(() => opened().split(`"aoe session attach -p main ${id}"`).length).toBeGreaterThan(2);
   });
 
   test('the sidebar shows your 5-hour and weekly usage and how many workers may run', async ({

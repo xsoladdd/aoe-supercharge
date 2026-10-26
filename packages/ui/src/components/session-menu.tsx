@@ -21,6 +21,7 @@ import { workerLabel, type SessionView, type Snapshot, type TaskRecord } from '@
 import { useId, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useLocation } from 'wouter';
+import { useAttachCommand } from '@/components/attach';
 import { CleanupTaskDialog } from '@/components/cleanup-task';
 import { copyText } from '@/components/copy';
 import {
@@ -171,6 +172,7 @@ export function SessionMenu({
   };
 
   const one = targets.length === 1 ? targets[0]! : null;
+  const attach = useAttachCommand(one?.id ?? '');
   const live = targets.filter((t) => !t.session.archived);
   const unlocked = targets.filter((t) => !t.session.locked);
   const allPinned = live.length > 0 && live.every((t) => t.session.pinned);
@@ -337,8 +339,7 @@ export function SessionMenu({
               </ContextMenuItem>
               <ContextMenuItem
                 onSelect={async () => {
-                  const cmd = `aoe session attach ${one.id}`;
-                  if (await copyText(cmd)) toast.success('Copied', { description: cmd });
+                  if (await copyText(attach)) toast.success('Copied', { description: attach });
                 }}
               >
                 <CopyIcon />

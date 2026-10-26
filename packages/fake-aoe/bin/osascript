@@ -1,0 +1,6 @@
+#!/usr/bin/env node
+// Fake `osascript` for tests and demos: records its argv as a JSON line in $HOME/osascript.log, opens nothing.
+import { appendFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+appendFileSync(join(process.env.HOME ?? '.', 'osascript.log'), `${JSON.stringify(process.argv.slice(2))}\n`);

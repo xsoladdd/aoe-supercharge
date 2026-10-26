@@ -11,6 +11,7 @@ import {
   AoeSessionsResponseSchema,
   AoeStatusCountsSchema,
 } from '../src/aoe/schemas.ts';
+import { attachCommand, findTmuxWindow, openInTerminal, osascriptArgs, terminalApp } from '../src/attach.ts';
 import { parseUpdateCheck, releaseAsset } from '../src/commands/aoe-upgrade.ts';
 import { claudeModelsCheck } from '../src/commands/doctor.ts';
 import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '../src/statusline.ts';
@@ -816,5 +817,73 @@ describe('RunTerminals: the terminals a Run opened in a chat', () => {
     } finally {
       await rm(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe('attach in a terminal', () => {
+  const ok = { code: 0, stdout: '', stderr: '', error: null, timedOut: false };
+  const command = attachCommand('0123456789abcdef', 'main');
+
+  it('builds the command with the profile', () => {
+    expect(command).toBe('aoe session attach -p main 0123456789abcdef');
+  });
+
+  it('passes the command to osascript as argv, never inside the script', () => {
+    for (const app of ['iTerm2', 'Terminal'] as const) {
+      const args = osascriptArgs(app, 'x"; do shell script "rm -rf ~');
+      expect(args.at(-1)).toBe('x"; do shell script "rm -rf ~');
+      const script = args.slice(0, -1).filter((_, i) => i % 2 === 1);
+      expect(
+        args
+          .slice(0, -1)
+          .filter((_, i) => i % 2 === 0)
+          .every((a) => a === '-e'),
+      ).toBe(true);
+      expect(script.join('\n')).not.toContain('rm -rf');
+      expect(script.join('\n')).toContain('(item 1 of argv)');
+    }
+  });
+
+  it('picks iTerm2 when it is installed, else Terminal', () => {
+    expect(terminalApp((p) => p === '/Applications/iTerm.app')).toBe('iTerm2');
+    expect(terminalApp(() => false)).toBe('Terminal');
+  });
+
+  it('opens the tab on macOS and says why it could not elsewhere', async () => {
+    const exec = vi.fn(async () => ok);
+    expect(await openInTerminal(command, { platform: 'darwin', app: 'iTerm2', exec })).toEqual({
+      opened: true,
+      app: 'iTerm2',
+    });
+    expect(exec).toHaveBeenCalledWith('osascript', osascriptArgs('iTerm2', command));
+    const linux = await openInTerminal(command, { platform: 'linux', exec });
+    expect(linux.opened).toBe(false);
+    expect(exec).toHaveBeenCalledTimes(1);
+    const denied = await openInTerminal(command, {
+      platform: 'darwin',
+      app: 'Terminal',
+      exec: async () => ({
+        ...ok,
+        code: 1,
+        stderr: 'Not authorized to send Apple events to Terminal. (-1743)',
+      }),
+    });
+    expect(denied).toEqual({ opened: false, message: expect.stringContaining('Automation') });
+  });
+
+  it("finds a session's tmux window by AoE's name suffix", () => {
+    const listing = [
+      'main\t1\t200\t50',
+      'aoe_Other_chat_aaaaaaaa\t1\t100\t30',
+      'aoe_Live_termina_01234567\t1\t157\t42',
+    ].join('\n');
+    expect(findTmuxWindow(listing, '0123456789abcdef')).toEqual({
+      name: 'aoe_Live_termina_01234567',
+      attached: true,
+      cols: 157,
+      rows: 42,
+    });
+    expect(findTmuxWindow('aoe_Live_termina_01234567\t0\t80\t24', '0123456789abcdef')?.attached).toBe(false);
+    expect(findTmuxWindow(listing, 'ffffffffffffffff')).toBeNull();
   });
 });

@@ -1509,6 +1509,98 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect((await fetch(`${base()}/healthz`)).status).toBe(200);
   });
 
+  it("relays the agent's pane, typing straight in, and leaves the size alone while you are attached in a terminal", async () => {
+    const r = await sc(['open', '--print']);
+    const url = new URL(r.stdout.trim());
+    const cb = await fetch(`${base()}${url.pathname}${url.search}`, { redirect: 'manual' });
+    const jar = (cb.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const control = (
+      (await (await fetch(`${base()}/api/snapshot`, { headers: { cookie: jar } })).json()) as Snapshot
+    ).projects[0]!.controlSessionId!;
+    const wsUrl = `${base().replace(/^http/, 'ws')}/api/sessions/${control}/agent/ws`;
+    const origin = `http://127.0.0.1:${port}`;
+    const refused = (headers: Record<string, string>) =>
+      new Promise<number>((resolve) => {
+        const ws = new WebSocket(wsUrl, { headers });
+        ws.on('unexpected-response', (_req, res) => resolve(res.statusCode ?? 0));
+        ws.on('open', () => resolve(101));
+        ws.on('error', () => {});
+      });
+    expect(await refused({ origin })).toBe(401);
+    expect(await refused({ origin: 'http://evil.example', cookie: jar })).toBe(403);
+
+    // The fake tmux (packages/fake-aoe/bin/tmux) says you are attached, in a 132×40 window.
+    const sessions = join(home, 'tmux-sessions.txt');
+    await writeFile(sessions, `aoe_readme_${control.slice(0, 8)}\t1\t132\t40\n`);
+    const ws = new WebSocket(wsUrl, { headers: { origin, cookie: jar } });
+    const got: { type: string; content?: string; is_owner?: boolean; attached?: boolean; cols?: number }[] =
+      [];
+    ws.on('message', (d) => got.push(JSON.parse(String(d))));
+    await new Promise((resolve, reject) => {
+      ws.on('open', resolve);
+      ws.on('error', reject);
+    });
+    const resizes = () => fake.state.resizes.filter((x) => x.id === control).length;
+    const before = resizes();
+    ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 12 }));
+    await until(async () => got.find((m) => m.type === 'sc_window' && m.attached && m.cols === 132));
+    // Your terminal gets its own size back, and the dashboard's resize never reaches AoE.
+    await until(async () =>
+      (await readFile(join(home, 'tmux.log'), 'utf8')).includes('"window-size","latest"'),
+    );
+    ws.send(JSON.stringify({ type: 'claim' }));
+    await until(async () => got.some((m) => m.type === 'size_owner' && m.is_owner));
+    expect(resizes()).toBe(before);
+    ws.send(Buffer.from('x'));
+    await until(async () => fake.state.keys.some((k) => k.id === control && k.hex === '78'));
+    await until(async () =>
+      got.some((m) => m.type === 'frame' && m.content?.includes('Claude Code (fake agent)')),
+    );
+
+    // Detached: the dashboard sizes the window again.
+    await rm(sessions);
+    await until(async () => got.find((m) => m.type === 'sc_window' && !m.attached), 6000);
+    ws.send(JSON.stringify({ type: 'resize', cols: 80, rows: 12 }));
+    await until(async () => resizes() > before);
+    ws.close();
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit.match(/"action":"terminal_opened"[^\n]*"where":"agent"/g)).toHaveLength(1);
+  });
+
+  it('opens a new terminal tab attached to a known session, and only that', async () => {
+    const r = await sc(['open', '--print']);
+    const url = new URL(r.stdout.trim());
+    const cb = await fetch(`${base()}${url.pathname}${url.search}`, { redirect: 'manual' });
+    const jar = (cb.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const origin = `http://127.0.0.1:${port}`;
+    const { token: csrf } = (await (
+      await fetch(`${base()}/api/csrf`, { headers: { cookie: jar } })
+    ).json()) as { token: string };
+    const control = (
+      (await (await fetch(`${base()}/api/snapshot`, { headers: { cookie: jar } })).json()) as Snapshot
+    ).projects[0]!.controlSessionId!;
+    const attach = (id: string, headers: Record<string, string> = { 'x-csrf-token': csrf }) =>
+      fetch(`${base()}/api/sessions/${id}/attach`, {
+        method: 'POST',
+        headers: { cookie: jar, origin, ...headers },
+      });
+
+    expect((await attach(control, {})).status).toBe(403);
+    expect((await attach('ffffffffffffffff')).status).toBe(404);
+    const res = await attach(control);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { opened: boolean; command: string };
+    expect(body.command).toBe(`aoe session attach -p main ${control}`);
+    if (process.platform === 'darwin') {
+      expect(body.opened).toBe(true);
+      // The fake osascript (packages/fake-aoe/bin) records its argv: the command is the last one, alone.
+      const calls = (await readFile(join(home, 'osascript.log'), 'utf8')).trim().split('\n');
+      expect(JSON.parse(calls.at(-1)!).at(-1)).toBe(body.command);
+    } else expect(body.opened).toBe(false);
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toContain(`"action":"session_attach"`);
+  });
+
   it('opens a terminal of its own for a Run, types the command once, keeps it across reloads, and closes it', async () => {
     const r = await sc(['open', '--print']);
     const url = new URL(r.stdout.trim());

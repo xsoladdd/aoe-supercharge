@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **A live terminal in the chat.** The chat's **Terminal** view is now the session's own terminal, live and
+  in colour, instead of a text copy that refreshed every 2 seconds. Every key goes straight in: arrows,
+  Enter, Escape, Tab, Ctrl-C and paste. Keys typed there skip the message checks (no `prompt_sent` audit,
+  no open-menu guard); each connection is audited once (`terminal_opened`). While you are attached to the
+  session in a terminal, the dashboard shows it at your terminal's size and leaves the size alone.
+- **▶ Attach in a terminal.** A play button in the chat's header, and on each chat in the sidebar when you
+  point at it, opens a new iTerm2 tab (or Terminal, without iTerm2) attached to that chat
+  (`POST /api/sessions/:id/attach`, audited). macOS asks once to let Supercharge control the app. On Linux,
+  or if it can't, the command is copied instead.
+- **Attach commands name the profile.** Every copied `aoe session attach` now has `-p <profile>`, so it
+  attaches in the profile Supercharge manages.
+
 ## 1.5.0 (2026-10-15)
 
 - **Images you send go in.** A message with an image used to sit unsent in Claude's input box until your

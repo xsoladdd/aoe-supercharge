@@ -123,6 +123,8 @@ export interface FakeState {
   viewers: Record<string, boolean | 'stuck'>;
   /** Claims made through the live-terminal websocket, in order. */
   claims: { id: string; type: string; owner: boolean }[];
+  /** `resize` messages on the agent pane's live view. */
+  resizes: { id: string; rows: number }[];
   /**
    * Fake only: each session's paired shells (`shellKey`): what they printed and the line being typed.
    * Index 0 is the session's own; 1 to 31 are extra ones.
@@ -442,22 +444,7 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
   app.get('/api/sessions/:id/output', (c) => {
     const s = state.sessions.find((x) => x.id === c.req.param('id'));
     if (!s) return c.json({ error: 'not_found', message: 'No such session' }, 404);
-    const lines = [
-      ' ▐▛███▛█   Claude Code (fake agent)',
-      `  ${s.title}`,
-      ...(s.title.endsWith(' control')
-        ? ['  /remote-control is active · Continue at https://claude.ai/code/session_FAKE0123']
-        : []),
-      '',
-      ...state.sent
-        .filter((m) => m.id === s.id)
-        .flatMap((m) => [`❯ ${m.message}`, '', '⏺ Got it. Working on that now.', '']),
-      // What Claude Code shows during a turn, and once Escape has stopped one.
-      ...(s.status === 'Running' ? ['✻ Working… (3s · ↓ 1.2k tokens)', ''] : []),
-      ...(s.interrupted ? ['  ⎿  Interrupted · What should Claude do instead?', ''] : []),
-      ...(s.menu ? [s.menu] : ['❯ ']),
-      ...(s.shells ? [`  ⏵⏵ auto mode on · ${s.shells} shells · ← for agents`] : []),
-    ];
+    const lines = paneLines(state, s);
     return c.json({
       id: s.id,
       lines: Number(c.req.query('lines') ?? 50),
@@ -535,6 +522,7 @@ export async function startFakeAoe(
     keys: [],
     viewers: {},
     claims: [],
+    resizes: [],
     shells: {},
     shellRan: [],
     killedTerminals: [],
@@ -558,11 +546,32 @@ export async function startFakeAoe(
   };
 }
 
+/** What the agent pane shows: Claude Code's banner, the conversation so far, and its prompt or menu. */
+function paneLines(state: FakeState, s: FakeSession): string[] {
+  return [
+    ' ▐▛███▛█   Claude Code (fake agent)',
+    `  ${s.title}`,
+    ...(s.title.endsWith(' control')
+      ? ['  /remote-control is active · Continue at https://claude.ai/code/session_FAKE0123']
+      : []),
+    '',
+    ...state.sent
+      .filter((m) => m.id === s.id)
+      .flatMap((m) => [`❯ ${m.message}`, '', '⏺ Got it. Working on that now.', '']),
+    // What Claude Code shows during a turn, and once Escape has stopped one.
+    ...(s.status === 'Running' ? ['✻ Working… (3s · ↓ 1.2k tokens)', ''] : []),
+    ...(s.interrupted ? ['  ⎿  Interrupted · What should Claude do instead?', ''] : []),
+    ...(s.menu ? [s.menu] : ['❯ ']),
+    ...(s.shells ? [`  ⏵⏵ auto mode on · ${s.shells} shells · ← for agents`] : []),
+  ];
+}
+
 /**
  * AoE's live-terminal websocket, reduced to what Supercharge uses (src/server/live_ws.rs): bearer auth,
  * `claim_if_vacant` (only when nobody views the session) and `claim` (take over) answered with
- * `size_owner`, binary frames as raw pane input. Escape on a menu closes it and rejects the call it was
- * about, like Claude Code does.
+ * `size_owner`, `resize` (takes a vacant lock only), binary frames as raw pane input, and a `frame` of the
+ * pane after each of them. Escape on a menu closes it and rejects the call it was about, like Claude Code
+ * does.
  */
 function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: FakeTranscripts | null) {
   const wss = new WebSocketServer({ noServer: true });
@@ -579,20 +588,34 @@ function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: F
     wss.handleUpgrade(req, socket, head, (ws) => {
       if (shell) return fakeShell(ws, s.id, index, state);
       let owner = false;
+      let rows = 24;
+      const frame = () => {
+        const all = paneLines(state, s);
+        while (all.length < rows) all.push('');
+        ws.send(JSON.stringify({ type: 'frame', content: all.join('\n'), rows, cursor: null }));
+      };
       ws.on('message', (data, isBinary) => {
         if (!isBinary) {
-          const msg = JSON.parse(String(data)) as { type?: string };
+          const msg = JSON.parse(String(data)) as { type?: string; rows?: number };
           if (msg.type === 'claim_if_vacant' || msg.type === 'claim') {
             const viewer = state.viewers[s.id];
             owner = msg.type === 'claim' ? viewer !== 'stuck' : !viewer;
             state.claims.push({ id: s.id, type: msg.type, owner });
             ws.send(JSON.stringify({ type: 'size_owner', is_owner: owner }));
+            frame();
+          } else if (msg.type === 'resize') {
+            if (msg.rows) rows = msg.rows;
+            owner ||= !state.viewers[s.id];
+            state.resizes.push({ id: s.id, rows });
+            ws.send(JSON.stringify({ type: 'size_owner', is_owner: owner }));
+            frame();
           }
           return;
         }
         if (!owner) return;
         const bytes = Buffer.from(data as Buffer);
         state.keys.push({ id: s.id, hex: bytes.toString('hex'), at: new Date().toISOString() });
+        setTimeout(frame, 0);
         if (bytes.length === 1 && bytes[0] === 0x1b && s.menu) {
           s.menu = null;
           transcripts?.get(s.id)?.rejectPending();
