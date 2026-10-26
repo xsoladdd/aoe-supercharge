@@ -89,7 +89,7 @@ export interface TmuxWindow {
 
 /**
  * Find a session's tmux session in `tmux list-sessions -F '#{session_name}\t#{session_attached}\t
- * #{window_width}\t#{window_height}'`. AoE 1.17.2 names it `aoe_<title>_<first 8 of id>`
+ * #{window_width}\t#{window_height}'`. AoE 1.17.2 to 1.21.0 names it `aoe_<title>_<first 8 of id>`
  * (`Session::generate_name`, src/tmux/session.rs).
  */
 export function findTmuxWindow(listing: string, id: string): TmuxWindow | null {
