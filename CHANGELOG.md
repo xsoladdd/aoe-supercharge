@@ -1,13 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.6.1 (2026-10-26)
 
 - **Copy button after links in the chat.** Every link in a chat message has a small copy button right
   after it. Clicking it copies the link's URL (not its text) and the icon turns into a green check that
   pops in, then goes back to the copy icon after about 1.5 s. With reduced motion, the icon just swaps.
-
-## 1.6.1 (2026-10-26)
-
 - **Squash merges count as landed.** After `dev` was squash-merged into `main`, `supercharge task cleanup`
   refused finished workers ("commits ... are not on origin/main") and the branch watcher never moved
   branch-ready tasks to done, since a squash commit is neither their ancestor nor the same patch. Both now
