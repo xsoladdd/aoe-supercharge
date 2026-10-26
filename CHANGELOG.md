@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.7.0 (2026-10-26)
 
 - **A dropped file's path goes into the message box.** When you drop, paste or pick a file in a chat, its
   local path appears in the box at the caret (the end if the box wasn't focused) once it has uploaded, so
