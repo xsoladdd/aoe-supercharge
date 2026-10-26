@@ -21,6 +21,7 @@ import {
 import { lazy, Suspense, useEffect, useId, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
+import { useAttachCommand } from '@/components/attach';
 import { CommandLine } from '@/components/copy';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -449,6 +450,7 @@ export function PromptCard({
   hidePlan?: boolean;
 }) {
   const prompt = session.prompt!;
+  const attach = useAttachCommand(session.id);
   const { icon, title } = KIND[prompt.kind];
   const { detail, needs } = usePromptDetail(session.id, prompt);
   const [choice, setChoice] = useState<string | null>(null);
@@ -567,7 +569,7 @@ export function PromptCard({
             </p>
             <div className="flex flex-wrap items-center gap-2">
               {terminal}
-              <CommandLine command={`aoe session attach ${session.id}`} className="min-w-0 flex-1" />
+              <CommandLine command={attach} className="min-w-0 flex-1" />
             </div>
           </>
         )

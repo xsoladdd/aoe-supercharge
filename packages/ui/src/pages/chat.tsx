@@ -41,7 +41,17 @@ import {
   splitAttachments,
   withAttachments,
 } from '@aoe-supercharge/core/shared';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { toast } from 'sonner';
 import { Link, useLocation, useSearch } from 'wouter';
 import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
@@ -60,8 +70,9 @@ import { ControlPanel } from '@/components/control-panel';
 import { shortPath, ToolCall } from '@/components/chat/tool-call';
 import { useChat } from '@/components/chat/use-chat';
 import { useMarkRead } from '@/components/chat/use-mark-read';
+import { AttachButton, useAttachCommand } from '@/components/attach';
 import { CommandLine, copyText } from '@/components/copy';
-import { Conversation, useSessionOutput } from '@/components/session-chat';
+import { useSessionOutput } from '@/components/session-chat';
 import { LiveStatus } from '@/components/status';
 import {
   AlertDialog,
@@ -89,6 +100,8 @@ import { useSearchParam } from '@/lib/nav';
 import { useRunTerminals } from '@/lib/run-terminals';
 import { hasShellRuns, useShellRunVersion } from '@/lib/shell-runs';
 import { cn } from '@/lib/utils';
+
+const AgentTerminal = lazy(() => import('@/components/chat/agent-terminal'));
 
 type Tool = Extract<ChatBlock, { kind: 'tool' }>;
 type Shell = Extract<ChatBlock, { kind: 'shell' }>;
@@ -1039,7 +1052,7 @@ function ChatHeader({
   panel?: { open: boolean; toggle: () => void };
   onStartFresh: () => void;
 }) {
-  const attach = `aoe session attach ${session.id}`;
+  const attach = useAttachCommand(session.id);
   return (
     <HeaderActions>
       {!embedded && (
@@ -1048,6 +1061,7 @@ function ChatHeader({
         </span>
       )}
       <LiveStatus status={session.status} unread={session.unread} className="max-sm:[&>span]:sr-only" />
+      <AttachButton sessionId={session.id} />
       <nav aria-label="View" className="flex rounded-lg border border-border bg-background p-0.5">
         {(
           [
@@ -1193,7 +1207,9 @@ export function SessionChat({
   const role = useMemo(() => roleOf(snap, session.id), [snap, session.id]);
   const { chat, error, refresh } = useChat(session.id);
   useMarkRead(session.id, !!session.unread);
-  const terminal = useSessionOutput(session.id, view === 'terminal' ? 2000 : 15_000);
+  // Only for the claude.ai link now: the Terminal view is live.
+  const terminal = useSessionOutput(session.id, 15_000);
+  const attach = useAttachCommand(session.id);
   const [draft, updateDraft] = useDraft(session.id);
   const setDraft = (v: string) => updateDraft((d) => ({ ...d, text: v }));
   const held = snap.held?.[session.id] ?? NO_HELD;
@@ -1322,16 +1338,14 @@ export function SessionChat({
 
         {view === 'terminal' ? (
           <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-4 lg:px-6">
-            <Conversation
-              content={terminal.output?.content ?? null}
-              error={terminal.error}
-              className="min-h-0 flex-1"
-            />
+            <Suspense fallback={<p className="text-sm text-muted-foreground">Opening the terminal…</p>}>
+              <AgentTerminal sessionId={session.id} />
+            </Suspense>
             <details className="text-sm text-muted-foreground">
               <summary className="cursor-pointer select-none hover:text-foreground">
                 Attach in a terminal instead
               </summary>
-              <CommandLine command={`aoe session attach ${session.id}`} className="mt-2 max-w-xl" />
+              <CommandLine command={attach} className="mt-2 max-w-xl" />
             </details>
           </div>
         ) : (

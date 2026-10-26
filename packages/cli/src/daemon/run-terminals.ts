@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
-import { readJson, writeJsonAtomic } from '@aoe-supercharge/core/node';
+import { appendAudit, readJson, writeJsonAtomic } from '@aoe-supercharge/core/node';
 import { CONTROL_SHELL_INDEX, pickTerminalIndex, type RunTerminal } from '@aoe-supercharge/core/shared';
 import type { Hono } from 'hono';
+import { attachCommand, openInTerminal } from '../attach.ts';
 import type { Ctx } from '../context.ts';
 import { MAX_COMMAND } from '../workflow.ts';
 import type { Store } from './store.ts';
@@ -96,7 +97,7 @@ export class RunTerminals {
   }
 }
 
-/** The REST side of run terminals, and Restart for the control chat's Shell tab. */
+/** The REST side of run terminals, Restart for the control chat's Shell tab, and attaching in your terminal. */
 export function terminalRoutes(app: Hono, deps: { ctx: Ctx; store: Store; terminals: RunTerminals }) {
   const { ctx, store, terminals } = deps;
   const known = (id: string) => store.sessions.some((s) => s.id === id && !s.archived);
@@ -144,5 +145,25 @@ export function terminalRoutes(app: Hono, deps: { ctx: Ctx; store: Store; termin
     } catch (err) {
       return c.json({ error: 'restart_failed', message: (err as Error).message }, 502);
     }
+  });
+
+  // The play button: a new tab in your terminal app, attached to the session. Only a known session's id
+  // comes from the browser; the command is built here.
+  app.post('/api/sessions/:id/attach', async (c) => {
+    const id = c.req.param('id');
+    if (!known(id)) return c.json({ error: 'not_found', message: 'Unknown session' }, 404);
+    const command = attachCommand(id, ctx.config.aoe.profile);
+    const result = await openInTerminal(command);
+    const task = store.tasks.find((t) => t.aoeSessionId === id);
+    await appendAudit(ctx.paths, {
+      actor: 'ui',
+      action: 'session_attach',
+      project: store.projects.find((p) => p.controlSessionId === id)?.name ?? task?.project ?? null,
+      taskId: task?.id ?? null,
+      sessionId: id,
+      text: command,
+      details: result.opened ? { app: result.app } : { opened: false, message: result.message },
+    });
+    return c.json({ ...result, command });
   });
 }

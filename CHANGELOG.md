@@ -2,6 +2,19 @@
 
 ## Unreleased
  
+- **A live terminal in the chat.** The chat's **Terminal** view is now the session's own terminal, live and
+  in colour, instead of a text copy that refreshed every 2 seconds. Every key goes straight in: arrows,
+  Enter, Escape, Tab, Ctrl-C and paste. Keys typed there skip the message checks (no `prompt_sent` audit,
+  no open-menu guard); each connection is audited once (`terminal_opened`). While you are attached to the
+  session in a terminal, the dashboard shows it at your terminal's size and leaves the size alone.
+- **▶ Attach in a terminal.** A play button in the chat's header, and on each chat in the sidebar when you
+  point at it, opens a new iTerm2 tab (or Terminal, without iTerm2) attached to that chat
+  (`POST /api/sessions/:id/attach`, audited). macOS asks once to let Supercharge control the app. On Linux,
+  or if it can't, the command is copied instead.
+- **Attach commands name the profile.** Every copied `aoe session attach` now has `-p <profile>`, so it
+  attaches in the profile Supercharge manages.
+=======
+ 
 - **Send interrupts by default while Claude works.** Send and Enter now stop Claude (Escape), then send;
   the caret beside Send offers **Send when Claude is done** and **Send now**. With a menu open or messages
   already held, and Claude not working, nothing changes: Send holds, and Escape is never pressed over a
@@ -22,7 +35,7 @@
 - **Claude Code 2.1.308 prompts** (command between dashed lines, stacked "1 of 2" prompts, `/` and `@`
   lists) are read as before; real screens are kept as test fixtures.
 - **Cost meter:** Sonnet 5.5 cache reads are $0.10 per million tokens (was $0.20), per Anthropic's pricing
-  page. 
+  page.  
 
 ## 1.5.0 (2026-10-15)
 

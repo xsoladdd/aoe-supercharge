@@ -21,6 +21,7 @@ import {
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
+import { useAttachCommand } from '@/components/attach';
 import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
 import { CleanupTaskButton } from '@/components/cleanup-task';
 import { CommentablePlan, CommentList, useComments } from '@/components/plan-comments';
@@ -236,6 +237,7 @@ function Overview({
   aoeOrigin: string | null;
 }) {
   const now = useNow();
+  const attach = useAttachCommand(task.aoeSessionId);
   const base = `/p/${task.project}/t/${task.id}`;
   return (
     <div className="grid gap-4 px-5 py-4 lg:px-7 xl:grid-cols-[minmax(0,1fr)_20rem]">
@@ -354,7 +356,7 @@ function Overview({
                 </Button>
               )}
             </div>
-            <CommandLine command={`aoe session attach ${task.aoeSessionId}`} />
+            <CommandLine command={attach} />
             <p translate="no" className="font-mono text-[0.8125rem] break-all text-muted-foreground">
               {task.worktreePath}
             </p>

@@ -1,0 +1,20 @@
+#!/usr/bin/env node
+// Fake `tmux` for tests and demos. `list-sessions` prints $HOME/tmux-sessions.txt (exit 1 without it, as with
+// no server); every other command is recorded as a JSON line in $HOME/tmux.log.
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const home = process.env.HOME ?? '.';
+const args = process.argv.slice(2);
+if (args[0] === '-V') {
+  process.stdout.write('tmux 3.5a (fake)\n');
+} else if (args[0] === 'list-sessions') {
+  const file = join(home, 'tmux-sessions.txt');
+  if (!existsSync(file)) {
+    process.stderr.write('no server running\n');
+    process.exit(1);
+  }
+  process.stdout.write(readFileSync(file, 'utf8'));
+} else {
+  appendFileSync(join(home, 'tmux.log'), `${JSON.stringify(args)}\n`);
+}

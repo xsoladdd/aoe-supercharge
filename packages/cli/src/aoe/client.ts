@@ -212,6 +212,15 @@ export class AoeClient {
     };
   }
 
+  /** Where to connect to the agent pane's own live view (see `pressKeys`), with the auth AoE wants. */
+  async agentSocket(id: string): Promise<{ url: string; headers: Record<string, string> }> {
+    if (!this.origin) await this.discover();
+    return {
+      url: `${this.origin!.replace(/^http/, 'ws')}/sessions/${encodeURIComponent(id)}/live-ws`,
+      headers: this.token ? { authorization: `Bearer ${this.token}` } : {},
+    };
+  }
+
   /** `live` leaves out archived and trashed sessions; `all` has every session, marked by its `*_at` fields. */
   async listSessions(scope: 'live' | 'all' = 'live'): Promise<AoeSession[]> {
     return (await this.request('GET', `/api/sessions?state=${scope}`, AoeSessionsResponseSchema)).sessions;

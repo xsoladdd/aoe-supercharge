@@ -37,6 +37,7 @@ import {
   SidebarGroupAction,
 } from '@/components/ui/sidebar';
 import { AddProjectDialog, AdoptDialog } from '@/components/add-project';
+import { SidebarAttach } from '@/components/attach';
 import { SessionMenu } from '@/components/session-menu';
 import { UsageMeter } from '@/components/usage';
 import { pinnedFirst, projectViews, sessionMap, unmanagedGroups } from '@/lib/derive';
@@ -262,6 +263,12 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                                   </div>
                                 </Link>
                               </SidebarMenuSubButton>
+                              {project.controlSessionId && (
+                                <SidebarAttach
+                                  sessionId={project.controlSessionId}
+                                  title={`${project.name} control chat`}
+                                />
+                              )}
                             </SidebarMenuSubItem>
                           </ControlRow>
                           {(() => {
@@ -317,6 +324,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                                         </div>
                                       </Link>
                                     </SidebarMenuSubButton>
+                                    <SidebarAttach sessionId={t.aoeSessionId} title={t.title} />
                                   </SidebarMenuSubItem>
                                 </SessionMenu>
                               );
@@ -349,6 +357,7 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                                       </div>
                                     </Link>
                                   </SidebarMenuSubButton>
+                                  <SidebarAttach sessionId={s.id} title={s.title} />
                                 </SidebarMenuSubItem>
                               </SessionMenu>
                             );
