@@ -2,7 +2,7 @@
  * What Claude's tokens would cost on the Claude API, per model, for the office's cost meter
  * (SPEC §14.5). An **estimate**: on a Claude plan this is the API-equivalent value, not a bill.
  *
- * Checked against https://platform.claude.com/docs/en/about-claude/pricing on 2026-10-07 (Claude API,
+ * Checked against https://platform.claude.com/docs/en/about-claude/pricing on 2026-10-26 (Claude API,
  * first party, global routing). Keep this the one place prices live; check it again when models change.
  * A model not listed here shows tokens only, never a guessed price.
  */
@@ -17,7 +17,7 @@ export interface ModelPrice {
   fast?: { input: number; output: number };
 }
 
-export const PRICES_CHECKED = '2026-10-07';
+export const PRICES_CHECKED = '2026-10-26';
 
 /** By model id prefix: the longest matching prefix wins, so a dated or suffixed id still finds its row. */
 export const MODEL_PRICES: Record<string, ModelPrice> = {
@@ -31,7 +31,7 @@ export const MODEL_PRICES: Record<string, ModelPrice> = {
   'claude-opus-4-7': { input: 5, output: 25, cacheRead: 0.5 },
   'claude-opus-4-6': { input: 5, output: 25, cacheRead: 0.5 },
   'claude-opus-4-5': { input: 5, output: 25, cacheRead: 0.5 },
-  'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.2 },
+  'claude-sonnet-5-5': { input: 2, output: 10, cacheRead: 0.1 },
   'claude-sonnet-5': { input: 2, output: 10, cacheRead: 0.2 },
   'claude-sonnet-4-6': { input: 3, output: 15, cacheRead: 0.3 },
   'claude-sonnet-4-5': { input: 3, output: 15, cacheRead: 0.3 },

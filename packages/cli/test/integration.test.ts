@@ -1278,6 +1278,17 @@ describe('daemon: security, live state and the MR watcher', () => {
     await until(async () => (await view(id))?.archived);
     expect((await act('unarchive', [id])).results[0]!.ok).toBe(true);
     expect(fake.state.sessions.find((s) => s.id === id)).toMatchObject({ archived_at: null, status: 'Idle' });
+    // AoE 1.18+ refuses to send to an archived session (409): sending unarchives it first, as 1.17 did.
+    const sendTo = (message: string) =>
+      fetch(`${base()}/api/sessions/${id}/send`, {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify({ message }),
+      });
+    expect((await act('archive', [id])).results[0]!.ok).toBe(true);
+    expect((await sendTo('Back to work.')).status).toBe(200);
+    expect(fake.state.sessions.find((s) => s.id === id)?.archived_at).toBeNull();
+    expect(fake.state.sent.at(-1)).toMatchObject({ id, message: 'Back to work.' });
 
     expect((await act('pin', [id])).results[0]!.ok).toBe(true);
     await until(async () => (await view(id))?.pinned);
@@ -1288,6 +1299,10 @@ describe('daemon: security, live state and the MR watcher', () => {
 
     expect((await act('delete', [id])).results[0]!.ok).toBe(true);
     expect(fake.state.sessions.find((s) => s.id === id)?.trashed_at).toBeTruthy();
+    const refused = await sendTo('Still there?');
+    expect(refused.ok).toBe(false);
+    expect(await refused.text()).toMatch(/in the trash/);
+    expect(fake.state.sent.at(-1)?.message).toBe('Back to work.');
     expect(existsSync(taskFile(made.id))).toBe(false);
     const removed = join(home, '.local/share/supercharge/projects/northwind/removed', made.id, 'task.json');
     expect(existsSync(removed)).toBe(true);

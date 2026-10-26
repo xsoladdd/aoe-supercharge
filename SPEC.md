@@ -51,7 +51,7 @@ Observed live:
 - **Routes Supercharge uses.**
   - `GET /api/sessions?state=live` (there is **no** `GET /api/sessions/{id}`; filter the list instead).
   - `GET /api/about` returns `version` and is the **only API version signal**: no `/api/vN` prefix, no version header.
-  - `POST /api/sessions/{id}/send` takes `{message, revive}`.
+  - `POST /api/sessions/{id}/send` takes `{message, revive}`. Since AoE 1.18 it (and `/start`, `/ensure`) answers `409 {"error": "session_archived" | "session_trashed"}` for an archived or trashed session, where 1.17 unarchived it on send. Supercharge unarchives and tries once more (`unarchiving`, `workflow.ts`); a trashed session gets "restore it first", and no `aoe send` fallback, which refuses it too.
   - `GET /api/sessions/{id}/output?lines=` returns pane text.
   - `GET /api/groups`, `/api/profiles`, `/api/projects`, `/api/system/health`, `/api/system/update-status`.
 - **Create.** `POST /api/sessions` supports worktree, new branch, `extra_args` and `idempotency_key`, **but has no parent field**. Only `aoe add -P` sets `parent_session_id`, and it is one level deep. **Spawning therefore goes through the CLI.**
@@ -1063,14 +1063,15 @@ All four phases are built. The verification behind each claim below is listed in
 
 - **Hook consent.** A fresh AoE refuses to *launch* agents until `has_acknowledged_agent_hooks = true` is set in `<app_dir>/state.toml` (approved once in the TUI). `aoe add` still creates the session and exits non-zero.
   - `init` and `task new` now keep the session and print the fix (`aoe session start <id>`).
-  - `doctor` checks the flag.
+  - `doctor` checks the flag. AoE 1.19+ sets it with `aoe hooks approve` (`aoe hooks status` shows it), which `doctor` suggests; older AoE only from the TUI.
 - **`aoe add -c`** only accepts known agent names. The sandbox uses `--tool claude --cmd-override <stand-in agent>`.
 - **`aoe add -b`** fetches the base branch from `origin`.
 - **`aoe serve` picks up CLI-created sessions after a short delay.** The contract test waits for them; the daemon's reconcile handles it.
 - **App dir on macOS:** `$XDG_CONFIG_HOME/agent-of-empires` if it exists, else `~/.agent-of-empires`. AoE creates the XDG dir on first use when `XDG_CONFIG_HOME` is set.
 - **AoE 1.18.0 release binary** is named `aoe-<os>-<arch>`. 1.18 only recognises its own daemon when the binary is named `aoe`, so the upgrade path renames it.
 - **AoE 1.18.0 passes all 18 live contract checks.** `supercharge aoe upgrade` is ready to move from 1.17.2 to 1.18.0.
-- **`POST /api/sessions/{id}/send` types the text literally, then presses Enter** (`src/tmux/session.rs`, `send_keys_with_delay`; bracketed paste from 16 bytes up). There is no way to send keys without the Enter. The live terminal websocket accepts raw input only from the client that owns the window size, so the dashboard does not use it.
+- **`POST /api/sessions/{id}/send` types the text literally, then presses Enter** (`src/tmux/session.rs`, `send_keys_with_delay`; bracketed paste from 16 bytes up). There is no way to send keys without the Enter. Since AoE 1.20 it first strips bracketed-paste markers, ESC bytes and trailing newlines, and refuses whitespace-only text (`400 message_empty`); a pasted LF goes in as CR. Checked with real Claude Code 2.1.308 on AoE 1.21.0 and 1.17.2 (sandbox, mock API): a multi-line message and an attachments message each arrive as one user turn. The live terminal websocket accepts raw input only from the client that owns the window size, so the dashboard does not use it.
+- **Claude Code 2.1.308 prompt screens** (`fixtures/claude-code/2.1.308`, captured in a sandbox): permission prompts draw the command between `╌` lines; stacked prompts put `1 of 2` on the title line; Bash, Read and MCP prompts end in a plain `No` (feedback is `Tab to amend`, which the dashboard does not offer), while WebFetch keeps "No, and tell Claude what to do differently". A prompt that arrives while someone types is held back ("Waiting for permission…", no menu) and the next Enter only shows it. `parseTerminalMenu` reads them all unchanged.
 - **Answering Claude Code menus (Claude Code 2.1.236, read from its `Select` component and checked in a sandbox):**
   - A digit confirms that option at once, with no Enter. AoE's Enter then lands on the empty prompt and does nothing.
   - On a text-input option (the plan's "Tell Claude what to change") with no text, the digit only focuses the row. The Enter after it cancels the menu (`onSubmit` with empty text calls `onCancel`). Feedback is therefore sent as a second, normal message once the menu has closed.

@@ -12,7 +12,7 @@ An opinionated parent/child dashboard for Claude Code, built on [Agent of Empire
 
 It runs as a small local daemon (Node 24, about 70 MB idle) bound to `127.0.0.1`. Merge requests are watched by a script, never by an LLM loop.
 
-> Status: v1.5.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 (1.18.0 passes the live contract too; see [AoE versions](#aoe-versions)).
+> Status: v1.5.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 to 1.21.x (tested on 1.17.2, 1.18.0 and 1.21.0; see [AoE versions](#aoe-versions)); prompt screens checked against Claude Code 2.1.308.
 > The design rationale lives in [SPEC.md](SPEC.md).
 
 ---
@@ -298,11 +298,15 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - `aoe session attach` command and Open in AoE,
   - an explicit, confirmed **Reply**.
 - **Chat** (`/chat/<session>`, and a task's Chat tab): the conversation, read from Claude Code's transcript, and a box to write in.
-  - While Claude is working, **Send holds** your message in Supercharge instead of typing it into the turn. It shows in the chat as held, with **Edit** (it goes back into the box) and **Cancel**, and the daemon types it in once Claude is done: one per turn, in order. Held messages, with their images and files, survive a reload and a closed tab.
+   - While Claude is working, **Send holds** your message in Supercharge instead of typing it into the turn. It shows in the chat as held, with **Edit** (it goes back into the box) and **Cancel**, and the daemon types it in once Claude is done: one per turn, in order. Held messages, with their images and files, survive a reload and a closed tab.
   - The caret beside Send has **Send now** (Claude reads it during this turn, as Claude Code does) and **Interrupt and send** (Escape stops Claude, then it goes in). A menu on screen is never typed over. Every message is audited when it is typed in.
   - **Terminal** (top right, next to Chat) is the session's own terminal, live: what Claude Code shows, in colour, and every key you press goes straight in (arrows, Enter, Escape, Tab, Ctrl-C, paste), as if you were attached. Keys typed there skip the checks a sent message gets: they are not audited one by one (each time the terminal opens is, as `terminal_opened`) and nothing stops them while a menu is open. If the session is open in AoE's web view, that has the keyboard until you press **Take over**. While you are attached to the session in a terminal (`aoe session attach`), the dashboard shows it at your terminal's size and never resizes it.
   - **▶ Attach in a terminal** (in the chat's header, and on each chat in the sidebar when you point at it) opens a new tab in iTerm2, or Terminal when iTerm2 is not installed, running `aoe session attach -p <profile> <session>`. The first time, macOS asks whether Supercharge may control iTerm2 (or Terminal); allow it. The daemon runs as a launchd service, so the question names the program it runs as rather than Supercharge. If you said no, turn it back on in System Settings → Privacy & Security → Automation. On Linux, or when it can't open a tab, the button copies the command instead and says why.
-  - What you were writing stays with its chat, text and attachments, when you switch chats or reload, until you send it. It is kept in your browser's storage. Files upload as you add them.
+=======
+  - While Claude is working, **Send and Enter interrupt**: Escape stops Claude, then your message goes in. The caret beside Send has **Send when Claude is done**, which holds the message in Supercharge instead. A held message shows in the chat with **Edit** (it goes back into the box) and **Cancel**, and the daemon types it in once Claude is done: one per turn, in order. Held messages, with their images and files, survive a reload and a closed tab. When Claude is not working but messages are held, Send joins the line.
+  - The caret also has **Send now** (Claude reads it during this turn, as Claude Code does). A menu on screen is never typed over. Every message is audited when it is typed in.
+  - A control chat has a **Status update** button next to Start fresh: it sends `Status update`, held if the chat is busy so it never cuts the control chat off mid-spawn.
+   - What you were writing stays with its chat, text and attachments, when you switch chats or reload, until you send it. It is kept in your browser's storage. Files upload as you add them.
   - **Attachments** go with the message you are writing, as many as you like, and Send sends the text and all of them as one message. Paste, drop or pick any file (up to 20 MB each, zips included); a pasted or picked image opens to be marked up first, and **Attach** (or Enter) puts it in the box. **Attach a path…** in the paperclip menu takes a file or folder already on this computer (`/Users/you/project/docs`, `~/Downloads/logs.zip`), checked before it is attached; nothing is copied. A browser can't upload a dropped folder, so dropping one opens that instead. Each attachment rides in the message as an ``Attached: `<path>` `` line that Claude opens with its file tool.
   - The **context ring** opens the figures behind it: tokens used of the window, the model, the last request's input, output and cache, and when Claude Code compacts. They are Claude Code's own when its status line reports them (Supercharge's status line, `agent.statusLine`), and otherwise an estimate from the transcript.
   - What needs you stands out: a report's 🔴 NEEDS YOU, 🟡 WORKING and ✅ DONE sections, watch notices, and errors each sit on a shade of their colour.
@@ -394,6 +398,8 @@ Self-hosted GitLab works: add the host to `mr.gitlab.hosts` and log in with `gla
 3. Runs the **live contract tests** against it in a sandbox: a temporary `HOME`, its own tmux server, and a stand-in agent instead of Claude. Your real `~/.agent-of-empires` is never touched.
 4. Only then runs `aoe update` and adds that version to `~/.local/state/supercharge/compat.local.json`.
 5. If any check fails, it reports what broke and changes nothing.
+
+Since AoE 1.18, AoE refuses to send to an archived or trashed session. Supercharge unarchives an archived one first, as sending did before; a trashed one has to be restored first. On a fresh AoE 1.19 or later, `aoe hooks approve` lets AoE launch agents (`supercharge doctor` says so when it is needed).
 
 A weekly GitHub Action does the same against the newest AoE release. It opens a PR that widens `compat.json` when the contract passes, or an issue when it fails.
 

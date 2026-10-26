@@ -20,6 +20,7 @@ import {
   ArrowUUpLeftIcon,
   CpuIcon,
   ArrowClockwiseIcon,
+  ClipboardTextIcon,
 } from '@phosphor-icons/react';
 import {
   LIVE_STATUS_LABEL,
@@ -488,6 +489,24 @@ function FreshButton({ tokens, onClick }: { tokens: number | null; onClick: () =
   );
 }
 
+/** Status update, on control chats only: asks the chat where things stand. */
+function StatusButton({ disabled, onClick }: { disabled: boolean; onClick: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="h-8 gap-1.5 px-2 text-xs text-muted-foreground"
+      title="Ask this chat for a status update. If it is busy the message waits its turn; it never interrupts."
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <ClipboardTextIcon className="size-4" />
+      Status update
+    </Button>
+  );
+}
+
 /** "Working 12s" while Claude runs, like the terminal's own spinner line. */
 function WorkingClock({ since }: { since: string | null }) {
   const [now, setNow] = useState(Date.now());
@@ -521,6 +540,7 @@ function ChatComposer({
   effort,
   context,
   held,
+  control,
   onStartFresh,
 }: {
   session: SessionView;
@@ -534,6 +554,8 @@ function ChatComposer({
   context: ContextInfo | null;
   /** Messages the daemon holds for this session: while there are any, Send joins the line. */
   held: HeldMessage[];
+  /** A control chat: it gets the Status update button. */
+  control: boolean;
   onStartFresh: () => void;
 }) {
   const sessionId = session.id;
@@ -566,8 +588,36 @@ function ChatComposer({
     setError(null);
   };
 
-  /** Send the box and every attachment as one message, held while Claude is busy unless `mode` says otherwise. */
-  const deliver = async (text: string, mode: SendMode = 'hold') => {
+  /** The normal send path: POST the message, then note it held or show it as sent. */
+  const post = async (message: string, mode: SendMode, previews: string[] = []) => {
+    const res = await sendJson<SendResult>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/send`, {
+      message,
+      mode,
+    });
+    if ('held' in res) {
+      if (res.note) toast(res.note);
+    } else onSent(message, previews);
+  };
+
+  /** Status update never interrupts: a busy control chat holds it, so it is not cut off mid-spawn. */
+  const statusUpdate = async () => {
+    if (sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      await post('Status update', 'hold');
+    } catch (e) {
+      setError(
+        `${e instanceof ApiError ? e.message : 'Could not send.'} Try again, or type in AoE directly.`,
+      );
+      toast.error('Message not sent');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  /** Send the box and every attachment as one message. Enter and Send interrupt while Claude works. */
+  const deliver = async (text: string, mode: SendMode = working ? 'interrupt' : 'hold') => {
     if (sending) return false;
     const typed = value;
     setSending(true);
@@ -587,18 +637,12 @@ function ChatComposer({
         text,
         files.map((f) => f.path),
       );
-      const res = await sendJson<SendResult>('POST', `/api/sessions/${encodeURIComponent(sessionId)}/send`, {
+      await post(
         message,
         mode,
-      });
+        files.filter((f) => f.image && f.url).map((f) => f.url!),
+      );
       drafts.update(sessionId, (d) => clearSent(d, { text: typed, paths: files.map((f) => f.path) }));
-      if ('held' in res) {
-        if (res.note) toast(res.note);
-      } else
-        onSent(
-          message,
-          files.filter((f) => f.image && f.url).map((f) => f.url!),
-        );
       return true;
     } catch (e) {
       setError(
@@ -724,6 +768,7 @@ function ChatComposer({
           <ModelMenu sessionId={sessionId} model={model} effort={effort} disabled={!!session.prompt} />
           <ContextMeter context={context} onStartFresh={onStartFresh} />
           <FreshButton tokens={context?.used ?? null} onClick={onStartFresh} />
+          {control && <StatusButton disabled={sending} onClick={() => void statusUpdate()} />}
           <span className="flex-1" />
           {working && <WorkingClock since={session.statusSince} />}
           <SendButton
@@ -736,9 +781,9 @@ function ChatComposer({
         </div>
       </div>
       <p id="chat-help" className="sr-only">
-        Enter sends, Shift+Enter adds a line. While Claude is working, a message waits here until Claude is
-        done; the menu beside Send sends it now or stops Claude first. Paste or drop files to attach them
-        (images open for marking up first); they go with the message when you send it. Sent into the AoE
+        Enter sends, Shift+Enter adds a line. While Claude is working, Enter stops Claude and sends; the menu
+        beside Send holds the message until Claude is done, or sends it now. Paste or drop files to attach
+        them (images open for marking up first); they go with the message when you send it. Sent into the AoE
         session as a prompt and recorded in the audit log.
       </p>
       {error && (
@@ -1453,6 +1498,7 @@ export function SessionChat({
                 effort={chat?.effort ?? null}
                 context={chat?.context ?? null}
                 held={held}
+                control={role.kind === 'control'}
                 onStartFresh={() => setFresh(true)}
               />
             </>
