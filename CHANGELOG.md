@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 (2026-10-26)
 
 - **Start tasks from the dashboard.** **New task** on a project page is now a form (title, brief, model,
   effort) that starts the worker itself, `POST /api/projects/:name/tasks`, and opens the new task. It
