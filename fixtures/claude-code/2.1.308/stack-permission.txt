@@ -1,0 +1,38 @@
+  Called scratch
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Cogitated for 0s · done 1:50 PM
+
+❯ please MULTIBASH now
+
+  Ran 1 shell command
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Brewed for 0s · done 1:50 PM
+
+❯ please READ now
+
+  Read 1 file
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Churned for 0s · done 1:50 PM
+
+❯ please STACK now
+
+  Three
+  ⎿  $ rm -rf /tmp/sc-three
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ Tip: auto mode handles these prompts for you — choose "switch to auto mode" below
+ One
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ rm -rf /tmp/sc-one
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and always allow access to /tmp from this project
+   3. Yes, and switch to auto mode · auto mode handles these prompts for you
+   4. No
+
+ Esc to cancel · Tab to amend

@@ -12,7 +12,7 @@ An opinionated parent/child dashboard for Claude Code, built on [Agent of Empire
 
 It runs as a small local daemon (Node 24, about 70 MB idle) bound to `127.0.0.1`. Merge requests are watched by a script, never by an LLM loop.
 
-> Status: v1.5.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 (1.18.0 passes the live contract too; see [AoE versions](#aoe-versions)).
+> Status: v1.5.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 to 1.21.x (tested on 1.17.2, 1.18.0 and 1.21.0; see [AoE versions](#aoe-versions)); prompt screens checked against Claude Code 2.1.308.
 > The design rationale lives in [SPEC.md](SPEC.md).
 
 ---
@@ -392,6 +392,8 @@ Self-hosted GitLab works: add the host to `mr.gitlab.hosts` and log in with `gla
 3. Runs the **live contract tests** against it in a sandbox: a temporary `HOME`, its own tmux server, and a stand-in agent instead of Claude. Your real `~/.agent-of-empires` is never touched.
 4. Only then runs `aoe update` and adds that version to `~/.local/state/supercharge/compat.local.json`.
 5. If any check fails, it reports what broke and changes nothing.
+
+Since AoE 1.18, AoE refuses to send to an archived or trashed session. Supercharge unarchives an archived one first, as sending did before; a trashed one has to be restored first. On a fresh AoE 1.19 or later, `aoe hooks approve` lets AoE launch agents (`supercharge doctor` says so when it is needed).
 
 A weekly GitHub Action does the same against the newest AoE release. It opens a PR that widens `compat.json` when the contract passes, or an issue when it fails.
 

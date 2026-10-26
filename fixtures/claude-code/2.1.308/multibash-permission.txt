@@ -1,0 +1,39 @@
+✻ Cooked for 0s · done 1:49 PM
+
+❯ please READ now
+
+⏺ Done.
+
+✻ Brewed for 0s · done 1:49 PM
+
+❯ please MCP now
+
+  Called scratch
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Cogitated for 0s · done 1:50 PM
+
+❯ please MULTIBASH now
+
+  Writing three lines
+  ⎿  $ for f in a b c; do
+     echo "$f"
+     done > /tmp/sc-out.txt
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ Tip: auto mode handles these prompts for you — choose "switch to auto mode" below
+ Write three lines
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ │ for f in a b c; do
+ │   echo "$f"
+ │ done > /tmp/sc-out.txt
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ A for or select loop in this command can't be checked before it runs
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and switch to auto mode · auto mode handles these prompts for you
+   3. No
+
+ Esc to cancel · Tab to amend

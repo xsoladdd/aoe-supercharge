@@ -12,7 +12,7 @@ import {
   AoeStatusCountsSchema,
 } from '../src/aoe/schemas.ts';
 import { parseUpdateCheck, releaseAsset } from '../src/commands/aoe-upgrade.ts';
-import { claudeModelsCheck } from '../src/commands/doctor.ts';
+import { claudeModelsCheck, hookConsentFix } from '../src/commands/doctor.ts';
 import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '../src/statusline.ts';
 import { renderCaddyfile } from '../src/commands/proxy.ts';
 import { landedOn, markLanded } from '../src/daemon/branch-watcher.ts';
@@ -28,7 +28,9 @@ import { removeManagedBlock, upsertManagedBlock } from '../src/skills.ts';
 import { parseRemote } from '../src/util/git.ts';
 import { run } from '../src/util/exec.ts';
 import { redact } from '../src/util/logger.ts';
-import { controlPick, modelArgs, setSessionModel, workerModel } from '../src/workflow.ts';
+import { controlPick, modelArgs, setSessionModel, unarchiving, workerModel } from '../src/workflow.ts';
+import { AoeError } from '../src/aoe/client.ts';
+import type { Ctx } from '../src/context.ts';
 
 const FIXTURES = join(import.meta.dirname, '../../../fixtures/aoe');
 
@@ -681,6 +683,41 @@ describe('doctor: Claude Code knows the 5.5 models', () => {
     expect(claudeModelsCheck('2.2.0 (Claude Code)')).toMatchObject({ status: 'ok' });
     expect(claudeModelsCheck('3.0.1')).toMatchObject({ status: 'ok' });
     expect(claudeModelsCheck('unknown')).toBeNull();
+  });
+});
+
+describe('doctor: hook consent', () => {
+  it('points at "aoe hooks approve" from AoE 1.19, the TUI before', () => {
+    expect(hookConsentFix('1.21.0')).toMatch(/aoe hooks approve/);
+    expect(hookConsentFix('1.19.0')).toMatch(/aoe hooks approve/);
+    expect(hookConsentFix('1.18.0')).toMatch(/Run "aoe" once/);
+  });
+});
+
+describe('AoE 1.18+ refuses archived and trashed sessions (409)', () => {
+  const refuse = (code: string) => new AoeError(`failed (409): ${code}`, 'http', 409, code);
+  const setup = (first: unknown) => {
+    const setArchived = vi.fn(async () => ({}));
+    const call = vi.fn().mockRejectedValueOnce(first).mockResolvedValue('sent');
+    return { ctx: { aoe: { setArchived } } as unknown as Ctx, setArchived, call };
+  };
+
+  it('unarchives an archived session and tries once more', async () => {
+    const { ctx, setArchived, call } = setup(refuse('session_archived'));
+    expect(await unarchiving(ctx, 's1', call)).toBe('sent');
+    expect(setArchived).toHaveBeenCalledWith('s1', false);
+    expect(call).toHaveBeenCalledTimes(2);
+  });
+
+  it('says to restore a trashed session, and leaves other errors alone', async () => {
+    const trashed = setup(refuse('session_trashed'));
+    await expect(unarchiving(trashed.ctx, 's1', trashed.call)).rejects.toThrow(/in the trash/);
+    const busy = setup(refuse('session_transient'));
+    await expect(unarchiving(busy.ctx, 's1', busy.call)).rejects.toThrow(/session_transient/);
+    for (const t of [trashed, busy]) {
+      expect(t.setArchived).not.toHaveBeenCalled();
+      expect(t.call).toHaveBeenCalledTimes(1);
+    }
   });
 });
 

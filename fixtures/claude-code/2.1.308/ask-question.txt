@@ -1,0 +1,39 @@
+✻ Crunched for 0s · done 1:50 PM
+
+❯ please AGENTS now
+
+⏺ 2 background agents launched (↓ to manage)
+   ├ Agent one
+   └ Agent two
+
+⏺ Done.
+
+✻ Waiting for 2 background agents to finish
+
+⏺ Agent "Agent one" finished · 13s
+
+⏺ Got it (1367 chars).
+
+✻ Waiting for 1 background agent to finish
+
+⏺ Agent "Agent two" finished · 15s
+
+⏺ Got it (1367 chars).
+
+✻ Brewed for 15s · done 1:50 PM
+
+❯ please ASK now
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Database
+
+Which database should we use?
+
+❯ 1. Postgres
+     Relational, what we run today
+  2. SQLite
+     One file, no server
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

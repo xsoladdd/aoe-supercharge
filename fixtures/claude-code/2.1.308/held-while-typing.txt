@@ -1,0 +1,39 @@
+⏺ Done.
+
+✻ Churned for 0s · done 1:51 PM
+
+❯ please PLAN now
+  ⎿  User rejected Claude's plan:
+     ╭──────────────────────────╮
+     │ Rename the widget        │
+     │                          │
+     │ 1. Rename it.            │
+     │ 2. Run the tests.        │
+     ╰──────────────────────────╯
+
+✻ Worked for 0s · done 1:51 PM
+
+⏺ Auto mode lets Claude handle permission prompts automatically — Claude checks each tool call for risky actions
+  and prompt injection before executing. Actions Claude identifies as safe are executed, while actions Claude
+  identifies as risky are blocked and Claude may try a different approach. Ideal for long-running tasks.
+  Sessions are slightly more expensive. Claude can make mistakes that allow harmful commands to run, it's
+  recommended to only use in isolated environments. Shift+Tab to change mode.
+
+❯ please SLOW now
+
+  Ran 1 shell command
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Crunched for 4s · done 1:52 PM
+
+❯ half typed thoughtplease SLOW now
+
+  Slow one
+  ⎿  $ rm -rf /tmp/sc-slow
+                                                                                                    ◐ medium · /effort
+
+  Waiting for permission…
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ xxxxxxxxxxxx
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏸ manual mode on

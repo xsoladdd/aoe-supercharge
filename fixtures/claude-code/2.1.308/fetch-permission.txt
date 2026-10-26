@@ -1,0 +1,39 @@
+ ▐▛███▛█   Claude Code v2.1.308
+▝▜██████▀  Opus 5.5 · API Usage Billing
+ ▝▝   ▝▝   ~/scratch/proj
+
+
+❯ please BASH now
+
+  Ran 1 shell command
+  ⎿  Interrupted · What should Claude do instead?
+
+✻ Worked for 0s · done 1:49 PM
+
+❯ please MULTIBASH now
+
+⏺ Done.
+
+✻ Baked for 0s · done 1:49 PM
+
+❯ please FETCH now
+
+⏺ Fetch(https://example.com/docs)
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ Fetch
+ Claude wants to fetch content from example.com
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ url: https://example.com/docs
+ prompt: Summarise the page
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to allow Claude to fetch this content?
+ ❯ 1. Yes
+   2. Yes, and don't ask again for example.com
+   3. No, and tell Claude what to do differently (esc)
+
+
+
+
+
+
