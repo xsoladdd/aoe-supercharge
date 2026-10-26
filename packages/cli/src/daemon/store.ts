@@ -8,6 +8,7 @@ import {
   type MrState,
   type SessionCost,
   type ProjectRecord,
+  type ScheduleView,
   type SessionView,
   type Snapshot,
   type SnapshotEvent,
@@ -47,6 +48,7 @@ export class Store {
   sessionMrs: Record<string, MrState> = {};
   watch: Record<string, WatchSummary> = {};
   held: Record<string, HeldMessage[]> = {};
+  schedules: ScheduleView[] = [];
   ui: Snapshot['ui'] = {
     theme: 'dark',
     density: 'comfortable',
@@ -84,6 +86,7 @@ export class Store {
       sessionMrs: this.sessionMrs,
       watch: this.watch,
       held: this.held,
+      schedules: this.schedules,
       ui: this.ui,
     };
   }
@@ -228,6 +231,13 @@ export class Store {
     this.emit({ type: 'held', data: kept });
   }
 
+  setSchedules(schedules: ScheduleView[]) {
+    if (same(schedules, this.schedules)) return;
+    this.schedules = schedules;
+    this.emit({ type: 'schedules', data: schedules });
+    this.recomputeNeedsYou();
+  }
+
   setWatch(watch: Record<string, WatchSummary>) {
     if (same(watch, this.watch)) return;
     this.watch = watch;
@@ -254,6 +264,7 @@ export class Store {
       tasks: this.tasks,
       sessions: this.sessions,
       projects: this.projects,
+      schedules: this.schedules,
       aoeReachable: this.health.aoe.state === 'ok' && this.sessionsLoaded,
       now: new Date(),
       waitingDebounceSeconds: this.opts.waitingDebounceSeconds(),

@@ -7,6 +7,7 @@ import type { Weather, WindowsMode } from './office-ambience.ts';
 import type { UsageReport } from './usage.ts';
 import type { WatchSummary } from './watch.ts';
 import type { HeldMessage } from './held.ts';
+import type { ScheduleView } from './schedule.ts';
 
 export type Actor = 'worker' | 'daemon' | 'user' | 'control';
 
@@ -207,7 +208,9 @@ export type NeedsYouKind =
   | 'session_error'
   | 'session_missing'
   | 'mr_ready'
-  | 'mr_closed';
+  | 'mr_closed'
+  /** A scheduled prompt's last run failed (SPEC §8.5). */
+  | 'schedule_failed';
 
 export interface NeedsYouItem {
   id: string;
@@ -308,6 +311,8 @@ export interface Snapshot {
   watch: Record<string, WatchSummary>;
   /** Messages the daemon holds until their session is free, oldest first, by session id. */
   held: Record<string, HeldMessage[]>;
+  /** Prompts the daemon sends to a chat at a set time each day, in the order they were added. */
+  schedules: ScheduleView[];
   ui: {
     theme: 'dark' | 'light' | 'system';
     density: 'comfortable' | 'compact';
@@ -335,6 +340,7 @@ export type SnapshotEvent =
   | { type: 'session_mrs'; data: Record<string, MrState> }
   | { type: 'watch'; data: Record<string, WatchSummary> }
   | { type: 'held'; data: Record<string, HeldMessage[]> }
+  | { type: 'schedules'; data: ScheduleView[] }
   | { type: 'health'; data: Health };
 
 export interface ProjectStatus {

@@ -488,6 +488,14 @@ Both skills start with the same guard: *"Run `supercharge whoami --json`. If `ro
 - The task stays `blocked` until the worker moves it.
 - **Keys typed in the chat's Terminal view are the exception** (approved 2026-10-26). They go to the agent's pane as raw input, as if you were attached: no `prompt_sent` audit per message and no open-menu guard (`menu_open`). The daemon audits one `terminal_opened` per connection and marks the session typed into, so held messages still wait for a fresh status.
 
+### 8.5 Scheduled prompts
+- A scheduled prompt types a prompt into an **existing** AoE session (a control chat, a worker, a General chat: any session id) every day, or every weekday, at `HH:MM` in `office.clocks.home`. It never starts a fresh chat: a new `--scratch` session opens on Claude's "Do you trust this folder?" dialog, which nobody would answer.
+- **Storage:** `$XDG_DATA_HOME/supercharge/schedules.json` (`{ schema: 1, schedules }`, 0600), written only by the daemon. Each job: `name, sessionId, prompt, time, days, enabled, createdAt, scheduledFrom, lastRunAt, lastResult`.
+- **When:** the daemon's `Scheduler` (`daemon/scheduler.ts`) passes every 20 s, once AoE answers and the ledger is loaded. A job is due when the first `time` after `max(lastRunAt, scheduledFrom)` has passed. A run missed while the daemon was down or the Mac asleep goes once on the next pass, not once per missed day. Any edit (and turning a job back on) moves `scheduledFrom` to now, so it never fires at once. A time the clocks skip in spring runs right after the jump (02:30 → 03:30); a time that happens twice in autumn runs the first time.
+- **Run:** when `supercharge usage` is at `stop`, the run is skipped and the reason recorded (`skipped`). Otherwise an archived session is unarchived (`sessionAction`, which also ensures its pane) and a stopped one started, then the prompt joins the session's held messages (§14 chat; `held.json`) and is typed once Claude is free: `queued`, then `sent` once typed, or `failed` with the held message's error. A gone session is `failed`.
+- Every outcome is audited (`scheduled_prompt`, actor `daemon`); the typing itself is audited as any held message (`prompt_sent`). A `failed` run is a Needs-you item (`schedule_failed`, notified under `notifications.error`) until the job runs again or is changed.
+- **Run now** sends at once (still skipped at `stop`) and leaves the daily time alone.
+
 ---
 
 ## 9. Agent seam
@@ -644,6 +652,10 @@ Bound to **127.0.0.1 only**. Requests are rejected unless the `Host` header is `
 | GET | `/api/notes[?archived=1]` | ✓ | Notes and todos (§14.6) not archived, or only the archived ones |
 | POST | `/api/notes` | ✓+CSRF | Body `{ kind: "note" \| "todo", text, project }` (`project: null` is global); `by: you` |
 | PATCH | `/api/notes/:id` | ✓+CSRF | Body `{ done }`, `{ text }` or `{ archived }`: tick a todo, edit, archive or restore |
+| POST | `/api/schedules` | ✓+CSRF | Body `{ name, sessionId, prompt, time: "HH:MM", days: "daily" \| "weekdays", enabled }` (§8.5); the session must be in AoE. The list arrives in the snapshot (`schedules`, with `nextRunAt`) |
+| PATCH | `/api/schedules/:id` | ✓+CSRF | Any of those fields; counts the next run from now |
+| DELETE | `/api/schedules/:id` | ✓+CSRF | |
+| POST | `/api/schedules/:id/run` | ✓+CSRF | Run now: `{ result }`, `queued`, `skipped` (usage at stop) or `failed` |
 | POST | `/api/needs-you/dismiss` | ✓+CSRF | Body `{ id }`: dismiss a `control_replied` item until that control chat replies again (§10.2); any other kind is 400, an unknown id 404 |
 | POST | `/api/office/marks` | ✓+CSRF | Body `{ key, action: "archive" \| "keep" \| "snooze" \| "restore" }` (§14.5): a worker's office mark, by character key; workers only (a lead is 400, an unknown key 404). Office-only: it writes `office.json` and never touches the session, worktree or transcript |
 | GET | `/api/office/history?from&to[&project][&key]` | ✓ | The office history (§14.5): `{ start, records }`, the state at `from` as a frame, then the records up to `to` (ISO times; default the last 24 h), narrowed to a project or a character key |

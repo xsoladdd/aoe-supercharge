@@ -849,7 +849,7 @@ export async function sessionAction(
     permanent?: boolean;
     deleteWorktree?: boolean;
     deleteBranch?: boolean;
-    actor: 'cli' | 'ui';
+    actor: 'cli' | 'ui' | 'daemon';
   },
 ): Promise<void> {
   const id = opts.sessionId;

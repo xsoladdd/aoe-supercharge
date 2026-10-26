@@ -13,6 +13,7 @@ import type {
   UsageReport,
   WatchSummary,
   HeldMessage,
+  ScheduleView,
 } from '@aoe-supercharge/core/shared';
 import { ApiError, getJson } from './api';
 
@@ -84,6 +85,7 @@ function connectEvents() {
   on<Record<string, MrState>>('session_mrs', (sessionMrs) => patchSnapshot({ sessionMrs }));
   on<Record<string, WatchSummary>>('watch', (watch) => patchSnapshot({ watch }));
   on<Record<string, HeldMessage[]>>('held', (held) => patchSnapshot({ held }));
+  on<ScheduleView[]>('schedules', (schedules) => patchSnapshot({ schedules }));
   source.onopen = () => set({ connection: 'live' });
   source.onerror = async () => {
     set({ connection: 'reconnecting' });

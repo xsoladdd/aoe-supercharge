@@ -1,4 +1,5 @@
 import {
+  AlarmIcon,
   ChatCircleDotsIcon,
   ClipboardTextIcon,
   CheckCircleIcon,
@@ -35,9 +36,11 @@ export const KIND: Record<NeedsYouKind, { icon: Icon; label: string; color: stri
   session_missing: { icon: WarningOctagonIcon, label: 'Session missing', color: 'text-st-red' },
   mr_ready: { icon: CheckCircleIcon, label: 'Ready for review', color: 'text-st-green' },
   mr_closed: { icon: GitPullRequestIcon, label: 'MR closed', color: 'text-st-red' },
+  schedule_failed: { icon: AlarmIcon, label: 'Scheduled prompt failed', color: 'text-st-red' },
 };
 
 export function hrefFor(item: NeedsYouItem): string {
+  if (item.kind === 'schedule_failed') return '/schedules';
   // Task items open the task page, whose first tab shows its question or menu with the answer.
   if (item.project && item.taskId) return `/p/${item.project}/t/${item.taskId}`;
   // Passed on by a control chat: the worker it is about, who has the answer cards.

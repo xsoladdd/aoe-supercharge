@@ -2,6 +2,7 @@ import { crewWorker, relayState, relayTarget, taskWorker, type RelayWorker } fro
 import { fnv1a } from './hash.ts';
 import { workerLabel } from './names.ts';
 import type { SessionPrompt } from './prompt.ts';
+import type { ScheduledPrompt } from './schedule.ts';
 import type { NeedsYouItem, ProjectRecord, SessionView, TaskRecord } from './types.ts';
 
 /** One line on what a waiting worker's menu asks. */
@@ -25,6 +26,8 @@ export interface NeedsYouInput {
    * reply (one whose idle stretch began after the dismissal).
    */
   dismissedReplies?: Record<string, string>;
+  /** Scheduled prompts: one whose last run failed needs you until it runs again or you change it. */
+  schedules?: ScheduledPrompt[];
 }
 
 /**
@@ -216,6 +219,23 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         since: s.asks.at,
       });
     }
+  }
+
+  for (const j of input.schedules ?? []) {
+    const r = j.lastResult;
+    // An edit since the failure (or turning it off) clears it.
+    if (!j.enabled || r?.status !== 'failed' || r.at < j.scheduledFrom) continue;
+    const task = taskBySession.get(j.sessionId) ?? null;
+    items.push({
+      id: `schedule_failed:${j.id}:${r.at}`,
+      kind: 'schedule_failed',
+      project: projectByControl.get(j.sessionId)?.name ?? task?.project ?? null,
+      taskId: task?.id ?? null,
+      sessionId: j.sessionId,
+      title: `Scheduled prompt "${j.name}"`,
+      detail: r.detail ?? 'It could not be sent',
+      since: r.at,
+    });
   }
 
   return items.sort((a, b) => Date.parse(a.since) - Date.parse(b.since));

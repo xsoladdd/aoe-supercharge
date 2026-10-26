@@ -28,3 +28,4 @@ export * from './watch.ts';
 export * from './destructive.ts';
 export * from './run-terminals.ts';
 export * from './held.ts';
+export * from './schedule.ts';

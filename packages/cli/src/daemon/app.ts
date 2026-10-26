@@ -4,6 +4,7 @@ import { extname, join, normalize, resolve, sep } from 'node:path';
 import { Hono, type Context } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import { streamSSE } from 'hono/streaming';
+import { z } from 'zod';
 import {
   appendAudit,
   ConfigValidationError,
@@ -25,7 +26,9 @@ import {
   buildOffice,
   contextInfo,
   markChange,
+  SCHEDULE_DAYS,
   SEND_MODES,
+  TIME_OF_DAY,
   type OfficeAction,
   type SendMode,
   type SendResult,
@@ -69,6 +72,7 @@ import { terminalRoutes, type RunTerminals } from './run-terminals.ts';
 import type { Store } from './store.ts';
 import type { WorkerWatch } from './worker-watch.ts';
 import { HeldBusyError, type HeldMessages } from './held.ts';
+import type { Scheduler } from './scheduler.ts';
 
 export interface AppDeps {
   ctx: Ctx;
@@ -87,6 +91,7 @@ export interface AppDeps {
   /** Terminals a chat's Run opened under its command. */
   terminals?: RunTerminals;
   held?: HeldMessages;
+  scheduler?: Scheduler;
 }
 
 export const SESSION_COOKIE = 'sc_session';
@@ -1091,6 +1096,74 @@ export function createApp(deps: AppDeps) {
       return c.json({ note });
     } catch (err) {
       return c.json({ error: 'bad_request', message: (err as Error).message }, 400);
+    }
+  });
+
+  // ── Scheduled prompts (SPEC §8.5). The list arrives with the snapshot. ──
+  const scheduleBody = z.strictObject({
+    name: z.string().trim().min(1).max(100),
+    sessionId: z.string().min(1),
+    prompt: z.string().trim().min(1).max(20_000),
+    time: z.string().regex(TIME_OF_DAY, 'Expected a time like 00:00'),
+    days: z.enum(SCHEDULE_DAYS),
+    enabled: z.boolean(),
+  });
+  const scheduleError = (c: Context, err: unknown) =>
+    c.json({ error: 'bad_request', message: (err as Error).message }, 400);
+  const parseSchedule = async (c: Context, partial: boolean) => {
+    const parsed = (partial ? scheduleBody.partial() : scheduleBody).safeParse(
+      await c.req.json().catch(() => null),
+    );
+    if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? 'Invalid scheduled prompt' };
+    const id = parsed.data.sessionId;
+    if (id && !store.sessions.some((s) => s.id === id)) return { error: 'That chat is not in AoE.' };
+    return { data: parsed.data };
+  };
+
+  app.post('/api/schedules', async (c) => {
+    if (!deps.scheduler) return c.json({ error: 'not_found', message: 'No scheduler' }, 404);
+    const p = await parseSchedule(c, false);
+    if (!p.data) return c.json({ error: 'bad_request', message: p.error }, 400);
+    try {
+      return c.json({ schedule: await deps.scheduler.add(p.data as z.infer<typeof scheduleBody>) }, 201);
+    } catch (err) {
+      return scheduleError(c, err);
+    }
+  });
+
+  app.patch('/api/schedules/:id', async (c) => {
+    if (!deps.scheduler) return c.json({ error: 'not_found', message: 'No scheduler' }, 404);
+    const p = await parseSchedule(c, true);
+    if (!p.data) return c.json({ error: 'bad_request', message: p.error }, 400);
+    try {
+      const schedule = await deps.scheduler.update(c.req.param('id'), p.data);
+      if (!schedule) return c.json({ error: 'not_found', message: 'No scheduled prompt with that id' }, 404);
+      return c.json({ schedule });
+    } catch (err) {
+      return scheduleError(c, err);
+    }
+  });
+
+  app.delete('/api/schedules/:id', async (c) => {
+    if (!deps.scheduler) return c.json({ error: 'not_found', message: 'No scheduler' }, 404);
+    try {
+      if (!(await deps.scheduler.remove(c.req.param('id'))))
+        return c.json({ error: 'not_found', message: 'No scheduled prompt with that id' }, 404);
+      return c.json({ ok: true });
+    } catch (err) {
+      return scheduleError(c, err);
+    }
+  });
+
+  // Run now: answers with how it went (queued, skipped by a usage limit, or failed).
+  app.post('/api/schedules/:id/run', async (c) => {
+    if (!deps.scheduler) return c.json({ error: 'not_found', message: 'No scheduler' }, 404);
+    try {
+      const result = await deps.scheduler.runNow(c.req.param('id'));
+      if (!result) return c.json({ error: 'not_found', message: 'No scheduled prompt with that id' }, 404);
+      return c.json({ result });
+    } catch (err) {
+      return scheduleError(c, err);
     }
   });
 

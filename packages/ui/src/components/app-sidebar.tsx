@@ -1,4 +1,5 @@
 import {
+  AlarmIcon,
   BuildingOfficeIcon,
   CaretRightIcon,
   ChalkboardSimpleIcon,
@@ -172,6 +173,19 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                     )
                   );
                 })()}
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === '/schedules'}
+                  tooltip="Schedules"
+                  className="h-8 text-[0.9375rem]"
+                >
+                  <Link href="/schedules" aria-current={location === '/schedules' ? 'page' : undefined}>
+                    <AlarmIcon weight={location === '/schedules' ? 'fill' : 'regular'} className="size-4" />
+                    <span>Schedules</span>
+                  </Link>
+                </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>

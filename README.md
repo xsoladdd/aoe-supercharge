@@ -156,6 +156,18 @@ supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_req
 - `watching_mr` and `ready_for_review` are set only by the MR watcher. The one exception is a project with `mr = "none"`: a worker with no MR runs `supercharge stage ready_for_review` itself once its branch is pushed (see [Merge requests](#merge-requests)).
 - Inside a worker, `AOE_INSTANCE_ID` is cross-checked against the task's session, so an agent in the wrong worktree is refused.
 
+### Scheduled prompts
+
+**Schedules** in the sidebar sends a prompt to a chat at a set time: "every midnight, tell the northwind-web control chat to post a status update". Pick any existing chat (a project's control chat, a worker, a General chat), the prompt, a time and **Every day** or **Weekdays**.
+
+- Times are in your home time zone (`office.clocks.home`) and keep to the clock across daylight saving.
+- The daemon runs them, so the chat doesn't have to be open. A run missed while the daemon was down or the Mac asleep goes **once** when it is back, not once per missed day.
+- The prompt joins the chat's held messages and goes in once Claude is free. An archived chat is brought back and a stopped one started first.
+- When `supercharge usage` says stop, the run is skipped and the page says why.
+- Each row shows the next run and how the last one went. A failed run shows in Needs you (and as a notification) until the next run or an edit. **Run now** sends it straight away.
+- Every run is in the audit log (`scheduled_prompt`). Jobs live in `~/.local/share/supercharge/schedules.json`.
+- Only existing chats: a brand-new chat stops on Claude's "Do you trust this folder?" question, which nobody would be there to answer.
+
 **The ledger** is one JSON file per task plus its `plan.md`, written atomically under a per-task lock. Workers can report stages even when the daemon is down. The daemon picks changes up through `fs.watch`.
 
 ## CLI
@@ -284,7 +296,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
 
 `http://supercharge.localhost:4280`. Dark by default, with a light mode. It's built to be read from across a desk.
 
-- **Needs you** (pinned): blocked questions, approvals or input waiting in AoE, control chats waiting on you or that have replied (a reply is marked read as soon as you have its chat open and visible; the chat's side panel also has a Dismiss button), session errors, MRs ready for review, MRs closed. Oldest first, each one click from its context.
+- **Needs you** (pinned): blocked questions, approvals or input waiting in AoE, control chats waiting on you or that have replied (a reply is marked read as soon as you have its chat open and visible; the chat's side panel also has a Dismiss button), session errors, MRs ready for review, MRs closed, scheduled prompts that failed. Oldest first, each one click from its context.
 - **Sidebar:** projects, then each control chat, then its workers. Every row shows a status icon and stage. Your other AoE sessions are grouped under their parent too.
 - **Project page:** the control chat's live status and a rollup of its workers, then a worker list showing:
   - stage stepper,
@@ -343,6 +355,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   Enter runs the highlighted choice (the one you used last; Run in chat at first) and Escape cancels. A command that can lose work for good (`aoe rm --purge`, `--delete-worktree`, `--delete-branch`, `aoe session empty-trash`, `rm -rf`, `git reset --hard`, `git push --force`, `git branch -D`, `git clean -f` and a few more) gets a red warning saying what it deletes, and Enter cancels it. Every run is audited (`command_run`).
 - **Control chat side panel:** what needs you, then **Plans**, **Comments**, **Watch** and **Shell**. It opens on Shell, the control chat's own shell in its folder: **Clear** clears the screen (Ctrl-L; the scrollback stays), **Restart** closes the shell and starts a fresh one. Notes have their own page.
 - **Notes** (`/notes`, under Office): every project's todos and notes, then the global ones. Add one, tick a todo, **Archive** it (or all the ticked ones at once); **Archived** lists them, to restore.
+- **Schedules** (`/schedules`): prompts sent to a chat at a set time each day (see [Scheduled prompts](#scheduled-prompts)). Add, edit, delete, turn one off, or **Run now**.
 - **Settings:** every config key, validated, with restart handling.
 
 Status is never shown by colour alone: every state has an icon shape and a label. `*.localhost` resolves to loopback in Chrome, Firefox and Safari without editing `/etc/hosts`; the E2E suite checks all three engines.
@@ -409,7 +422,8 @@ To go back to a tested AoE, reinstall that release: `curl -fsSL …/scripts/inst
 
 ```
 ~/.config/supercharge/            config.toml, auth.token (0600)
-~/.local/share/supercharge/       projects/<p>/project.json, tasks/<id>/{task.json, plan.md, session-prompt.md}, notes/{<p>,_global}.json, office/office.json
+~/.local/share/supercharge/       projects/<p>/project.json, tasks/<id>/{task.json, plan.md, session-prompt.md}, notes/{<p>,_global}.json, office/office.json,
+                                  schedules.json (scheduled prompts)
 ~/.local/state/supercharge/       logs/daemon.log (rotated), audit.jsonl, daemon.json, compat.local.json, history/YYYY-MM-DD.jsonl,
                                   held.json (held messages), context/<conversation>.json (Claude Code's context figures, 7 days),
                                   terminals.json (terminals opened by Run)

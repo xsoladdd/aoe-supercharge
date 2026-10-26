@@ -352,7 +352,8 @@ export interface AuditEntry {
     | 'task_cleaned_up'
     | 'aoe_upgrade'
     | 'terminal_opened'
-    | 'session_attach';
+    | 'session_attach'
+    | 'scheduled_prompt';
   project?: string | null;
   taskId?: string | null;
   sessionId?: string | null;

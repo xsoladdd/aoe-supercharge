@@ -25,6 +25,7 @@ import { Store } from './store.ts';
 import { AoeWatcher, ConfigWatcher, LedgerWatcher, NotesWatcher } from './watchers.ts';
 import { WorkerWatch } from './worker-watch.ts';
 import { HeldMessages } from './held.ts';
+import { Scheduler } from './scheduler.ts';
 
 export const RESTART_EXIT_CODE = 75;
 
@@ -140,6 +141,7 @@ async function runWorker(): Promise<void> {
   const weatherWatcher = new WeatherWatcher(ctx, store);
   const workerWatch = new WorkerWatch(ctx, store, transcripts);
   const heldMessages = new HeldMessages(ctx, store);
+  const scheduler = new Scheduler(ctx, store, heldMessages);
   // Every typing into a session (sends, replies, answers, runs, key presses) feeds the typing gate.
   ctx.onTyped = (id) => store.noteTyped(id);
   // Claude Code's context figures for conversations not touched in a week go.
@@ -175,6 +177,7 @@ async function runWorker(): Promise<void> {
     weatherWatcher.stop();
     workerWatch.stop();
     heldMessages.stop();
+    scheduler.stop();
     clearInterval(pruneTimer);
     await new Promise<void>((r) => (server ? server.close(() => r()) : r()));
     setTimeout(() => process.exit(code), 50).unref();
@@ -199,6 +202,7 @@ async function runWorker(): Promise<void> {
     watch: workerWatch,
     terminals,
     held: heldMessages,
+    scheduler,
   });
 
   await ledgerWatcher.start();
@@ -219,6 +223,7 @@ async function runWorker(): Promise<void> {
   weatherWatcher.reload();
   workerWatch.start();
   heldMessages.start();
+  scheduler.start();
   pruneContextFiles();
 
   await new Promise<void>((resolveListen, rejectListen) => {

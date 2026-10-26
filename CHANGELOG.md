@@ -34,7 +34,16 @@
 - **Claude Code 2.1.308 prompts** (command between dashed lines, stacked "1 of 2" prompts, `/` and `@`
   lists) are read as before; real screens are kept as test fixtures.
 - **Cost meter:** Sonnet 5.5 cache reads are $0.10 per million tokens (was $0.20), per Anthropic's pricing
-  page.  
+  page.
+- **Scheduled prompts.** **Schedules** in the sidebar sends a prompt to an existing chat every day (or
+  weekday) at a set time, in your home time zone (`office.clocks.home`), right through daylight saving:
+  "every midnight, tell this control chat to post a status update". The daemon runs it, so no chat or tab
+  has to be open. The prompt joins the chat's held messages and goes in once Claude is free; an archived
+  chat is brought back first. A run missed while the Mac slept or the daemon was down goes once, not once
+  per missed day. When `supercharge usage` says stop, the run is skipped and the page says why. Each row
+  shows the next run and the last result, with **Run now**, edit, delete and an on/off switch. A failed
+  run shows in Needs you and notifies. Every run is audited (`scheduled_prompt`). Jobs are kept in
+  `schedules.json` in the data directory. API: `/api/schedules` (SPEC §8.5).
 
 ## 1.5.0 (2026-10-15)
 - **Images you send go in.** A message with an image used to sit unsent in Claude's input box until your
