@@ -477,6 +477,43 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(ok.headers.get('access-control-allow-origin')).toBeNull();
   });
 
+  it('POST /api/projects/:name/tasks validates, answers 409 over the usage limit, and starts when forced', async () => {
+    const post = (name: string, body: unknown) =>
+      fetch(`${base()}/api/projects/${name}/tasks`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const ok = { title: 'From the dashboard', brief: 'Do it.', model: 'sonnet', effort: 'low' };
+    expect((await post('northwind', { ...ok, title: '  ' })).status).toBe(400);
+    expect((await post('northwind', { ...ok, model: 'gpt' })).status).toBe(400);
+    expect((await post('northwind', { ...ok, effort: 'extreme' })).status).toBe(400);
+    expect((await post('nope', ok)).status).toBe(404);
+    // 90% of the 5-hour window is used: nothing is created until the user says to start anyway.
+    const held = await post('northwind', ok);
+    expect(held.status).toBe(409);
+    expect(await held.json()).toMatchObject({
+      error: 'limited',
+      message: expect.stringMatching(/5-hour limit at 90%/),
+    });
+    expect((await post('northwind', { ...ok, force: 'yes' })).status).toBe(409);
+    const forced = await post('northwind', { ...ok, force: true });
+    expect(forced.status).toBe(200);
+    const task = (await forced.json()) as TaskRecord;
+    expect(task).toMatchObject({
+      title: 'From the dashboard',
+      model: 'opusplan',
+      effort: 'low',
+      stage: 'planning',
+    });
+    const audit = (await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { action: string; actor: string; taskId?: string });
+    expect(audit.find((a) => a.action === 'task_created' && a.taskId === task.id)?.actor).toBe('user');
+    expect((await sc(['stage', 'done'], { cwd: task.worktreePath })).code).toBe(0);
+  });
+
   it('snapshot merges the ledger with AoE sessions (parent links from aoe list)', async () => {
     const snap = await until(async () => {
       const s = (await (

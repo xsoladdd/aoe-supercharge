@@ -119,7 +119,7 @@ Then talk to the control chat (in AoE, or from your phone; see [Phone access](#p
   - a git worktree,
   - an AoE session that is a child of the control session,
   - a ledger entry.
-- The control chat runs `task new` itself; you can run it by hand too.
+- The control chat runs `task new` itself; you can run it by hand too, or press **New task** on a project's page in the dashboard (title, brief, model and effort; it runs the same code and is audited as you). It is the only place the dashboard starts a worker, and only when you submit the form. If your usage says to wait, nothing is started: the form shows why and offers **Start anyway**.
 - **Model and effort.** A control chat starts on Opus at `xhigh` effort (`agent.controlModel`, `agent.controlEffort`) and is locked to them: its Model picker in the composer is shown, with a lock, and cannot be changed, so nothing is typed into the chat that Claude Code would save as your default. The `opus` alias is Opus 5.5 on the current Claude Code and follows the next Opus; pin a full model id in Settings to stop that. Workers get a `--model` and an `--effort` per task from the control chat (the table is in its skill); `agent.model` and `agent.effort` are only the fallbacks. Both apply to that one session. Existing control chats keep the arguments they were started with; new ones get `xhigh`.
 - **A new worker starts on its own.** Claude Code does nothing until it gets a first message, so `task new` sends a short kickoff once the session is at its prompt with no menu open. If that can't happen, the daemon sends it later; if it is lost, it is sent again (up to 3 times), but never to a worker someone already wrote to. Every send is audited as `prompt_sent`.
 
@@ -319,7 +319,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
 
 - **Needs you** (pinned): blocked questions, approvals or input waiting in AoE, control chats waiting on you or that have replied (a reply is marked read as soon as you have its chat open and visible; the chat's side panel also has a Dismiss button), session errors, MRs ready for review, MRs closed, scheduled prompts that failed. Oldest first, each one click from its context.
 - **Sidebar:** projects, then each control chat, then its workers. Every row shows a status icon and stage. Then **General** (chats with no project, and the General control chat; see [General chats](#general-chats-no-project)). Your other AoE sessions are grouped under their parent too.
-- **Project page:** the control chat's live status and a rollup of its workers, then a worker list showing:
+- **Project page:** a **New task** button that starts a worker from a form, the control chat's live status and a rollup of its workers, then a worker list showing:
   - stage stepper,
   - AoE status,
   - MR pipeline and open threads,

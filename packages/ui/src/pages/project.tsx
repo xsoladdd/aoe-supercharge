@@ -1,9 +1,10 @@
 import { PlusIcon, DotsThreeIcon, GearSixIcon, TerminalWindowIcon } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
-import type { Snapshot } from '@aoe-supercharge/core/shared';
-import { CommandLine } from '@/components/copy';
+import type { Snapshot, UsageReport } from '@aoe-supercharge/core/shared';
 import { ControlBox } from '@/components/control-box';
+import { NewTaskForm } from '@/components/new-task-form';
+import { sendJson } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -19,11 +20,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { CleanupDoneButton } from '@/components/cleanup-task';
 import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
 import { WorkerList } from '@/components/worker-list';
 import { projectViews, sessionMap } from '@/lib/derive';
 import { LiveStatus } from '@/components/status';
@@ -32,61 +30,42 @@ import { chatHref, useSearchParam } from '@/lib/nav';
 import { PageHeader } from '@/pages/overview';
 
 /**
- * Tasks are spawned by the control chat or the CLI (SPEC §8.2); the dashboard never spawns agents on
- * its own. This dialog builds the exact command so creating one stays an explicit step.
+ * Starts a worker from the dashboard: an explicit submit of this form (SPEC §8.2). The daemon creates the
+ * branch, worktree and session, then the dialog goes to the new task.
  */
-function NewTaskDialog({ project }: { project: string }) {
-  const [title, setTitle] = useState('');
-  const [brief, setBrief] = useState('');
-  const quote = (s: string) => `"${s.replace(/(["\\$`])/g, '\\$1')}"`;
-  const command = `supercharge task new ${quote(title.trim() || '<title>')} --project ${project}${brief.trim() ? ` --brief ${quote(brief.trim())}` : ''}`;
+function NewTaskDialog({ project, usage }: { project: string; usage: UsageReport | null }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [, navigate] = useLocation();
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={(o) => (!busy || o) && setOpen(o)}>
       <DialogTrigger asChild>
         <Button variant="gradient">
           <PlusIcon weight="bold" />
           New task
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => busy && e.preventDefault()}>
         <DialogHeader>
           <DialogTitle>New task</DialogTitle>
           <DialogDescription>
-            Ask the project’s control chat, or run the command below. It creates a branch, a worktree and a
-            worker session for the task.
+            Creates a branch, a worktree and a worker session in {project}, and sends it its first message.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="nt-title">Title</Label>
-            <Input
-              id="nt-title"
-              name="title"
-              autoComplete="off"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Build the listing template…"
-              className="h-10 text-[0.9375rem]"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="nt-brief">Brief</Label>
-            <Textarea
-              id="nt-brief"
-              name="brief"
-              autoComplete="off"
-              value={brief}
-              onChange={(e) => setBrief(e.target.value)}
-              rows={3}
-              className="text-[0.9375rem]"
-            />
-            <p className="text-sm text-muted-foreground">Goal, constraints and what counts as done.</p>
-          </div>
-          <div className="space-y-2">
-            <Label>Command</Label>
-            <CommandLine command={command} />
-          </div>
-        </div>
+        <NewTaskForm
+          usage={usage}
+          onBusyChange={setBusy}
+          onCancel={() => setOpen(false)}
+          submit={async (values) => {
+            const task = await sendJson<{ id: string }>(
+              'POST',
+              `/api/projects/${encodeURIComponent(project)}/tasks`,
+              values,
+            );
+            setOpen(false);
+            navigate(`/p/${encodeURIComponent(project)}/t/${task.id}`);
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -137,7 +116,7 @@ export function ProjectPage({
         }
       >
         <div className="flex items-center gap-2">
-          <NewTaskDialog project={view.project.name} />
+          <NewTaskDialog project={view.project.name} usage={snap.usage} />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" aria-label="More project actions">

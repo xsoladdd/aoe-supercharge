@@ -25,6 +25,8 @@ import {
 import {
   buildOffice,
   contextInfo,
+  EFFORT_LEVELS,
+  MODEL_ALIASES,
   markChange,
   SCHEDULE_DAYS,
   SEND_MODES,
@@ -39,7 +41,7 @@ import {
 import { checkCleanup, cleanupAllDone, cleanupTask } from '../cleanup.ts';
 import { VERSION, type Ctx } from '../context.ts';
 import { buildProjectStatus } from '../status.ts';
-import { CliError } from '../util/errors.ts';
+import { CliError, EXIT } from '../util/errors.ts';
 import { run } from '../util/exec.ts';
 import { PromptReader } from '../prompt.ts';
 import { listSlashCommands } from '../slash.ts';
@@ -53,6 +55,7 @@ import {
   detectAdoptedMrs,
   answerQuestions,
   MenuOpenError,
+  newTask,
   PromptChangedError,
   replyToTask,
   runInSession,
@@ -674,6 +677,49 @@ export function createApp(deps: AppDeps) {
       return c.json({ results });
     } catch (err) {
       return sendError(c, err, 'cleanup_failed');
+    }
+  });
+
+  // The one place the dashboard spawns a worker: an explicit submit of the New task form (SPEC §8.2).
+  // `aoe add` can take up to 120 s, so this answers when the session exists; the daemon sends the first message.
+  app.post('/api/projects/:name/tasks', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const { title, brief, model, effort, base, force } = body;
+    const optional = (v: unknown) => v === undefined || v === null || typeof v === 'string';
+    if (typeof title !== 'string' || !title.trim() || !optional(brief) || !optional(base))
+      return c.json({ error: 'bad_request', message: 'A task needs a title.' }, 400);
+    if (typeof model !== 'string' || !(MODEL_ALIASES as readonly string[]).includes(model))
+      return c.json(
+        { error: 'bad_request', message: `Model must be one of: ${MODEL_ALIASES.join(', ')}.` },
+        400,
+      );
+    if (typeof effort !== 'string' || !(EFFORT_LEVELS as readonly string[]).includes(effort))
+      return c.json(
+        { error: 'bad_request', message: `Effort must be one of: ${EFFORT_LEVELS.join(', ')}.` },
+        400,
+      );
+    const project = store.projects.find((p) => p.name === c.req.param('name'));
+    if (!project) return c.json({ error: 'not_found', message: 'Unknown project' }, 404);
+    try {
+      const task = await newTask(ctx, {
+        cwd: project.repoPath,
+        project: project.name,
+        title,
+        brief: brief ?? undefined,
+        base: base?.trim() || undefined,
+        model,
+        effort,
+        force: force === true,
+        actor: 'user',
+        kickoff: { timeoutMs: 0, actor: 'ui' },
+      });
+      deps.onClientConnected();
+      return c.json(task);
+    } catch (err) {
+      // Usage limits are a question for the user, not a failure: the form offers "Start anyway".
+      if (err instanceof CliError && err.exitCode === EXIT.limited)
+        return c.json({ error: 'limited', message: err.message.replace(/^Not starting "[^"]*": /, '') }, 409);
+      return sendError(c, err, 'task_failed');
     }
   });
 

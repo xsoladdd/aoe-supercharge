@@ -1127,15 +1127,52 @@ test.describe('project', () => {
     await expect(page.getByRole('dialog', { name: 'Adopt as a project' })).toBeVisible();
   });
 
-  test('new task dialog builds the CLI command (dashboard never spawns agents)', async ({
-    signedIn: page,
-  }) => {
+  test('new task form starts a worker and opens its task', async ({ signedIn: page }) => {
     await page.goto('/p/apollo-api');
     await page.getByRole('button', { name: 'New task' }).click();
-    await page.getByLabel('Title').fill('Add request tracing');
-    await expect(
-      page.getByRole('dialog').getByText('supercharge task new "Add request tracing" --project apollo-api'),
-    ).toBeVisible();
+    const dialog = page.getByRole('dialog', { name: 'New task' });
+    await expect(dialog.getByRole('button', { name: 'Start task' })).toBeDisabled();
+    await dialog.getByLabel('Title').fill('Add request tracing');
+    await dialog.getByLabel('Brief').fill('Trace every request id through the API.');
+    await dialog.getByLabel('Model').click();
+    await page.getByRole('option', { name: 'Sonnet' }).click();
+    await dialog.getByLabel('Effort').click();
+    await page.getByRole('option', { name: 'Low' }).click();
+    await dialog.getByRole('button', { name: 'Start task' }).click();
+    await expect(page).toHaveURL(/\/p\/apollo-api\/t\/AP-\d+$/);
+    await expect(page.getByRole('heading', { name: 'Add request tracing' })).toBeVisible();
+  });
+
+  test('new task form shows the usage limit and only forces on "Start anyway"', async ({
+    signedIn: page,
+  }) => {
+    const bodies: Array<Record<string, unknown>> = [];
+    await page.route('**/api/projects/apollo-api/tasks', async (route) => {
+      const body = route.request().postDataJSON() as Record<string, unknown>;
+      bodies.push(body);
+      if (body.force !== true)
+        return route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'limited', message: '5-hour limit at 90%: wait until it resets.' }),
+        });
+      return route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: '{"message":"aoe add failed"}',
+      });
+    });
+    await page.goto('/p/apollo-api');
+    await page.getByRole('button', { name: 'New task' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New task' });
+    await dialog.getByLabel('Title').fill('Add request tracing');
+    await dialog.getByRole('button', { name: 'Start task' }).click();
+    await expect(dialog.getByRole('alert')).toContainText('5-hour limit at 90%');
+    expect(bodies.map((b) => b.force)).toEqual([false]);
+    await dialog.getByRole('button', { name: 'Start anyway' }).click();
+    // A failure shows inline and leaves the form open.
+    await expect(dialog.getByRole('alert')).toContainText('aoe add failed');
+    expect(bodies.map((b) => b.force)).toEqual([false, true]);
   });
 });
 

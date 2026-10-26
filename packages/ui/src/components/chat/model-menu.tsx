@@ -31,7 +31,7 @@ import {
 import { ApiError, sendJson } from '@/lib/api';
 import { useLive } from '@/lib/live';
 
-const MODEL_LABEL: Record<ModelAlias, string> = {
+export const MODEL_LABEL: Record<ModelAlias, string> = {
   fable: 'Fable',
   opus: 'Opus',
   opusplan: 'Opus in plan mode, else Sonnet',
@@ -39,7 +39,7 @@ const MODEL_LABEL: Record<ModelAlias, string> = {
   haiku: 'Haiku',
   default: 'Your default',
 };
-const EFFORT_LABEL: Record<EffortLevel, string> = {
+export const EFFORT_LABEL: Record<EffortLevel, string> = {
   low: 'Low',
   medium: 'Medium',
   high: 'High',

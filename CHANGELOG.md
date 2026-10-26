@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Start tasks from the dashboard.** **New task** on a project page is now a form (title, brief, model,
+  effort) that starts the worker itself, `POST /api/projects/:name/tasks`, and opens the new task. It
+  shows your current usage advice and a busy state, since `aoe add` can take up to two minutes. When your
+  usage says to wait, nothing is started: the form shows why and offers **Start anyway**, which is the only
+  thing that sends `force`. This was a copy-the-command dialog before; it is the one place the dashboard
+  spawns an agent, and only when you submit. The control chat's skill and `supercharge task new` are
+  unchanged.
+- **Task audit entries name who started the task.** `task_created` said `cli` whoever ran it; it now says
+  `user` (you, at the CLI or in the dashboard) or `control` (the control chat). A dashboard task's first
+  message is audited as `ui`.
 - **A live terminal in the chat.** The chat's **Terminal** view is now the session's own terminal, live and
   in colour, instead of a text copy that refreshed every 2 seconds. Every key goes straight in: arrows,
   Enter, Escape, Tab, Ctrl-C and paste. Keys typed there skip the message checks (no `prompt_sent` audit,

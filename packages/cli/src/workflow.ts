@@ -502,7 +502,7 @@ export async function newTask(
     throw err;
   }
   await appendAudit(ctx.paths, {
-    actor: 'cli',
+    actor: opts.actor ?? 'cli',
     action: 'task_created',
     project: project.name,
     taskId: id,
@@ -537,6 +537,8 @@ export async function newTask(
 
 export interface KickoffWait {
   timeoutMs?: number;
+  /** Who the first message's audit entry names; `cli` when unset. */
+  actor?: KickoffOpts['actor'];
   wait?: (ms: number) => Promise<void>;
 }
 
@@ -549,13 +551,14 @@ async function kickoffNewWorker(ctx: Ctx, task: TaskRecord, o: KickoffWait = {})
   const {
     timeoutMs = Number.isFinite(envMs) && envMs >= 0 ? envMs : 30_000,
     wait = (ms) => new Promise<void>((r) => setTimeout(r, ms)),
+    actor = 'cli',
   } = o;
   const transcripts = transcriptStore(ctx);
   const until = Date.now() + timeoutMs;
   for (;;) {
     const s = (await ctx.aoe.listSessions().catch(() => [])).find((x) => x.id === task.aoeSessionId);
     const status = normalizeAoeStatus(s?.status);
-    const r = await advanceKickoff(ctx, task, { status, transcripts, actor: 'cli' }).catch((err) => {
+    const r = await advanceKickoff(ctx, task, { status, transcripts, actor }).catch((err) => {
       ctx.logger.warn('could not send the first message', { task: task.id, err: (err as Error).message });
       return 'waiting' as const;
     });
@@ -1339,7 +1342,7 @@ export const kickoffUnconfirmed = (t: TaskRecord) =>
 interface KickoffOpts {
   status: LiveStatus;
   transcripts?: TranscriptStore | null;
-  actor: 'cli' | 'daemon';
+  actor: 'cli' | 'ui' | 'control' | 'daemon';
 }
 
 /**
