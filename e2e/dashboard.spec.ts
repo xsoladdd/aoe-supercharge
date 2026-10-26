@@ -1139,7 +1139,10 @@ test.describe('project', () => {
     await dialog.getByLabel('Effort').click();
     await page.getByRole('option', { name: 'Low' }).click();
     await dialog.getByRole('button', { name: 'Start task' }).click();
-    await expect(page).toHaveURL(/\/p\/apollo-api\/t\/AP-\d+$/);
+    // The demo world is at its worker cap, so the first try is held until the user says otherwise.
+    await expect(dialog.getByRole('alert')).toContainText(/\d+ are already active/);
+    await dialog.getByRole('button', { name: 'Start anyway' }).click();
+    await expect(page).toHaveURL(/\/p\/apollo-api\/t\/[A-Z]+-\d+$/);
     await expect(page.getByRole('heading', { name: 'Add request tracing' })).toBeVisible();
   });
 
