@@ -234,13 +234,18 @@ supercharge task new "<title>" [--project <p>] [--brief <text> | --brief-file <f
 supercharge task list [--project <p>] [--json]
 
 # worker-facing (cwd = worker worktree; branch is the key, AOE_INSTANCE_ID is cross-checked)
-supercharge whoami [--json]               role (control | worker | none), project, task. Skills call this first.
+supercharge whoami [--json]               role (control | worker | general-control | general | none), project, task. Skills call this first.
 supercharge stage <stage> [--note "..."] [--mr <url>]
 supercharge ask "<question>"
 supercharge plan <path-to-plan.md | -> [--draft]   "-" reads the plan from stdin (no file in the repo)
 
 # control-facing
 supercharge reply <task-id> "<message>"   explicit and audited; delivers via `aoe send`
+
+# General (§14.7): no project
+supercharge general new "<title>" [--brief <text> | --brief-file <f>] [--model <m>] [--effort <e>] [--force] [--json]
+supercharge general list [--json]
+supercharge general send <name|session-id> "<message>" [--yes]
 
 supercharge daemon                        (hidden) foreground daemon, used by launchd/systemd
 ```
@@ -659,6 +664,8 @@ Bound to **127.0.0.1 only**. Requests are rejected unless the `Host` header is `
 | POST | `/api/needs-you/dismiss` | ✓+CSRF | Body `{ id }`: dismiss a `control_replied` item until that control chat replies again (§10.2); any other kind is 400, an unknown id 404 |
 | POST | `/api/office/marks` | ✓+CSRF | Body `{ key, action: "archive" \| "keep" \| "snooze" \| "restore" }` (§14.5): a worker's office mark, by character key; workers only (a lead is 400, an unknown key 404). Office-only: it writes `office.json` and never touches the session, worktree or transcript |
 | GET | `/api/office/history?from&to[&project][&key]` | ✓ | The office history (§14.5): `{ start, records }`, the state at `from` as a frame, then the records up to `to` (ISO times; default the last 24 h), narrowed to a project or a character key |
+| POST | `/api/general/control` | ✓+CSRF | Start the General control chat (§14.7) if there is none: 201, or 200 with the one there is. Audited (`general_session_created`) |
+| POST | `/api/general/sessions` | ✓+CSRF | Body `{ title?, model?, effort?, message?, worker?, force? }`: a General chat, or (`worker`) a worker under the General control chat. 409 `limited` when usage says wait and `force` is not set. The message is held until the session is at its prompt. Audited |
 
 - **Auth model:** an `Authenticator` chain with two strategies: the `sc_session` cookie (browser) and `Authorization: Bearer <auth.token>` (CLI).
 - **CSRF** applies to cookie-authenticated mutating requests: an `X-CSRF-Token` header plus `Origin` equal to the configured origin.
@@ -975,6 +982,18 @@ A shared notebook for you and Claude, per project and global: on a **whiteboard*
 - **Whiteboards:** there is one per room and one by your door. The one by your door keeps only the global notes (no project), plus any note whose project has no room; each room's holds that project's notes and todos, and stays blank when it has none. A room's board stands on legs against the room's left glass over the empty first column (`TeamPlan.board`; nothing is blocked, so people walk past it and draw over it), in the same style as the door board. Its camera target is `board:<project>`. The roster's team heading has a **Whiteboard** button as the keyboard way in. Everything below holds for each board, and its card shows only that board's notes (`splitBoards` in `lib/notes.ts`).
 - **The door whiteboard:** it hangs on the back wall just west of your corner (`layout.board`, four tiles; the world map moves over). The scene writes the open todos, the ticked ones (struck through) and the notes, newest first, one line each, slanted along the wall and rendered at 8x so they stay sharp at 250%; what does not fit becomes "+N more". Clicking it (or the **Whiteboard** chip) flies the camera close enough to read and opens the whiteboard card: the same board as the Notes page, with boxes to tick, Archive and a line to add. Double-click zooms to it. Escape closes the card.
 - **Later:** phone sync. Google Keep's API cannot tick a checkbox, archive or label a note (create, get, list and delete only), so the candidate is Google Tasks (a list per project, Global and Archive; `tasks.move` with `destinationTasklist`), as a separate adapter over this store.
+
+### 14.7 General: chats with no project
+
+Sessions that belong to no repository: the **General control chat**, General chats you start, and General workers the control chat starts. Not a fake project: no tasks, stages, plans, branches or merge requests.
+
+- **Record** (`GeneralRecord`, `$XDG_DATA_HOME/supercharge/general/general.json`): `controlSessionId`, and `sessions`, General chats and workers by AoE session id to their names (from the worker names, under the key `_general`; kept after a session is gone, so a name is never given twice). Written under a lock in that folder, with `control-prompt.md` and `session-prompt.md` (from `templates/roles/general-control.md` and `general.md`, rewritten on each start). A General session is one in `sessions`, or any child of the General control chat. The snapshot has it as `general` (SSE `general`).
+- **AoE:** every General session is `aoe add --scratch --tool claude -l`, in a fresh folder under AoE's `scratch/<id>/` that AoE deletes with the session (trash keeps it until the trash is emptied; a permanent delete sends `keep_scratch: false`). The control chat and chats are in group `supercharge/general`; workers are `-P <control>` and inherit it. Launch flags as for a project: the control chat gets `controlModel`/`controlEffort` and Remote Control (`general`); chats and workers the chosen model and effort (else `agent.model`/`agent.effort`), no `--permission-mode`. Claude Code may show its folder-trust dialog for each new folder.
+- **Starting:** only through the daemon (`/api/general/*`, §12), one at a time, so two clicks never make two control chats. The first message is a held message (§14.1 chat), typed in once the session is at its prompt. `supercharge general new` posts there with the bearer token: from the General control chat it makes a worker, anywhere else a chat. Usage is checked like `task new`: exit 6 (409 `limited`) unless `--force`; the dashboard offers **Start anyway**.
+- **Roles:** `whoami` checks `AOE_INSTANCE_ID` against the record before looking for a repository: `general-control` (actor `control`) or `general`. The `supercharge-general` skill (user-level only, never committed by `init --commit`) applies to `general-control`.
+- **Worker cap:** General chats and workers (not the control chat) count while `working` or `waiting`, or while their first message is held; idle ones don't, since they have no stage that says they are done.
+- **Needs you and the watch:** the General control chat is a control chat from the start (`control_waiting`, `control_replied`, its NEEDS YOU list, relayed by worker name). The worker watch runs a pass for it under the key `_general` (no project slug starts with `_`), watching its children like a project's crew, following `watch.enabled`; its notices carry no `project`.
+- **Dashboard:** a **General** sidebar group between Projects and Other AoE sessions: **New chat** (+), the control chat row (**Start control chat** when there is none), then the chats and workers (name, title, status, the session menu). They leave Other AoE sessions; archived ones stay in its archive. Breadcrumbs read General › name. The delete dialog says what happens to a General session's folder. Not on the office floor.
 
 ## 15. Resource targets
 - **Idle RSS < 100 MB.** Expected around 55–70 MB on Node 24 **[measure]**. Exposed in `/api/snapshot.health` and `doctor`. CI starts the daemon against fake AoE, idles 60 s, samples RSS, fails above 100 MB on Ubuntu, and reports numbers in the job summary for both OSes.

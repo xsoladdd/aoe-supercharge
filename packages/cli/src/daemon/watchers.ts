@@ -12,6 +12,8 @@ import {
 import {
   asksFromChat,
   countActiveWorkers,
+  countBusyGeneral,
+  generalSessionIds,
   deskChanges,
   normalizeAoeStatus,
   pickWorkerName,
@@ -207,6 +209,7 @@ export class AoeWatcher {
     const controls = new Set<string>([
       ...this.store.projects.map((p) => p.controlSessionId).filter((x): x is string => !!x),
       ...views.map((v) => v.parentId).filter((x): x is string => !!x),
+      ...(this.store.general.controlSessionId ? [this.store.general.controlSessionId] : []),
     ]);
     await Promise.all(
       views
@@ -323,7 +326,14 @@ export class AoeWatcher {
   async refreshUsage(): Promise<void> {
     // Archived workers are stopped, whatever status AoE last had for them.
     const status = new Map(this.store.sessions.map((v) => [v.id, v.archived ? 'stopped' : v.status]));
-    const active = countActiveWorkers(this.store.tasks, (id) => status.get(id) ?? null);
+    const general = generalSessionIds(this.store.general, this.store.sessions);
+    const active =
+      countActiveWorkers(this.store.tasks, (id) => status.get(id) ?? null) +
+      countBusyGeneral(
+        general,
+        (id) => status.get(id) ?? null,
+        (id) => !!this.store.held[id]?.length,
+      );
     this.store.setUsage(usageReport(await readUsage(this.ctx.paths), active, this.ctx.config.limits));
   }
 
@@ -450,6 +460,7 @@ export class LedgerWatcher {
         for (const m of moves) await this.ctx.ledger.deskTask(m.project, m.id, m.desk);
         tasks = await this.ctx.ledger.listTasks();
       }
+      this.store.setGeneral(await this.ctx.ledger.getGeneral());
       this.store.setLedger(projects, tasks);
     } catch (err) {
       this.ctx.logger.error('ledger reload failed', { err });

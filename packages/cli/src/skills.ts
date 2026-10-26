@@ -8,7 +8,9 @@ import { readJson, writeFileAtomic, writeJsonAtomic, type Paths } from '@aoe-sup
 export const SKILL_NAMES = ['supercharge-control', 'supercharge-worker'] as const;
 /** Your /note, /todo and /gnote (SPEC §14.6): for every Claude session, so only ever in ~/.claude/skills. */
 export const NOTE_SKILLS = ['note', 'todo', 'gnote'] as const;
-const USER_SKILLS = [...SKILL_NAMES, ...NOTE_SKILLS];
+/** The General control chat's (SPEC §14.7): not tied to a repository, so never committed into one. */
+export const GENERAL_SKILLS = ['supercharge-general'] as const;
+const USER_SKILLS = [...SKILL_NAMES, ...GENERAL_SKILLS, ...NOTE_SKILLS];
 export const MARKER = '.supercharge-managed';
 
 /** Works from both src/ (tests) and dist/supercharge.mjs (published): templates/ is a sibling of either. */

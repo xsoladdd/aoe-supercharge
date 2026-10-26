@@ -17,7 +17,14 @@ import {
   TerminalWindowIcon,
   TrashIcon,
 } from '@phosphor-icons/react';
-import { workerLabel, type SessionView, type Snapshot, type TaskRecord } from '@aoe-supercharge/core/shared';
+import {
+  EMPTY_GENERAL,
+  generalSessionIds,
+  workerLabel,
+  type SessionView,
+  type Snapshot,
+  type TaskRecord,
+} from '@aoe-supercharge/core/shared';
 import { useId, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useLocation } from 'wouter';
@@ -122,9 +129,13 @@ interface Target {
   task: TaskRecord | null;
   /** A project's control chat: deleted only with its project. */
   control: boolean;
+  /** A General session: it lives in a scratch folder that AoE deletes with it. */
+  scratch: boolean;
 }
 
 function resolveTargets(snap: Snapshot, ids: string[]): Target[] {
+  const general = snap.general ?? EMPTY_GENERAL;
+  const scratch = generalSessionIds(general, snap.sessions).add(general.controlSessionId ?? '');
   return ids.flatMap((id) => {
     const session = snap.sessions.find((s) => s.id === id);
     if (!session) return [];
@@ -134,6 +145,7 @@ function resolveTargets(snap: Snapshot, ids: string[]): Target[] {
         session,
         task: snap.tasks.find((t) => t.aoeSessionId === id) ?? null,
         control: snap.projects.some((p) => p.controlSessionId === id),
+        scratch: scratch.has(id),
       },
     ];
   });
@@ -382,6 +394,7 @@ function DeleteSessions({
   const locked = list.filter((t) => t.session.locked).length;
   const controls = list.filter((t) => t.control && !t.session.locked).length;
   const workers = go.filter((t) => t.task).length;
+  const scratch = go.filter((t) => t.scratch).length;
   const name = (t: Target) => (t.task ? `${workerLabel(t.task)} ${t.task.title}` : t.session.title);
 
   return (
@@ -405,6 +418,10 @@ function DeleteSessions({
               : 'They go to AoE’s trash, where you can restore them until AoE empties it (30 days by default).'}
             {workers > 0 &&
               ` ${workers === 1 ? 'Its worker leaves' : 'Their workers leave'} Supercharge; the plan and comments are kept${permanent ? '' : ', and come back if you restore the session'}.`}
+            {scratch > 0 &&
+              (permanent
+                ? ` The scratch folder of ${scratch === 1 ? 'its General chat' : `${plural(scratch, 'General chat')}`} is deleted too, with everything in it.`
+                : ` A General chat keeps its scratch folder in the trash; deleting it for good deletes the folder and everything in it.`)}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {go.length > 1 && (

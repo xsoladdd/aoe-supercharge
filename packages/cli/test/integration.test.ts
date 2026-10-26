@@ -1989,4 +1989,84 @@ describe('daemon: security, live state and the MR watcher', () => {
     }, 30_000);
     expect(done.history.at(-1)).toMatchObject({ by: 'daemon', note: 'Branch landed on main' });
   }, 60_000);
+
+  it('General: a control chat, a worker it starts (refused when limited, unless --force), and a dashboard chat', async () => {
+    const headers = { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' };
+    const post = (path: string, body?: unknown) =>
+      fetch(`${base()}${path}`, {
+        method: 'POST',
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    const ctl = await post('/api/general/control');
+    expect(ctl.status).toBe(201);
+    const { sessionId: controlId } = (await ctl.json()) as { sessionId: string };
+    expect((await post('/api/general/control')).status).toBe(200);
+    const control = fake.state.sessions.find((s) => s.id === controlId);
+    expect(control).toMatchObject({ title: 'General control', group_path: 'supercharge/general' });
+    expect(control?.project_path).toMatch(/fake-aoe-scratch/);
+    expect(control?.extra_args).toContain('general/control-prompt.md');
+    const asControl = { extraEnv: { AOE_INSTANCE_ID: controlId } };
+    expect(JSON.parse((await sc(['whoami', '--json'], asControl)).stdout)).toMatchObject({
+      role: 'general-control',
+      project: null,
+    });
+
+    // This world's 5-hour usage is at 90%: nothing starts unless the user says so.
+    const limited = await sc(['general', 'new', 'Nightly report', '--brief', 'Write the report.'], asControl);
+    expect(limited.code).toBe(6);
+    const r = await sc(
+      [
+        'general',
+        'new',
+        'Nightly report',
+        '-m',
+        'sonnet',
+        '--effort',
+        'medium',
+        '--brief',
+        'Write the report.',
+      ].concat(['--force', '--json']),
+      asControl,
+    );
+    expect(r.code, r.stderr).toBe(0);
+    const w = JSON.parse(r.stdout) as { sessionId: string; name: string; worker: boolean; title: string };
+    expect(w).toMatchObject({ worker: true, title: 'Nightly report' });
+    const ws = fake.state.sessions.find((s) => s.id === w.sessionId);
+    expect(ws?.parent_session_id).toBe(controlId);
+    expect(ws?.extra_args).toMatch(/--model sonnet --effort medium/);
+    expect(ws?.extra_args).not.toMatch(/--permission-mode/);
+    // The brief is its first message, typed in once it is at its prompt.
+    await until(async () =>
+      fake.state.sent.some((m) => m.id === w.sessionId && m.message === 'Write the report.'),
+    );
+    expect(
+      JSON.parse((await sc(['whoami', '--json'], { extraEnv: { AOE_INSTANCE_ID: w.sessionId } })).stdout)
+        .role,
+    ).toBe('general');
+    const list = JSON.parse((await sc(['general', 'list', '--json'])).stdout) as {
+      sessions: { name: string; worker: boolean }[];
+    };
+    expect(list.sessions).toContainEqual(expect.objectContaining({ name: w.name, worker: true }));
+    const sent = await sc(['general', 'send', w.name, 'Also add totals.', '--yes']);
+    expect(sent.code, sent.stderr).toBe(0);
+    expect(fake.state.sent.at(-1)).toMatchObject({ id: w.sessionId, message: 'Also add totals.' });
+
+    // From the dashboard: a chat on its own; a model that is not one is refused.
+    expect((await post('/api/general/sessions', { model: 'not a model', force: true })).status).toBe(400);
+    const chat = await post('/api/general/sessions', { title: 'Scratchpad', force: true });
+    expect(chat.status).toBe(201);
+    const c1 = (await chat.json()) as { sessionId: string; worker: boolean; held: boolean };
+    expect(c1).toMatchObject({ worker: false, held: false });
+    expect(fake.state.sessions.find((s) => s.id === c1.sessionId)?.group_path).toBe('supercharge/general');
+    const snap = await until(async () => {
+      const s = (await (await fetch(`${base()}/api/snapshot`, { headers })).json()) as Snapshot;
+      return s.general.sessions[c1.sessionId] && s.sessions.some((x) => x.id === c1.sessionId) ? s : null;
+    });
+    expect(snap.general.controlSessionId).toBe(controlId);
+    expect(snap.general.sessions[w.sessionId]).toBe(w.name);
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"actor":"control","action":"general_session_created"/);
+    expect(audit).toMatch(/"actor":"cli","action":"general_session_created".*"control":true/);
+  }, 60_000);
 });

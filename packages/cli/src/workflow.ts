@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   appendAudit,
   applyStage,
+  readHeld,
   readUsage,
   SAFE_ARG,
   writeFileAtomic,
@@ -26,6 +27,8 @@ import {
   EFFORT_LEVELS,
   MODEL_ALIASES,
   countActiveWorkers,
+  countBusyGeneral,
+  generalSessionIds,
   normalizeAoeStatus,
   pickDesk,
   pickWorkerName,
@@ -54,7 +57,7 @@ import {
   revParse,
 } from './util/git.ts';
 
-function assertSafeArg(value: string, what: string) {
+export function assertSafeArg(value: string, what: string) {
   if (!SAFE_ARG.test(value)) {
     throw new CliError(
       `${what} contains spaces or shell metacharacters: ${value}`,
@@ -67,7 +70,8 @@ function assertSafeArg(value: string, what: string) {
 // ── whoami ────────────────────────────────────────────────────────────────────
 
 export interface WhoAmI {
-  role: 'control' | 'worker' | 'none';
+  /** `general-control` and `general`: the General control chat, and a General chat or worker (no project). */
+  role: 'control' | 'worker' | 'general-control' | 'general' | 'none';
   project: string | null;
   /** How finished work reaches the base branch: a merge request, or the branch itself (`projects.<name>.mr = "none"`). */
   merge: MergeMode;
@@ -94,6 +98,22 @@ export async function whoami(
   cwd: string,
 ): Promise<WhoAmI & { record: TaskRecord | null; projectRecord: ProjectRecord | null }> {
   const sessionId = ctx.env.AOE_INSTANCE_ID || null;
+  if (sessionId) {
+    const general = await ctx.ledger.getGeneral();
+    const control = sessionId === general.controlSessionId;
+    if (control || general.sessions[sessionId])
+      return {
+        role: control ? 'general-control' : 'general',
+        project: null,
+        merge: 'mr',
+        sessionId,
+        branch: null,
+        task: null,
+        actor: control ? 'control' : 'user',
+        record: null,
+        projectRecord: null,
+      };
+  }
   const repo = await mainCheckout(cwd);
   const project = repo ? await ctx.ledger.findProjectByRepo(repo) : null;
   const branch = await currentBranch(cwd);
@@ -164,7 +184,7 @@ export interface InitResult {
 }
 
 /** AoE can create a session but fail to launch it (e.g. hook paths not yet acknowledged). */
-function launchWarning(
+export function launchWarning(
   r: { code: number | null; stderr: string; stdout: string },
   sessionId: string,
 ): string | null {
@@ -177,7 +197,7 @@ function launchWarning(
   return `AoE created session ${sessionId} but could not launch it: ${msg.replace(/^(Warning|Error):\s*/i, '')}\n  Fix the cause, then run: aoe session start ${sessionId}`;
 }
 
-async function listAoe(ctx: Ctx): Promise<AoeCliListEntry[]> {
+export async function listAoe(ctx: Ctx): Promise<AoeCliListEntry[]> {
   try {
     return await ctx.aoeCli.list();
   } catch (err) {
@@ -370,18 +390,7 @@ export async function newTask(
 ): Promise<TaskRecord & { warnings?: string[]; usage?: UsageReport }> {
   const title = opts.title.trim();
   if (!title) throw new CliError('A task needs a title.', EXIT.usage);
-  if (opts.model !== undefined && !MODEL_ID.test(opts.model))
-    throw new CliError(
-      `"${opts.model}" is not a model.`,
-      EXIT.usage,
-      `Use an alias (${MODEL_ALIASES.join(', ')}) or a full model id.`,
-    );
-  if (opts.effort !== undefined && !(EFFORT_LEVELS as readonly string[]).includes(opts.effort))
-    throw new CliError(
-      `Unknown effort "${opts.effort}".`,
-      EXIT.usage,
-      `Use one of: ${EFFORT_LEVELS.join(', ')}.`,
-    );
+  checkModelPick(opts);
   const project = await resolveProject(ctx, opts.cwd, opts.project);
   if (!project.controlSessionId)
     throw new CliError(
@@ -561,13 +570,23 @@ export async function usageNow(ctx: Ctx, sessions?: AoeCliListEntry[]): Promise<
   // Run status comes from the REST list; `aoe list` only says a session exists (its `state` is
   // live/archived), so without the daemon every existing worker counts as running.
   const rest = await ctx.aoe.listSessions().catch(() => null);
+  const listed = sessions ?? (await listAoe(ctx));
   const status = new Map<string, string>(
-    rest
-      ? rest.map((s) => [s.id, normalizeAoeStatus(s.status)])
-      : (sessions ?? (await listAoe(ctx))).map((s) => [s.id, 'unknown']),
+    rest ? rest.map((s) => [s.id, normalizeAoeStatus(s.status)]) : listed.map((s) => [s.id, 'unknown']),
   );
   const tasks = await ctx.ledger.listTasks();
-  const active = countActiveWorkers(tasks, (id) => status.get(id) ?? null);
+  const general = generalSessionIds(
+    await ctx.ledger.getGeneral(),
+    listed.map((s) => ({ id: s.id, parentId: s.parent_session_id ?? null })),
+  );
+  const held = general.size ? await readHeld(ctx.paths).catch(() => null) : null;
+  const active =
+    countActiveWorkers(tasks, (id) => status.get(id) ?? null) +
+    countBusyGeneral(
+      general,
+      (id) => status.get(id) ?? null,
+      (id) => !!held?.[id]?.length,
+    );
   return usageReport(await readUsage(ctx.paths), active, ctx.config.limits);
 }
 
@@ -1146,6 +1165,22 @@ export function controlPick(config: Config): { model: string; effort: string } {
 
 /** An alias or a full model id; it lands on AoE's shell line, so nothing else. */
 const MODEL_ID = /^[A-Za-z0-9._-]{1,80}$/;
+
+/** Refuses a `--model` or `--effort` that is not one, before anything is started. */
+export function checkModelPick(pick: { model?: string; effort?: string }) {
+  if (pick.model !== undefined && !MODEL_ID.test(pick.model))
+    throw new CliError(
+      `"${pick.model}" is not a model.`,
+      EXIT.usage,
+      `Use an alias (${MODEL_ALIASES.join(', ')}) or a full model id.`,
+    );
+  if (pick.effort !== undefined && !(EFFORT_LEVELS as readonly string[]).includes(pick.effort))
+    throw new CliError(
+      `Unknown effort "${pick.effort}".`,
+      EXIT.usage,
+      `Use one of: ${EFFORT_LEVELS.join(', ')}.`,
+    );
+}
 
 /**
  * `--model` / `--effort` for a new session: the task's own choice, else config. Session-only, unlike

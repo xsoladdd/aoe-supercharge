@@ -3,7 +3,7 @@ import { fnv1a } from './hash.ts';
 import { workerLabel } from './names.ts';
 import type { SessionPrompt } from './prompt.ts';
 import type { ScheduledPrompt } from './schedule.ts';
-import type { NeedsYouItem, ProjectRecord, SessionView, TaskRecord } from './types.ts';
+import type { GeneralRecord, NeedsYouItem, ProjectRecord, SessionView, TaskRecord } from './types.ts';
 
 /** One line on what a waiting worker's menu asks. */
 export function promptDetail(prompt: SessionPrompt | null): string {
@@ -18,6 +18,8 @@ export interface NeedsYouInput {
   tasks: TaskRecord[];
   sessions: SessionView[];
   projects: ProjectRecord[];
+  /** The General control chat counts as a control chat from the start, with no project. */
+  general?: GeneralRecord;
   aoeReachable: boolean;
   now: Date;
   waitingDebounceSeconds: number;
@@ -44,6 +46,10 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
     projects.filter((p) => p.controlSessionId).map((p) => [p.controlSessionId as string, p]),
   );
   const parentIds = new Set(sessions.map((s) => s.parentId).filter((x): x is string => !!x));
+  const general = input.general?.controlSessionId ?? null;
+  if (general) parentIds.add(general);
+  const controlName = (s: SessionView, project: ProjectRecord | null) =>
+    project ? project.name : s.id === general ? 'General' : s.title;
   const debounceMs = input.waitingDebounceSeconds * 1000;
   const iso = (s: string | null, fallback: string) => s ?? fallback;
   const nowIso = now.toISOString();
@@ -132,7 +138,7 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         project: projectName,
         taskId: task?.id ?? null,
         sessionId: s.id,
-        title: isControl ? `${project ? project.name : s.title} control chat` : label,
+        title: isControl ? `${controlName(s, project)} control chat` : label,
         detail: isControl ? 'Control chat is waiting for you' : promptDetail(s.prompt),
         since,
       });
@@ -154,7 +160,7 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         project: projectName,
         taskId: null,
         sessionId: s.id,
-        title: `${project ? project.name : s.title} control chat`,
+        title: `${controlName(s, project)} control chat`,
         detail: 'Control chat replied',
         since,
       });
@@ -174,14 +180,14 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
       .map((t) => taskWorker(t, sessionById.get(t.aoeSessionId) ?? null)),
     ...sessions
       .filter((c) => c.parentId === control.id && !taskSessions.has(c.id) && !projectByControl.has(c.id))
-      .map((c) => crewWorker(c, project?.crew?.[c.id] ?? null)),
+      .map((c) => crewWorker(c, (project ? project.crew : input.general?.sessions)?.[c.id] ?? null)),
   ];
   for (const s of sessions) {
     if (s.archived || !s.asks?.items.length) continue;
     const project = projectByControl.get(s.id) ?? null;
     if (!project && !parentIds.has(s.id)) continue;
     const workers = workersOf(s, project);
-    const lead = `${project ? project.name : s.title} control chat`;
+    const lead = `${controlName(s, project)} control chat`;
     for (const a of s.asks.items) {
       const hash = fnv1a(a.text).toString(16);
       const target = relayTarget(a.text, workers);

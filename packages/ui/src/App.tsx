@@ -74,6 +74,11 @@ function crumbsFor(location: string, snap: Snapshot): Crumb[] {
         { label: 'Chat' },
       ];
     const session = snap.sessions.find((s) => s.id === id);
+    // General: the control chat, and the chats and workers with no project.
+    const general = snap.general;
+    if (general?.controlSessionId === id) return [{ label: 'General' }, { label: 'Control chat' }];
+    if (general?.sessions[id] || (session?.parentId && session.parentId === general?.controlSessionId))
+      return [{ label: 'General' }, { label: general.sessions[id] ?? session?.title ?? id }];
     const lead = session?.parentId
       ? snap.projects.find((p) => p.controlSessionId === session.parentId)
       : null;

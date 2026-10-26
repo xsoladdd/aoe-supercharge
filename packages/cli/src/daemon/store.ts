@@ -1,5 +1,7 @@
 import {
   computeNeedsYou,
+  EMPTY_GENERAL,
+  type GeneralRecord,
   type Health,
   type HeldMessage,
   type NeedsYouItem,
@@ -39,6 +41,7 @@ export class Store {
   private listeners = new Set<Listener>();
   sessions: SessionView[] = [];
   projects: ProjectRecord[] = [];
+  general: GeneralRecord = EMPTY_GENERAL;
   tasks: TaskRecord[] = [];
   needsYou: NeedsYouItem[] = [];
   notes: NoteRecord[] = [];
@@ -77,6 +80,7 @@ export class Store {
       health: this.health,
       sessions: this.sessions,
       projects: this.projects,
+      general: this.general,
       tasks: this.tasks,
       needsYou: this.needsYou,
       notes: this.notes,
@@ -146,6 +150,13 @@ export class Store {
       changed = true;
     }
     if (changed) this.recomputeNeedsYou();
+  }
+
+  setGeneral(general: GeneralRecord) {
+    if (same(general, this.general)) return;
+    this.general = general;
+    this.emit({ type: 'general', data: general });
+    this.recomputeNeedsYou();
   }
 
   /** Every note; the dashboard gets the ones not archived. */
@@ -265,6 +276,7 @@ export class Store {
       sessions: this.sessions,
       projects: this.projects,
       schedules: this.schedules,
+      general: this.general,
       aoeReachable: this.health.aoe.state === 'ok' && this.sessionsLoaded,
       now: new Date(),
       waitingDebounceSeconds: this.opts.waitingDebounceSeconds(),

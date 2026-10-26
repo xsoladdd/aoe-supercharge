@@ -68,6 +68,7 @@ import {
   type SessionAction,
 } from '../workflow.ts';
 import type { OfficeWatcher } from './office.ts';
+import { generalRoutes } from './general-routes.ts';
 import { terminalRoutes, type RunTerminals } from './run-terminals.ts';
 import type { Store } from './store.ts';
 import type { WorkerWatch } from './worker-watch.ts';
@@ -837,6 +838,9 @@ export function createApp(deps: AppDeps) {
 
   // Run in a new terminal: one of AoE's extra paired terminals, under the command in the chat.
   if (deps.terminals) terminalRoutes(app, { ctx, store, terminals: deps.terminals });
+
+  // General chats and the General control chat: sessions with no project, in AoE scratch directories.
+  generalRoutes(app, { ctx, store, held: deps.held, poll: deps.onClientConnected });
 
   // A file you attach in a chat: saved outside the repo, under the session's uploads folder. The chat
   // then sends its path in the message, and Claude opens it (the Read tool shows images to the model).

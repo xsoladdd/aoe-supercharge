@@ -135,6 +135,17 @@ export interface ProjectRecord {
 }
 
 /**
+ * Chats outside any project (SPEC §14.7): the General control chat, and the sessions Supercharge started
+ * in AoE scratch directories, from the dashboard or for the General control chat.
+ */
+export interface GeneralRecord {
+  schema: 1;
+  controlSessionId: string | null;
+  /** General chats and workers by AoE session id, to their names. Kept after a session is gone, so a name is never given twice. */
+  sessions: Record<string, string>;
+}
+
+/**
  * A note or a todo on the whiteboard (SPEC §14.6): for one project, or for everything (`project: null`,
  * a global note). Archived ones are kept, out of sight.
  */
@@ -290,6 +301,7 @@ export interface Snapshot {
   health: Health;
   sessions: SessionView[];
   projects: ProjectRecord[];
+  general: GeneralRecord;
   tasks: TaskRecord[];
   needsYou: NeedsYouItem[];
   /** Notes and todos that are not archived, oldest first. */
@@ -332,6 +344,7 @@ export type SnapshotEvent =
   | { type: 'sessions'; data: SessionView[] }
   | { type: 'tasks'; data: TaskRecord[] }
   | { type: 'projects'; data: ProjectRecord[] }
+  | { type: 'general'; data: GeneralRecord }
   | { type: 'needs_you'; data: NeedsYouItem[] }
   | { type: 'notes'; data: NoteRecord[] }
   | { type: 'usage'; data: UsageReport }

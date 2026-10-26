@@ -123,6 +123,24 @@ Then talk to the control chat (in AoE, or from your phone; see [Phone access](#p
 - **Model and effort.** A control chat starts on Opus at `xhigh` effort (`agent.controlModel`, `agent.controlEffort`) and is locked to them: its Model picker in the composer is shown, with a lock, and cannot be changed, so nothing is typed into the chat that Claude Code would save as your default. The `opus` alias is Opus 5.5 on the current Claude Code and follows the next Opus; pin a full model id in Settings to stop that. Workers get a `--model` and an `--effort` per task from the control chat (the table is in its skill); `agent.model` and `agent.effort` are only the fallbacks. Both apply to that one session. Existing control chats keep the arguments they were started with; new ones get `xhigh`.
 - **A new worker starts on its own.** Claude Code does nothing until it gets a first message, so `task new` sends a short kickoff once the session is at its prompt with no menu open. If that can't happen, the daemon sends it later; if it is lost, it is sent again (up to 3 times), but never to a worker someone already wrote to. Every send is audited as `prompt_sent`.
 
+### General chats (no project)
+
+Not everything belongs to a repository. The **General** section in the sidebar holds Claude sessions with
+no project, each in a fresh AoE scratch folder (`aoe add --scratch`) that AoE deletes with the session.
+
+- **New chat** (the + by General) starts one, with a title, a model, an effort and an optional first
+  message, which waits until Claude is at its prompt. Each gets a name, like a worker.
+- **Start control chat** starts the General control chat: a coordinator like a project's control chat,
+  with no repository. It starts General workers with `supercharge general new` (refused with exit 6 when
+  your usage says wait, unless `--force`), messages them with `supercharge general send`, and is told by
+  the worker watch when one asks, finishes, errors or stalls. Its skill is `supercharge-general`. There are
+  no tasks, stages, plans or merge requests here.
+- General chats and workers count toward the worker cap while they work or wait on you; an idle one does
+  not.
+- Moving one to the trash keeps its folder until AoE empties the trash. **Delete permanently** deletes the
+  folder and everything in it.
+- A new scratch folder may open on Claude Code's folder-trust dialog; answer it in the chat.
+
 ### Cleaning up finished workers
 
 A done worker is still a live AoE session with a worktree and a branch. `supercharge task cleanup <task-id>` (or the **Clean up** button on a done task, in its right-click menu, and **Clean up all done** on the project page) removes them, and it checks first so unmerged work is never lost. It fetches `origin` and refuses unless one of these is true:
@@ -187,11 +205,14 @@ supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_req
 | `supercharge task new "<title>" [--brief …] [--brief-file …] [--base …] [--model …] [--effort …]` | Create a task |
 | `supercharge task list [--project <p>] [--json]` | List tasks |
 | `supercharge task cleanup <task-id> \| --all-done [--dry-run] [--json]` | Remove a finished worker's session, worktree and branch. Refuses unless its work is on `origin/main` (see [Cleaning up](#cleaning-up-finished-workers)) |
-| `supercharge whoami [--json]` | `control`, `worker` or `none` for this session |
+| `supercharge whoami [--json]` | `control`, `worker`, `general-control`, `general` or `none` for this session |
 | `supercharge stage <stage> [--note …] [--mr <url>]` | Report a stage change |
 | `supercharge ask "<question>"` | Block on a question |
 | `supercharge plan <file \| ->` `[--draft]` | Save the approved plan |
 | `supercharge reply <task-id> "<message>" [--yes]` | Send a prompt to a worker (asks for confirmation; audited) |
+| `supercharge general new "<title>" [--brief …] [--brief-file …] [--model …] [--effort …] [--force] [--json]` | Start a General worker (from the General control chat) or a General chat; needs the daemon |
+| `supercharge general list [--json]` | The General chats and workers |
+| `supercharge general send <name> "<message>" [--yes]` | Send a message to a General chat or worker (audited) |
 | `supercharge note add <text \| ->` / `todo add <text \| ->` `[--project <p> \| --global]` | Add a note or a todo to this project (or global) |
 | `supercharge todo done <id>` / `todo reopen <id>` / `note archive <id>` | Tick, untick or archive one |
 | `supercharge notes [--project <p> \| --global \| --all] [--archived] [--json]` | The board as text: todos `[ ]`/`[x]` with ids, then notes |
@@ -297,7 +318,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
 `http://supercharge.localhost:4280`. Dark by default, with a light mode. It's built to be read from across a desk.
 
 - **Needs you** (pinned): blocked questions, approvals or input waiting in AoE, control chats waiting on you or that have replied (a reply is marked read as soon as you have its chat open and visible; the chat's side panel also has a Dismiss button), session errors, MRs ready for review, MRs closed, scheduled prompts that failed. Oldest first, each one click from its context.
-- **Sidebar:** projects, then each control chat, then its workers. Every row shows a status icon and stage. Your other AoE sessions are grouped under their parent too.
+- **Sidebar:** projects, then each control chat, then its workers. Every row shows a status icon and stage. Then **General** (chats with no project, and the General control chat; see [General chats](#general-chats-no-project)). Your other AoE sessions are grouped under their parent too.
 - **Project page:** the control chat's live status and a rollup of its workers, then a worker list showing:
   - stage stepper,
   - AoE status,
@@ -424,6 +445,7 @@ To go back to a tested AoE, reinstall that release: `curl -fsSL …/scripts/inst
 ~/.config/supercharge/            config.toml, auth.token (0600)
 ~/.local/share/supercharge/       projects/<p>/project.json, tasks/<id>/{task.json, plan.md, session-prompt.md}, notes/{<p>,_global}.json, office/office.json,
                                   schedules.json (scheduled prompts)
+                                  general/{general.json, control-prompt.md, session-prompt.md}
 ~/.local/state/supercharge/       logs/daemon.log (rotated), audit.jsonl, daemon.json, compat.local.json, history/YYYY-MM-DD.jsonl,
                                   held.json (held messages), context/<conversation>.json (Claude Code's context figures, 7 days),
                                   terminals.json (terminals opened by Run)

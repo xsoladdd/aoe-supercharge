@@ -4,6 +4,7 @@ import {
   CaretRightIcon,
   ChalkboardSimpleIcon,
   ChatTeardropTextIcon,
+  CircleNotchIcon,
   GearSixIcon,
   MoonIcon,
   SquaresFourIcon,
@@ -14,6 +15,7 @@ import {
   LockSimpleIcon,
 } from '@phosphor-icons/react';
 import { useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import { Link, useLocation } from 'wouter';
 import { isRelayed, STAGE_LABEL, type SessionView, type Snapshot } from '@aoe-supercharge/core/shared';
 import { Wordmark } from '@/components/brand';
@@ -39,9 +41,11 @@ import {
 } from '@/components/ui/sidebar';
 import { AddProjectDialog, AdoptDialog } from '@/components/add-project';
 import { SidebarAttach } from '@/components/attach';
+import { NewChatDialog } from '@/components/general-chat';
 import { SessionMenu } from '@/components/session-menu';
 import { UsageMeter } from '@/components/usage';
-import { pinnedFirst, projectViews, sessionMap, unmanagedGroups } from '@/lib/derive';
+import { sendJson } from '@/lib/api';
+import { generalView, pinnedFirst, projectViews, sessionMap, unmanagedGroups } from '@/lib/derive';
 import { chatHref } from '@/lib/nav';
 import { useResolvedTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
@@ -84,6 +88,108 @@ function ControlRow({ id, children }: { id: string | null; children: React.React
     <SessionMenu sessionId={id} order={[id]}>
       {children}
     </SessionMenu>
+  );
+}
+
+/** Chats with no project (SPEC §14.7): the General control chat, then General chats and workers. */
+function GeneralGroup({ snap }: { snap: Snapshot }) {
+  const [location, navigate] = useLocation();
+  const general = useMemo(() => generalView(snap), [snap]);
+  const [creating, setCreating] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const control = general.control;
+  const startControl = async () => {
+    setStarting(true);
+    try {
+      const r = await sendJson<{ sessionId: string }>('POST', '/api/general/control');
+      navigate(chatHref(r.sessionId));
+    } catch (err) {
+      toast.error(`Could not start the General control chat: ${(err as Error).message}`);
+    } finally {
+      setStarting(false);
+    }
+  };
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel className="text-[0.8125rem]">General</SidebarGroupLabel>
+      <SidebarGroupAction
+        title="New chat"
+        aria-label="New chat"
+        onClick={() => setCreating(true)}
+        className="top-2.5 w-[max(1.5rem,24px)]"
+      >
+        <PlusIcon />
+      </SidebarGroupAction>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          {control ? (
+            <ControlRow id={control.id}>
+              <SidebarMenuItem className={SELECTED}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === chatHref(control.id)}
+                  tooltip="General control chat"
+                  className="h-8"
+                >
+                  <Link href={chatHref(control.id)}>
+                    <ChatTeardropTextIcon className="size-4" />
+                    <span className="truncate">Control chat</span>
+                    <div className="ml-auto flex shrink-0 items-center gap-1">
+                      <Marks session={control} />
+                      <LiveStatus status={control.status} labelled={false} unread={control.unread} />
+                    </div>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </ControlRow>
+          ) : (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                onClick={() => void startControl()}
+                disabled={starting}
+                tooltip="Start the General control chat"
+                className="h-8 text-muted-foreground"
+              >
+                {starting ? (
+                  <CircleNotchIcon className="size-4 animate-spin" />
+                ) : (
+                  <ChatTeardropTextIcon className="size-4" />
+                )}
+                <span className="truncate">Start control chat</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
+          {general.sessions.map((s) => {
+            const name = snap.general?.sessions[s.id];
+            return (
+              <SessionMenu key={s.id} sessionId={s.id} order={general.sessions.map((x) => x.id)}>
+                <SidebarMenuItem className={SELECTED}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === chatHref(s.id)}
+                    tooltip={name ?? s.title}
+                    className="h-8"
+                  >
+                    <Link href={chatHref(s.id)}>
+                      <TerminalWindowIcon className="size-4" />
+                      {name && <span className="shrink-0 font-medium">{name}</span>}
+                      {s.title !== name && (
+                        <span className={cn('truncate', name && 'text-muted-foreground')}>{s.title}</span>
+                      )}
+                      <div className="ml-auto flex shrink-0 items-center gap-1">
+                        <Marks session={s} />
+                        <LiveStatus status={s.status} labelled={false} unread={s.unread} />
+                      </div>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SessionMenu>
+            );
+          })}
+        </SidebarMenu>
+      </SidebarGroupContent>
+      <NewChatDialog open={creating} onOpenChange={setCreating} />
+    </SidebarGroup>
   );
 }
 
@@ -385,6 +491,8 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+
+        <GeneralGroup snap={snap} />
 
         {groups.length > 0 && (
           <SidebarGroup>

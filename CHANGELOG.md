@@ -44,6 +44,26 @@
   shows the next run and the last result, with **Run now**, edit, delete and an on/off switch. A failed
   run shows in Needs you and notifies. Every run is audited (`scheduled_prompt`). Jobs are kept in
   `schedules.json` in the data directory. API: `/api/schedules` (SPEC §8.5).
+- **General: chats with no project.** A **General** section in the sidebar, between Projects and Other AoE
+  sessions, for Claude sessions that belong to no repository: say, a job you run every midnight. **New
+  chat** (the + by General) picks a title, model, effort and an optional first message, and starts the
+  session in a fresh AoE scratch folder (`aoe add --scratch`); the first message waits until Claude is at
+  its prompt. Each General chat gets a name, like a worker. Moving one to the trash keeps its folder until
+  AoE empties the trash; **Delete permanently** deletes the folder and everything in it, and the dialog
+  says so.
+- **The General control chat.** **Start control chat** under General starts a coordinator with no project.
+  It starts General workers with `supercharge general new "<title>" --model … --effort … --brief …`
+  (refused with exit code 6 when your usage says wait, unless `--force`, like `task new`), lists them with
+  `supercharge general list`, and messages them with `supercharge general send <name> "<message>"`
+  (audited). It has its own skill, `supercharge-general`, and `supercharge whoami` reports
+  `general-control` for it and `general` for General chats and workers. Its replies' 🔴 NEEDS YOU lists
+  show in Needs you, and the worker watch tells it when one of its workers asks, finishes, errors or
+  stalls (following `watch.enabled`).
+- **General chats and workers count toward the worker cap** while they are working or waiting on you, or
+  while their first message waits. An idle one leaves its place free.
+- The record lives in `~/.local/share/supercharge/general/general.json`. General sessions start without
+  `--permission-mode` (your Claude Code default), and every new scratch folder may open on Claude Code's
+  folder-trust dialog first.
 
 ## 1.5.0 (2026-10-15)
 - **Images you send go in.** A message with an image used to sit unsent in Claude's input box until your

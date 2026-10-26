@@ -3,6 +3,7 @@
 // `add -w <branch> -b` creates a real git worktree so worker commands can run inside it.
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
 const url = process.env.FAKE_AOE_URL;
@@ -71,6 +72,15 @@ if (cmd === '--version' || cmd === '-V') {
   const branch = val('-w', '--worktree') ?? null;
   const base = val('--base-branch') ?? 'main';
   let path = repo;
+  // --scratch: a fresh folder of its own, as AoE makes under <app_dir>/scratch/<id>/.
+  if (has('--scratch')) {
+    path = join(
+      tmpdir(),
+      'fake-aoe-scratch',
+      `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+    );
+    mkdirSync(path, { recursive: true });
+  }
   if (branch) {
     path = join(dirname(repo), `${basename(repo)}-worktrees`, branch.replace(/[/@#\\:*?"<>|]/g, '-'));
     mkdirSync(dirname(path), { recursive: true });

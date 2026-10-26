@@ -16,9 +16,10 @@ import {
   watchEvents,
   watchStep,
   watchWorkers,
-  type ProjectRecord,
+  GENERAL_KEY,
   type WatchBook,
   type WatchEvent,
+  type WatchLead,
   type WatchLogEntry,
   type WatchMarker,
   type WatchSummary,
@@ -36,7 +37,7 @@ const CAPTURE_LINES = 200;
 const PRUNE_EVERY_MS = 3_600_000;
 
 export interface WorkerWatchDeps {
-  send?: (sessionId: string, message: string, project: string) => Promise<void>;
+  send?: (sessionId: string, message: string, project: string | null) => Promise<void>;
   capture?: (sessionId: string) => Promise<string>;
   now?: () => Date;
 }
@@ -77,8 +78,7 @@ export class WorkerWatch {
 
   start() {
     this.unsubscribe = this.store.subscribe((e) => {
-      if (e.type === 'sessions' || e.type === 'tasks' || e.type === 'projects' || e.type === 'needs_you')
-        this.schedule();
+      if (['sessions', 'tasks', 'projects', 'general', 'needs_you'].includes(e.type)) this.schedule();
     });
     const loop = () => {
       this.schedule();
@@ -147,7 +147,13 @@ export class WorkerWatch {
     const now = this.now();
     let book = (this.book ??= await readWatchBook(ctx.paths));
     const summaries: Record<string, WatchSummary> = {};
-    for (const project of store.projects) {
+    // General work is watched like a project, under a key no project name can take.
+    const general: WatchLead = {
+      name: GENERAL_KEY,
+      controlSessionId: store.general.controlSessionId,
+      crew: store.general.sessions,
+    };
+    for (const project of [...store.projects, general]) {
       if (!project.controlSessionId) continue;
       const enabled = watchEnabled(ctx.config, project.name);
       let log = await this.log(project.name);
@@ -275,7 +281,7 @@ export class WorkerWatch {
       kind: e.kind,
       log: file,
       name: e.name !== e.worker ? e.name : null,
-      project: e.project,
+      project: e.project === GENERAL_KEY ? null : e.project,
       task: e.taskId,
       stage: e.stage,
       session: e.sessionId,
@@ -306,7 +312,7 @@ export class WorkerWatch {
    * or stopped (AoE starts it again). Busy or showing a menu, they wait. Returns why they can't go at
    * all (the control chat is archived or gone), or null.
    */
-  private async deliver(project: ProjectRecord, log: WatchLogEntry[], now: Date): Promise<string | null> {
+  private async deliver(project: WatchLead, log: WatchLogEntry[], now: Date): Promise<string | null> {
     const control = this.store.sessions.find((s) => s.id === project.controlSessionId);
     if (!control) return 'The control chat is not in AoE';
     if (control.archived) return 'The control chat is archived';
@@ -317,7 +323,11 @@ export class WorkerWatch {
     const release = this.store.claimTyping(control.id, now.getTime());
     if (!release) return null;
     try {
-      await this.send(control.id, pending.map((e) => e.line).join('\n'), project.name);
+      await this.send(
+        control.id,
+        pending.map((e) => e.line).join('\n'),
+        project.name === GENERAL_KEY ? null : project.name,
+      );
     } catch (err) {
       if (err instanceof MenuOpenError) release();
       else

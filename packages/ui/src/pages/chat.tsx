@@ -137,6 +137,8 @@ interface Role {
 function roleOf(snap: Snapshot, id: string): Role {
   const project = snap.projects.find((p) => p.controlSessionId === id);
   if (project) return { kind: 'control', project: project.name, taskId: null, taskTitle: null };
+  if (id === snap.general?.controlSessionId)
+    return { kind: 'control', project: 'General', taskId: null, taskTitle: null };
   const task = snap.tasks.find((t) => t.aoeSessionId === id);
   if (task) return { kind: 'worker', project: task.project, taskId: task.id, taskTitle: task.title };
   return { kind: 'other', project: null, taskId: null, taskTitle: null };

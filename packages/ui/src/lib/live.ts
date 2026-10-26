@@ -7,6 +7,7 @@ import type {
   NeedsYouItem,
   NoteRecord,
   ProjectRecord,
+  GeneralRecord,
   SessionView,
   Snapshot,
   TaskRecord,
@@ -76,6 +77,7 @@ function connectEvents() {
     patchSnapshot({ tasks });
   });
   on<ProjectRecord[]>('projects', (projects) => patchSnapshot({ projects }));
+  on<GeneralRecord>('general', (general) => patchSnapshot({ general }));
   on<NeedsYouItem[]>('needs_you', (needsYou) => patchSnapshot({ needsYou }));
   on<NoteRecord[]>('notes', (notes) => patchSnapshot({ notes }));
   on<Health>('health', (health) => patchSnapshot({ health }));

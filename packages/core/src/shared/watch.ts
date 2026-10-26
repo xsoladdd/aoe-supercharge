@@ -139,7 +139,10 @@ export interface WatchWorker {
  * The workers to watch for a project: its tasks that are not done, and the sessions its control chat
  * started straight through AoE. The control chat itself and archived sessions are left out.
  */
-export function watchWorkers(input: OfficeInput, project: ProjectRecord): WatchWorker[] {
+/** Whose workers are watched: a project, or General work (`GENERAL_KEY`, its sessions as the crew). */
+export type WatchLead = Pick<ProjectRecord, 'name' | 'controlSessionId' | 'crew'>;
+
+export function watchWorkers(input: OfficeInput, project: WatchLead): WatchWorker[] {
   if (!project.controlSessionId) return [];
   const sessions = new Map(input.sessions.map((s) => [s.id, s]));
   const out: WatchWorker[] = [];
