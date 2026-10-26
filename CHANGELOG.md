@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.6.1 (2026-10-26)
 
 - **Squash merges count as landed.** After `dev` was squash-merged into `main`, `supercharge task cleanup`
   refused finished workers ("commits ... are not on origin/main") and the branch watcher never moved
