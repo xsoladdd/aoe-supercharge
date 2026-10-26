@@ -12,7 +12,7 @@ An opinionated parent/child dashboard for Claude Code, built on [Agent of Empire
 
 It runs as a small local daemon (Node 24, about 70 MB idle) bound to `127.0.0.1`. Merge requests are watched by a script, never by an LLM loop.
 
-> Status: v1.6.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 to 1.21.x (tested on 1.17.2, 1.18.0 and 1.21.0; see [AoE versions](#aoe-versions)); prompt screens checked against Claude Code 2.1.308.
+> Status: v1.6.1 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 to 1.21.x (tested on 1.17.2, 1.18.0 and 1.21.0; see [AoE versions](#aoe-versions)); prompt screens checked against Claude Code 2.1.308.
 > The design rationale lives in [SPEC.md](SPEC.md).
 
 ---
@@ -31,10 +31,10 @@ macOS and Linux only. On Windows, use WSL2 (AoE requires it). You need [Node.js 
 
 **Supercharge is not on npm or Homebrew yet**, and there is no tap, so `npm install -g aoe-supercharge`, `brew install` and the one-line `curl … | bash` do not work today. Install the packed release from GitHub, or from a checkout.
 
-**From a GitHub release.** Every release on the [Releases page](https://github.com/xsoladdd/aoe-supercharge/releases) has the packed CLI attached; CI builds it with `npm pack` when a `Release X.Y.Z` commit lands on `main` and makes the release and its `vX.Y.Z` tag (see [Releasing](CLAUDE.md#releasing)). For 1.6.0:
+**From a GitHub release.** Every release on the [Releases page](https://github.com/xsoladdd/aoe-supercharge/releases) has the packed CLI attached; CI builds it with `npm pack` when a `Release X.Y.Z` commit lands on `main` and makes the release and its `vX.Y.Z` tag (see [Releasing](CLAUDE.md#releasing)). For 1.6.1:
 
 ```bash
-npm install -g https://github.com/xsoladdd/aoe-supercharge/releases/download/v1.6.0/aoe-supercharge-1.6.0.tgz
+npm install -g https://github.com/xsoladdd/aoe-supercharge/releases/download/v1.6.1/aoe-supercharge-1.6.1.tgz
 ```
 
 This checks no dependencies: install them first (see [Dependencies](#dependencies)), then run `supercharge doctor`.
@@ -148,7 +148,8 @@ A done worker is still a live AoE session with a worktree and a branch. `superch
 
 - the task's branch is an ancestor of `origin/<base>` (fast-forward or merge commit);
 - every commit has an equivalent patch there (cherry-picked or rebased; `git cherry`);
-- the MR watcher recorded its pull request as merged and the worktree holds nothing past that pull request's head (squash merges).
+- the MR watcher recorded its pull request as merged and the worktree holds nothing past that pull request's head (squash merges);
+- merging the branch into `origin/<base>` would change nothing, because its changes are all there already (squash merges without a recorded pull request). This is also tried for each pushed branch that contains it, so a task that reached `dev` counts once `dev` is squash-merged into `main`. It needs git 2.38 or later; a conflict or any difference, such as a change `main` reverted later, is not landed.
 
 It also refuses when the worktree has uncommitted or untracked files, when the session is locked, or when the task is not done. The message says why, lists up to five files or commits, and says what to do. Otherwise it removes the AoE session with its worktree and branch (what `aoe rm --purge --delete-worktree --delete-branch` does, without `--force`), moves the task to `removed/` and writes `task_cleaned_up` to the audit log. `--all-done` checks each done task of the project on its own and skips the ones that are not safe. `--dry-run` only checks. It never touches a session outside the project.
 
@@ -405,7 +406,7 @@ Self-hosted GitLab works: add the host to `mr.gitlab.hosts` and log in with `gla
 
 **MRs found by branch.** Some MRs are opened without `stage mr_raised`: by a worker that forgot to report it, or by crew sessions a control chat starts straight in AoE, with no task. Each round, the watcher looks those branches up too. A task in `implementing` or `verifying` with no MR, whose session is idle or stopped, is moved to `mr_raised` when its branch has one. A crew session with no task only shows its MR: it waits in the review lounge with the MR's badge and folder, but raises nothing in Needs you and sends no notification. A branch with no MR is looked up again at most every 5 minutes.
 
-**Projects without merge requests.** If a project merges branches directly, set `supercharge config set projects.<name>.mr none`. A finished worker then pushes its branch and runs `supercharge stage ready_for_review` with no MR. The task waits in the review lounge with a green folder ("Branch ready to merge"), shows in Needs you and in `supercharge status`, and is marked `done` by itself once its commits land on the base branch (fast-forwarded, merged, or cherry-picked). Projects with merge requests work as before.
+**Projects without merge requests.** If a project merges branches directly, set `supercharge config set projects.<name>.mr none`. A finished worker then pushes its branch and runs `supercharge stage ready_for_review` with no MR. The task waits in the review lounge with a green folder ("Branch ready to merge"), shows in Needs you and in `supercharge status`, and is marked `done` by itself once its commits land on the base branch (fast-forwarded, merged, cherry-picked, or squash-merged). Projects with merge requests work as before.
 
 ## Security
 

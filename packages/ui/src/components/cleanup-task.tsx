@@ -22,7 +22,7 @@ interface CleanupResult {
   branch: string;
   ok: boolean;
   removed?: boolean;
-  landedBy?: 'ancestor' | 'cherry' | 'merged_pr';
+  landedBy?: 'ancestor' | 'cherry' | 'merged_pr' | 'content';
   reason?: string;
   hint?: string;
   detail?: string[];
@@ -32,6 +32,7 @@ const HOW: Record<NonNullable<CleanupResult['landedBy']>, string> = {
   ancestor: 'Its commits are on origin/main.',
   cherry: 'Its commits are on origin/main as equivalent patches (cherry-picked or rebased).',
   merged_pr: 'Its pull request is merged and nothing in the worktree is past it.',
+  content: 'Merging it into origin/main would change nothing: its changes are already there (squash merge).',
 };
 
 const url = (task: Pick<TaskRecord, 'project' | 'id'>) =>

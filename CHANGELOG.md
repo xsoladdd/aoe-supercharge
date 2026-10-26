@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.6.1 (2026-10-26)
+
+- **Copy button after links in the chat.** Every link in a chat message has a small copy button right
+  after it. Clicking it copies the link's URL (not its text) and the icon turns into a green check that
+  pops in, then goes back to the copy icon after about 1.5 s. With reduced motion, the icon just swaps.
+- **Squash merges count as landed.** After `dev` was squash-merged into `main`, `supercharge task cleanup`
+  refused finished workers ("commits ... are not on origin/main") and the branch watcher never moved
+  branch-ready tasks to done, since a squash commit is neither their ancestor nor the same patch. Both now
+  also accept a branch whose changes are all on the base already: merging it into the base, or merging a
+  pushed branch that contains it (such as `origin/dev`), would change nothing (`git merge-tree
+  --write-tree`, git 2.38 or later). A conflict or any difference, a later revert on `main` included, still
+  counts as not landed. Cleanup reports these as `content`.
+
 ## 1.6.0 (2026-10-26)
 
 - **Start tasks from the dashboard.** **New task** on a project page is now a form (title, brief, model,

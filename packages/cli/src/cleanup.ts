@@ -4,11 +4,19 @@ import { join } from 'node:path';
 import { appendAudit } from '@aoe-supercharge/core/node';
 import type { TaskRecord } from '@aoe-supercharge/core/shared';
 import type { Ctx } from './context.ts';
-import { dirtyPaths, fetchBranch, isAncestor, isCherried, revParse, unlandedCommits } from './util/git.ts';
+import {
+  dirtyPaths,
+  fetchBranch,
+  isAncestor,
+  isCherried,
+  isContentMerged,
+  revParse,
+  unlandedCommits,
+} from './util/git.ts';
 import { CliError, EXIT } from './util/errors.ts';
 
 /** How a finished task's work reached origin/<base>. */
-export type LandedBy = 'ancestor' | 'cherry' | 'merged_pr';
+export type LandedBy = 'ancestor' | 'cherry' | 'merged_pr' | 'content';
 
 export interface CleanupCheck {
   taskId: string;
@@ -34,8 +42,9 @@ function refuse(t: TaskRecord, reason: string, hint: string, detail?: string[]):
 /**
  * Can this finished task's worker be cleaned up without losing work? Only when its work is on
  * origin/<base> (fetched first): the branch is an ancestor of it, every commit has an equivalent
- * patch there (cherry-picked or rebased), or the MR watcher recorded its pull request as merged and
- * the worktree holds nothing past that pull request's head (squash merges).
+ * patch there (cherry-picked or rebased), the MR watcher recorded its pull request as merged and the
+ * worktree holds nothing past that pull request's head, or merging the branch (or a pushed branch that
+ * contains it, such as origin/dev) would change nothing there (squash merges).
  *
  * Read-only apart from the fetch. The task is looked up in this project's ledger, so a session of
  * another project can never be reached through it.
@@ -99,6 +108,7 @@ export async function checkCleanup(ctx: Ctx, project: string, taskId: string): P
   const prHead = task.mr?.state === 'merged' ? task.mr.headSha : null;
   if (prHead && (await revParse(cwd, prHead)) && (await isAncestor(cwd, head, prHead)))
     return { ...ok(task), head, landedBy: 'merged_pr' };
+  if (await isContentMerged(cwd, onBase, head)) return { ...ok(task), head, landedBy: 'content' };
 
   const open = await unlandedCommits(cwd, onBase, head);
   const merged = task.mr?.state === 'merged';

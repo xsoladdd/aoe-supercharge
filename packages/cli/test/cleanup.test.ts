@@ -152,11 +152,70 @@ describe('checkCleanup: only when the work is on origin/main', () => {
     expect(c.detail?.[0]).toContain('late.txt');
   });
 
-  it('a merged MR with no recorded head (an older record) does not count as landed', async () => {
+  it('a merged MR with no recorded head (an older record) is not trusted; the content decides', async () => {
     const w = await world({ mr: mr({}) });
     await g(w.repo, 'merge', '-q', '--squash', w.branch);
     await g(w.repo, 'commit', '-q', '-m', 'Squashed (#12)');
     await g(w.repo, 'push', '-q', 'origin', 'main');
+    expect(await checkCleanup(w.ctx, 'alpha', 'AS-0001')).toMatchObject({ ok: true, landedBy: 'content' });
+  });
+
+  it('squash-merged with no pull request on record: ok, by content', async () => {
+    const w = await world();
+    await g(w.repo, 'merge', '-q', '--squash', w.branch);
+    await g(w.repo, 'commit', '-q', '-m', 'Squashed');
+    await g(w.repo, 'push', '-q', 'origin', 'main');
+    expect(await checkCleanup(w.ctx, 'alpha', 'AS-0001')).toMatchObject({
+      ok: true,
+      landedBy: 'content',
+      head: w.head,
+    });
+  });
+
+  it('squash-merged, then a commit in the worktree that is not on main: refused', async () => {
+    const w = await world();
+    await g(w.repo, 'merge', '-q', '--squash', w.branch);
+    await g(w.repo, 'commit', '-q', '-m', 'Squashed');
+    await g(w.repo, 'push', '-q', 'origin', 'main');
+    await w.commit(w.wt, 'late.txt');
+    const c = await checkCleanup(w.ctx, 'alpha', 'AS-0001');
+    expect(c.ok).toBe(false);
+    expect(c.detail?.[0]).toContain('late.txt');
+  });
+
+  /** The branch goes to dev, more work on dev rewrites the same file, and dev is squashed into main. */
+  async function squashedThroughDev() {
+    const w = await world();
+    await g(w.repo, 'checkout', '-q', '-b', 'dev', 'main~1');
+    await g(w.repo, 'merge', '-q', '--ff-only', w.branch);
+    await w.commit(w.repo, 'c.txt', 'c, rewritten by the next task\n');
+    await g(w.repo, 'checkout', '-q', 'main');
+    await g(w.repo, 'merge', '-q', '--squash', 'dev');
+    await g(w.repo, 'commit', '-q', '-m', 'Release (#1)');
+    await g(w.repo, 'push', '-q', 'origin', 'main', 'dev');
+    return w;
+  }
+
+  it('squashed through origin/dev with other work on the same file: ok, by content', async () => {
+    const w = await squashedThroughDev();
+    expect(await checkCleanup(w.ctx, 'alpha', 'AS-0001')).toMatchObject({ ok: true, landedBy: 'content' });
+  });
+
+  it('squashed through dev, then reverted on main and synced back into dev: refused', async () => {
+    const w = await squashedThroughDev();
+    const sync = async () => {
+      await g(w.repo, 'checkout', '-q', 'dev');
+      await g(w.repo, 'merge', '-q', '--no-edit', 'main');
+      await g(w.repo, 'checkout', '-q', 'main');
+    };
+    // dev takes main back after the release, as usual; only then does a later revert reach dev too.
+    await sync();
+    await g(w.repo, 'revert', '--no-edit', 'HEAD');
+    await sync();
+    await g(w.repo, 'push', '-q', 'origin', 'main', 'dev');
+    expect(await g(w.repo, 'rev-parse', 'origin/main^{tree}')).toBe(
+      await g(w.repo, 'rev-parse', 'origin/dev^{tree}'),
+    );
     expect((await checkCleanup(w.ctx, 'alpha', 'AS-0001')).ok).toBe(false);
   });
 

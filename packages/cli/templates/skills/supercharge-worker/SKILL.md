@@ -65,7 +65,7 @@ Supercharge rejects invalid moves and tells you what is allowed instead.
 
      The task waits in the review lounge until the user or the control chat merges your branch into the
      base branch. Supercharge marks it `done` by itself once your commits land there (fast-forwarded,
-     merged or cherry-picked). Never push to the base branch yourself.
+     merged, cherry-picked or squash-merged). Never push to the base branch yourself.
 
 6. **Fixing review feedback or a failed pipeline:** `supercharge stage implementing`, fix, push, then
    `supercharge stage verifying` and hand it over again as in step 5.

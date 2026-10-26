@@ -79,6 +79,27 @@ export function CodeBlock({
   );
 }
 
+/** Small muted copy button after a link: copies its URL, the check pops in for 1.5 s. */
+function LinkCopy({ href }: { href: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async () => {
+        if (await copyText(href)) {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }
+      }}
+      aria-label="Copy link"
+      title="Copy link"
+      className="ml-0.5 inline-grid size-5 cursor-pointer place-items-center rounded-md align-middle text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
+    >
+      {copied ? <CheckIcon className="pop size-3 text-st-green" /> : <CopyIcon className="size-3" />}
+    </button>
+  );
+}
+
 /** Elements a terminal for an inline command shows under (or at the end of, for list items and cells). */
 const HOSTS = new Set(['p', 'li', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
 
@@ -169,9 +190,14 @@ export const ChatMarkdown = memo(function ChatMarkdown({
         );
       },
       a: ({ href, children }) => (
-        <a href={href} target="_blank" rel="noreferrer">
-          {children}
-        </a>
+        <>
+          <a href={href} target="_blank" rel="noreferrer">
+            {children}
+          </a>
+          {/* Word joiner: keeps the button on the line of the link's last character. */}
+          {href && '⁠'}
+          {href && <LinkCopy href={href} />}
+        </>
       ),
       table: ({ children }) => (
         <div className="my-3 overflow-x-auto">

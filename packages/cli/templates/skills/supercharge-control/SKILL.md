@@ -122,7 +122,7 @@ The user turns the watch on or off per project in the dashboard's Settings.
 
 ### 4.3 Projects without merge requests
 
-When `supercharge whoami --json` shows `merge: "branch"` (set with `supercharge config set projects.<project>.mr none`), workers open no merge requests. A finished worker reports its pushed branch with `supercharge stage ready_for_review` and waits in the review lounge, listed under Needs you as "Branch ready to merge". Merge it into the base branch when the user tells you to (fast-forward, merge or cherry-pick). Supercharge sees the commits land and marks the task done by itself; don't set the stage.
+When `supercharge whoami --json` shows `merge: "branch"` (set with `supercharge config set projects.<project>.mr none`), workers open no merge requests. A finished worker reports its pushed branch with `supercharge stage ready_for_review` and waits in the review lounge, listed under Needs you as "Branch ready to merge". Merge it into the base branch when the user tells you to (fast-forward, merge, cherry-pick or squash). Supercharge sees the commits land and marks the task done by itself; don't set the stage.
 
 ## 5. Relaying answers to workers
 
@@ -148,7 +148,7 @@ or, for every done worker of the project at once:
 supercharge task cleanup --all-done
 ```
 
-- It is safe to hand out: it fetches origin first and refuses unless the work is on `origin/main` (merged, an equivalent patch, or a pull request recorded as merged) and the worktree has nothing uncommitted. It removes the session, the worktree and the branch, and records it in the audit log. Add `--dry-run` to only check.
+- It is safe to hand out: it fetches origin first and refuses unless the work is on `origin/main` (merged, an equivalent patch, a pull request recorded as merged, or squashed so that merging it would change nothing) and the worktree has nothing uncommitted. It removes the session, the worktree and the branch, and records it in the audit log. Add `--dry-run` to only check.
 - If it refuses, show the user its message and what it says to do. Don't work around it.
 - **Never give raw `aoe rm`, `aoe remove` or `git worktree remove` commands, and never use `--purge`, `--delete-worktree` or `--delete-branch` yourself.** They don't check anything, and unpushed commits are lost for good.
 - The dashboard has the same thing: a **Clean up** button on a done task.
