@@ -66,18 +66,17 @@ export async function commitsAhead(cwd: string, base: string, head: string): Pro
 }
 
 /**
- * Has `head` landed on `base`? True when `head` is an ancestor of `base` (fast-forward or merge),
- * or when every commit of `head` not on `base` has an equivalent patch there (cherry-picked or
- * rebased, the patch-id match `git cherry` and `git range-diff` use).
+ * Has `head` landed on `base`? True when `head` is an ancestor of `base` (fast-forward or merge), when
+ * every commit of `head` not on `base` has an equivalent patch there (cherry-picked or rebased, the
+ * patch-id match `git cherry` and `git range-diff` use), or when its changes are all on `base` already
+ * (squash merges, `isContentMerged`).
  */
 export async function hasLanded(cwd: string, base: string, head: string): Promise<boolean> {
-  const r = await run('git', ['merge-base', '--is-ancestor', head, base], { cwd, timeoutMs: 10_000 });
-  if (r.code === 0) return true;
-  if (r.code !== 1) return false;
-  const cherry = await git(cwd, ['cherry', base, head]);
-  if (cherry === null) return false;
-  const lines = cherry.split('\n').filter(Boolean);
-  return lines.length > 0 && lines.every((l) => l.startsWith('-'));
+  return (
+    (await isAncestor(cwd, head, base)) ||
+    (await isCherried(cwd, base, head)) ||
+    (await isContentMerged(cwd, base, head))
+  );
 }
 
 // ── cleanup checks ───────────────────────────────────────────────────────────
@@ -125,4 +124,35 @@ export async function unlandedCommits(cwd: string, base: string, head: string): 
     `${base}...${head}`,
   ]);
   return out ? out.split('\n').filter(Boolean) : [];
+}
+
+/**
+ * Merging `head` into `base` would change nothing: its changes are all there already (a squash merge,
+ * where one commit holds them). Also tried for each pushed branch that contains `head` (`origin/dev` when
+ * dev is squashed into main), as long as that branch still changes every file `head` changed, which a
+ * revert there would undo. A conflict, any difference, or git before 2.38 (no `merge-tree --write-tree`)
+ * is not landed.
+ */
+export async function isContentMerged(cwd: string, base: string, head: string): Promise<boolean> {
+  const tree = await git(cwd, ['rev-parse', '--verify', '--quiet', `${base}^{tree}`]);
+  const fork = await git(cwd, ['merge-base', base, head]);
+  if (!tree || !fork) return false;
+  const changed = async (tip: string) =>
+    (await git(cwd, ['diff', '--name-only', '--no-renames', fork, tip]))?.split('\n').filter(Boolean);
+  const holders = await git(cwd, [
+    'for-each-ref',
+    '--contains',
+    head,
+    '--format=%(objectname)',
+    'refs/remotes',
+  ]);
+  for (const tip of new Set([head, ...(holders ?? '').split('\n').filter(Boolean)])) {
+    const merged = await git(cwd, ['merge-tree', '--write-tree', '--no-messages', base, tip]);
+    if (merged?.split('\n')[0] !== tree) continue;
+    if (tip === head) return true;
+    // shortcut: a revert of part of a file that other work also changed goes unnoticed; compare hunks if that bites.
+    const theirs = new Set(await changed(tip));
+    if ((await changed(head))?.every((p) => theirs.has(p))) return true;
+  }
+  return false;
 }

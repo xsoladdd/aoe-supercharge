@@ -9,8 +9,9 @@ export const isBranchReady = (t: TaskRecord) => t.stage === 'ready_for_review' &
 
 /**
  * Marks a branch-ready task done once its branch lands on the base branch (SPEC §11.3): fast-forwarded
- * or merged, or every commit cherry-picked with the same patch. Local git only (no fetch), checked
- * every `poll.mr` seconds. Kept apart from the MR watcher, which only looks at tasks with an MR.
+ * or merged, every commit cherry-picked with the same patch, or squash-merged (merging it would change
+ * nothing). Local git only (no fetch), checked every `poll.mr` seconds. Kept apart from the MR watcher,
+ * which only looks at tasks with an MR.
  */
 export class BranchWatcher {
   private timer: NodeJS.Timeout | null = null;

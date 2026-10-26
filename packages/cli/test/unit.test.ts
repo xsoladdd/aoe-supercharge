@@ -231,6 +231,43 @@ describe('branch landing without an MR (SPEC §11.3)', () => {
     expect(await landedOn(dir, ready())).toBe('main');
     await rm(dir, { recursive: true, force: true });
   });
+  it('squash-merged (one new commit, same content): landed, and marked done', async () => {
+    const { dir, g } = await repo();
+    await g('merge', '-q', '--squash', 'sc/nw-0001-t');
+    await g('commit', '-q', '-m', 'Squashed');
+    const base = await landedOn(dir, ready());
+    expect(base).toBe('main');
+    expect(markLanded(ready(), base!).stage).toBe('done');
+    await rm(dir, { recursive: true, force: true });
+  });
+  it('squash-merged, then one more commit on the branch: not yet', async () => {
+    const { dir, g } = await repo();
+    await g('merge', '-q', '--squash', 'sc/nw-0001-t');
+    await g('commit', '-q', '-m', 'Squashed');
+    await g('checkout', '-q', 'sc/nw-0001-t');
+    await writeFile(join(dir, 'd.txt'), 'd\n');
+    await g('add', 'd.txt');
+    await g('commit', '-q', '-m', 'd.txt');
+    await g('checkout', '-q', 'main');
+    expect(await landedOn(dir, ready())).toBeNull();
+    await rm(dir, { recursive: true, force: true });
+  });
+  it('squash-merged, then reverted on main: not landed', async () => {
+    const { dir, g } = await repo();
+    await g('merge', '-q', '--squash', 'sc/nw-0001-t');
+    await g('commit', '-q', '-m', 'Squashed');
+    await g('revert', '--no-edit', 'HEAD');
+    expect(await landedOn(dir, ready())).toBeNull();
+    await rm(dir, { recursive: true, force: true });
+  });
+  it('conflicting with main: not landed', async () => {
+    const { dir, g } = await repo();
+    await writeFile(join(dir, 'c.txt'), 'other\n');
+    await g('add', 'c.txt');
+    await g('commit', '-q', '-m', 'c.txt on main');
+    expect(await landedOn(dir, ready())).toBeNull();
+    await rm(dir, { recursive: true, force: true });
+  });
   it('falls back to the recorded head once the branch is deleted', async () => {
     const { dir, g } = await repo();
     const head = await g('rev-parse', 'sc/nw-0001-t');
