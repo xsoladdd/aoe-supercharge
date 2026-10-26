@@ -12,6 +12,7 @@ import {
   WarningCircleIcon,
   XCircleIcon,
   FileIcon,
+  GitMergeIcon,
   FolderOpenIcon,
   PaperclipIcon,
   UploadSimpleIcon,
@@ -38,8 +39,10 @@ import {
   type SendResult,
   type SessionView,
   type Snapshot,
+  mrLabel,
   splitAttachments,
   withAttachments,
+  type MrState,
 } from '@aoe-supercharge/core/shared';
 import {
   lazy,
@@ -1035,6 +1038,7 @@ function ChatHeader({
   basePath,
   rcUrl,
   aoeOrigin,
+  mr,
   embedded,
   panel,
   onStartFresh,
@@ -1046,6 +1050,8 @@ function ChatHeader({
   basePath: string;
   rcUrl: string | null;
   aoeOrigin: string | null;
+  /** The worker's merge request, once it has one. */
+  mr: MrState | null;
   /** Inside the task page, which already shows the title. */
   embedded: boolean;
   /** Control chats: the side panel's show/hide switch. */
@@ -1123,6 +1129,14 @@ function ChatHeader({
               <a href={aoeOrigin} target="_blank" rel="noreferrer">
                 <ArrowSquareOutIcon />
                 Open in AoE
+              </a>
+            </DropdownMenuItem>
+          )}
+          {mr && (
+            <DropdownMenuItem asChild>
+              <a href={mr.url} target="_blank" rel="noreferrer">
+                <GitMergeIcon />
+                Open MR {mrLabel(mr)}
               </a>
             </DropdownMenuItem>
           )}
@@ -1319,6 +1333,7 @@ export function SessionChat({
           basePath={basePath}
           rcUrl={terminal.output?.rcUrl ?? null}
           aoeOrigin={snap.health.aoe.origin}
+          mr={snap.tasks.find((t) => t.aoeSessionId === session.id)?.mr ?? null}
           embedded={embedded}
           panel={
             role.kind === 'control' ? { open: panelOpen, toggle: () => setPanelOpen(!panelOpen) } : undefined

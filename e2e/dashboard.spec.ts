@@ -216,6 +216,19 @@ test.describe('overview', () => {
     expect(state.sent.some((s) => s.message === '/clear')).toBe(true);
   });
 
+  test("the chat menu opens the worker's merge request, only when it has one", async ({ signedIn: page }) => {
+    await page.goto('/p/northwind-web/t/NW-0001/chat');
+    await page.getByRole('button', { name: 'More session actions' }).click();
+    const item = page.getByRole('menuitem', { name: 'Open MR !41' });
+    await expect(item).toHaveAttribute('href', /merge_requests\/41$/);
+    await expect(item).toHaveAttribute('target', '_blank');
+    await page.keyboard.press('Escape');
+    await page.goto(`/chat/${await sessionId('flaky e2e triage')}`);
+    await page.getByRole('button', { name: 'More session actions' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Start fresh (/clear)…' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /^Open MR/ })).toHaveCount(0);
+  });
+
   test('typing / suggests commands and skills; Tab completes', async ({ signedIn: page }) => {
     await page.goto(`/chat/${await sessionId('flaky e2e triage')}`);
     const box = page.getByLabel(/^Message /);

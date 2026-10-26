@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
- 
+
 - **A live terminal in the chat.** The chat's **Terminal** view is now the session's own terminal, live and
   in colour, instead of a text copy that refreshed every 2 seconds. Every key goes straight in: arrows,
   Enter, Escape, Tab, Ctrl-C and paste. Keys typed there skip the message checks (no `prompt_sent` audit,
@@ -13,8 +13,6 @@
   or if it can't, the command is copied instead.
 - **Attach commands name the profile.** Every copied `aoe session attach` now has `-p <profile>`, so it
   attaches in the profile Supercharge manages.
-=======
- 
 - **Send interrupts by default while Claude works.** Send and Enter now stop Claude (Escape), then send;
   the caret beside Send offers **Send when Claude is done** and **Send now**. With a menu open or messages
   already held, and Claude not working, nothing changes: Send holds, and Escape is never pressed over a
@@ -23,7 +21,8 @@
 - **Status update.** Control chats get a **Status update** button next to Start fresh. It sends
   `Status update` through the normal send path, held (never interrupting) if the chat is busy, and is off
   while a send is in flight.
-=======
+- **Open the MR from a chat.** A worker's chat ⋯ menu has "Open MR !N" (or #N) once its task has a
+  merge request; it opens in a new tab, next to "Open in AoE".
 - **AoE 1.21.** The tested range is now AoE 1.17.2 to 1.21.x. The live contract passes on 1.18.0 and
   1.21.0, and `supercharge start` accepts them.
 - **Messages to archived sessions still go in.** Since AoE 1.18, AoE refuses to send to an archived or
@@ -38,7 +37,6 @@
   page.  
 
 ## 1.5.0 (2026-10-15)
-
 - **Images you send go in.** A message with an image used to sit unsent in Claude's input box until your
   next message pushed it through, glued to it (`[Image #3]Attached:[Image #4]…`). Claude Code turns a bare
   image path in a paste into an `[Image #N]` chip, reading the file after the paste, and AoE's Enter landed
@@ -57,7 +55,6 @@
   stuck like that is fixed by running `supercharge init` in its repository again.
 
 ## 1.4.0 (2026-10-09)
-
 - **Clean up finished workers, safely.** `supercharge task cleanup <task-id>` (and `--all-done`) removes a
   done worker's AoE session, worktree and branch, but only when its work is on `origin/main`: it fetches
   first, then accepts a branch that is an ancestor, one whose commits all have an equivalent patch there
@@ -133,9 +130,7 @@
   and warnings take the same shades, in light and dark.
 
 ## 1.3.0 (2026-10-08)
-
 The worker queues at your door, and planning moves to the kitchen.
-
 - **One line at your door per thing.** When a control chat lists something a worker asked you under
   NEEDS YOU, the worker waits at your door for it and the control chat no longer queues behind it. It
   stays at its desk on the phone, ringing, calling for that worker ("Calling for Aldric"); hover it to
@@ -157,9 +152,7 @@ The worker queues at your door, and planning moves to the kitchen.
   there. History replays it.
 
 ## 1.2.0 (2026-10-08)
-
 A whiteboard in every room, and fewer false alarms from the worker watch.
-
 - **A whiteboard in every room.** Each project's room in the office has its own whiteboard, standing
   against its left glass, half way down it, with that project's open todos and notes. Click it (or use
   the **Whiteboard** button on the team in the list, or `?focus=board:<project>`) to read it up close
@@ -170,9 +163,7 @@ A whiteboard in every room, and fewer false alarms from the worker watch.
 - **No runaway flag for control chats.** A control chat is no longer flagged as a runaway session.
 
 ## 1.1.0 (2026-10-08)
-
 The built-in worker watch, and `[WATCH]` notices shown as notices in chat.
-
 - **Worker watch.** Each project's control chat hears about its workers by itself: when a task's
   worker, or a session the control chat started with `aoe add -P`, asks a question, is done, waits on
   a permission prompt, errors or sits idle 15 minutes with nothing to report. One notice per event and
@@ -188,10 +179,8 @@ The built-in worker watch, and `[WATCH]` notices shown as notices in chat.
   but no longer clears it, so its lead stays in line at your door until you reply.
 
 ## 1.0.0 (2026-10-08)
-
 GitHub pull requests, MRs found by branch, merging without PRs, and new workers that start on
 their own.
-
 - **New workers start on their own.** Claude Code does nothing with a new worker until it gets a
   first message, and nothing sent one, so every new worker sat idle at an empty prompt. `task new`
   now sends a short kickoff once the session is at its prompt with no menu open (the trust dialog,
@@ -226,10 +215,8 @@ their own.
   since 0.4.0.
 
 ## 0.5.0 (2026-10-07)
-
 Office v2: rooms, errands, a review lounge, a cost meter, going home, day and night, and the office's
 history.
-
 - **A room for every project.** Each team works in its own room, behind low glass with a doorway in
   front and the project's name over it. People walk in and out through the doorway, never through the
   glass. The chips are made from your projects; one flies you to that room. Three projects with ten
@@ -278,9 +265,7 @@ history.
   version.
 
 ## 0.4.0 (2026-10-07)
-
 Notes and todos, for you and Claude, and a proper line at your door.
-
 - **`/note`, `/todo` and `/gnote`** in any Claude Code session. `/note` and `/todo` file under the
   project you're in (or the project of the control chat that started the session); `/gnote` is global.
   `/todo done <id>` ticks one off. They're installed with the other skills on `supercharge start`.
@@ -300,22 +285,18 @@ Notes and todos, for you and Claude, and a proper line at your door.
   your phone is for later (Google Keep's API can't tick or archive, so it would be Google Tasks).
 
 ## 0.3.7 (2026-10-07)
-
 - **A message you send from the chat shows once.** A message of several lines showed twice: once as
   Claude Code recorded it, wrapped in `<pasted_content>` tags, and once as the dashboard's own "Sent"
   or "Queued" copy, which never matched it. The chat now shows what you wrote, once.
 
 ## 0.3.6 (2026-10-07)
-
 - **Message a control chat from the office.** Pick a team's lead on the office floor and its card has a
   box to write to its control chat, ready to type in. Enter sends, Shift+Enter adds a line. It goes into
   the control chat like a message from its chat page, and is recorded in the audit log. At your door, the
   lead's list of things for you sits right above it, so you can answer without leaving the office.
 
 ## 0.3.5 (2026-10-07)
-
 Names for every worker, and the office in a window of its own.
-
 - **Workers your control chat starts through AoE get names** like the ones `supercharge task new` gives
   ("Conrad", "William"), the first time Supercharge sees them. The name shows in the office, the sidebar,
   the project page and the chat's breadcrumb, with the session's AoE title beside it. A name is never
@@ -326,9 +307,7 @@ Names for every worker, and the office in a window of its own.
   dashboard window.
 
 ## 0.3.4 (2026-10-07)
-
 Run a command in your control chat's own terminal.
-
 - **Run in terminal.** A command your control chat asks you to run (a `bash` block, or `` `! command` ``
   in its text, which now gets a Run button too) can run in the control chat's own shell instead of
   through Claude: the dialog offers Run in chat or Run in terminal. The terminal opens in the side panel's
@@ -339,7 +318,6 @@ Run a command in your control chat's own terminal.
   in Needs you and notifies you; only what it actually asks of you (its NEEDS YOU list) puts it in line.
 
 ## 0.3.3 (2026-10-07)
-
 - **Workers your control chat starts through AoE are in the office.** A session started with
   `aoe add -P <control>` instead of `supercharge task new` takes a free desk in its project's team, and
   goes to the pantry, your door or away as its session does. Waiting on a menu, it can be answered from
@@ -349,9 +327,7 @@ Run a command in your control chat's own terminal.
   "NEEDS YOU". At your door, its card lists them, blockers marked.
 
 ## 0.3.2 (2026-10-07)
-
 What your control chat says needs you puts it in line at your door.
-
 - **A control chat's NEEDS YOU list counts.** When a control chat's latest reply has a `🔴 NEEDS YOU`
   section, each item shows in Needs you, and the control chat waits in line at your door in the office,
   with how many things it has for you. It leaves the line once a reply has nothing under NEEDS YOU. An
@@ -365,9 +341,7 @@ What your control chat says needs you puts it in line at your door.
   already running. It waits for launchd to unload the old daemon before loading the new one.
 
 ## 0.3.1 (2026-10-07)
-
 Claude's questions one at a time, and the sessions a control chat starts on its own.
-
 - **Previous and Next on Claude's questions.** When Claude asks several questions in one go, the card
   shows them one at a time, the way Claude's terminal does, with a chip per question that marks it
   answered. Enter moves to the next question, and the last one sends. Sending with a question unanswered
@@ -380,9 +354,7 @@ Claude's questions one at a time, and the sessions a control chat starts on its 
   the control chat.
 
 ## 0.3.0 (2026-10-07)
-
 The office floor, commands you can run from the chat, and control chats that stay on Opus.
-
 - Right-click menu on sessions and workers (open, pin, lock, mark read, stop or start, archive, delete),
   with Ctrl/⌘ and Shift to select several. A worker whose AoE session is trashed or deleted leaves the
   lists, and comes back if the session is restored.
@@ -429,9 +401,7 @@ The office floor, commands you can run from the chat, and control chats that sta
   merge), and `npm run demo:open` opens the running demo signed in.
 
 ## 0.2.1 (2026-10-06)
-
 Spend less of your Claude plan limits.
-
 - The control chat picks a model per worker: `supercharge task new --model sonnet` for well-scoped work
   (bug fixes with a clear repro, CI and review follow-ups, tests, docs), `--model opus` for the harder
   work. `--effort` and `opusplan` (Opus plans, Sonnet builds) work too; the task page shows what a worker
@@ -450,51 +420,37 @@ Spend less of your Claude plan limits.
 - The "needs you" sound plays once per item instead of every time an item drops out and comes back.
 
 ## 0.2.0 (2026-10-05)
-
 The dashboard becomes the place you work from: chats rendered like Claude, answers to whatever a worker is
 waiting on, and a control chat that manages its workers.
-
 ### Chats
-
 - Every session opens as a full-page chat rendered from Claude Code's transcript: markdown, tables,
   highlighted code with copy, folded tool calls. The raw terminal is one click away.
 - Paste, drop or pick files. Images open in a mark-up editor (circle, box, arrow, pen) before they are sent;
   attachments are stored outside the repository and sent as paths Claude opens.
 - Under the message box: model and effort (switch with `/model`, `/effort`, after a warning that Claude
   Code also saves them as defaults), a context meter, and a working clock.
-
 ### Answering workers
-
 - Plan approvals, permission prompts and Claude's own multiple-choice questions show as answer cards
   (task page, chat, and the control chat). Messages are refused while a menu is open, so a typed Enter can
   never approve a plan by accident.
 - `supercharge ask --option` gives clickable answers.
 - Select text in a plan to comment; comments go to the worker in one message (as "Tell Claude what to
   change" while the plan waits).
-
 ### Control chat
-
 - A side panel: what needs you in the project (with a sound and a pulse when something new arrives), the
   active plans, your comments, and notes.
 - Workers' questions are asked right in the control chat.
-
 ### Projects and tasks
-
 - Each task is a page with Overview, Chat and Plan tabs.
 - Adopt an existing AoE parent session and its children as a project; Add a project from the sidebar.
 - Delete a project from its settings (optionally with its AoE sessions, worktrees and branches).
 - Model and effort defaults for new sessions; `--add-dir` for the uploads folder.
-
 ### Look and feel
-
 - Compact chat, task page and sidebar; an interface size setting (Small to Larger).
-
 ### Fixes
-
 - The control chat no longer goes blank after answering (a clipped container was being scrolled).
 - Project-page links no longer double their path; the sidebar status icon is no longer clipped.
 
 ## 0.1.0 (2026-10-05)
-
 First release: control chats and workers on top of AoE, the stage machine, GitLab MR watching, the
 dashboard, and the launchd/systemd service.
