@@ -59,7 +59,14 @@ import { toast } from 'sonner';
 import { Link, useLocation, useSearch } from 'wouter';
 import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
 import { AnnotateDialog } from '@/components/chat/annotate';
-import { AttachmentChips, isImage, PathDialog, uploads, useUploads } from '@/components/chat/attachments';
+import {
+  AttachmentChips,
+  isImage,
+  type Caret,
+  PathDialog,
+  uploads,
+  useUploads,
+} from '@/components/chat/attachments';
 import { ContextMeter } from '@/components/chat/context-meter';
 import { HeldBubbles } from '@/components/chat/held';
 import { ChatMarkdown } from '@/components/chat/markdown';
@@ -571,7 +578,7 @@ function ChatComposer({
   // Files live in the session's draft (uploaded as they are added), so they outlive this composer.
   const [draft] = useDraft(sessionId);
   const uploading = useUploads(sessionId);
-  const [editing, setEditing] = useState<File[]>([]);
+  const [editing, setEditing] = useState<{ file: File; caret: Caret }[]>([]);
   const [dragging, setDragging] = useState(false);
   const [askPath, setAskPath] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
@@ -587,9 +594,15 @@ function ChatComposer({
 
   const take = (list: FileList | File[]) => {
     const all = [...list];
+    // Their paths go where the caret was (the end when the box wasn't focused), one after the other.
+    const el = inputRef.current;
+    const caret: Caret = {
+      at: el && document.activeElement === el ? el.selectionStart : value.length,
+      turn: Promise.resolve(),
+    };
     const images = all.filter(isImage);
-    for (const f of all.filter((f) => !isImage(f))) uploads.add(sessionId, f, f.name || 'file');
-    if (images.length) setEditing((q) => [...q, ...images]);
+    for (const f of all.filter((f) => !isImage(f))) uploads.add(sessionId, f, f.name || 'file', caret);
+    if (images.length) setEditing((q) => [...q, ...images.map((file) => ({ file, caret }))]);
     setError(null);
   };
 
@@ -624,7 +637,6 @@ function ChatComposer({
   /** Send the box and every attachment as one message. Enter and Send interrupt while Claude works. */
   const deliver = async (text: string, mode: SendMode = working ? 'interrupt' : 'hold') => {
     if (sending) return false;
-    const typed = value;
     setSending(true);
     setError(null);
     try {
@@ -633,6 +645,8 @@ function ChatComposer({
         return false;
       }
       const files = drafts.get(sessionId).files;
+      // Paths the uploads just wrote into the box are in the draft, not in what was typed when Send was hit.
+      if (text === value) text = drafts.get(sessionId).text;
       if (!text.trim() && !files.length) {
         setError('Write a message first.');
         inputRef.current?.focus();
@@ -647,7 +661,7 @@ function ChatComposer({
         mode,
         files.filter((f) => f.image && f.url).map((f) => f.url!),
       );
-      drafts.update(sessionId, (d) => clearSent(d, { text: typed, paths: files.map((f) => f.path) }));
+      drafts.update(sessionId, (d) => clearSent(d, { text, paths: files.map((f) => f.path) }));
       return true;
     } catch (e) {
       setError(
@@ -797,11 +811,11 @@ function ChatComposer({
         </p>
       )}
       <AnnotateDialog
-        image={editing[0] ?? null}
+        image={editing[0]?.file ?? null}
         initialText={value}
         onClose={() => setEditing((q) => q.slice(1))}
         onAttach={(png, text) => {
-          uploads.add(sessionId, png, 'screenshot.png');
+          uploads.add(sessionId, png, 'screenshot.png', editing[0]?.caret);
           onChange(text);
           setEditing((q) => q.slice(1));
         }}

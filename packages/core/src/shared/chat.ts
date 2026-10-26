@@ -259,8 +259,35 @@ export function contextInfo(
  */
 export const ATTACHMENT_LINE = /^Attached: (?:`(\/[^`]+)`|(\/\S+))$/;
 
+/** A path as it reads in the message: in backticks, same as in an `Attached:` line. */
+export const quotedPath = (p: string) => `\`${p}\``;
+
+/**
+ * Put a file's path into the box at the caret, with a space either side unless there is one already (or
+ * the text ends there). `end` is where the next path of the same drop goes.
+ */
+export function insertPath(text: string, at: number, path: string): { text: string; end: number } {
+  const i = Math.min(Math.max(at, 0), text.length);
+  const before = i > 0 && !/\s/.test(text[i - 1]!) ? ' ' : '';
+  const after = i < text.length && !/\s/.test(text[i]!) ? ' ' : '';
+  const put = before + quotedPath(path) + after;
+  return { text: text.slice(0, i) + put + text.slice(i), end: i + before.length + quotedPath(path).length };
+}
+
+/** Take a path back out of the text (with one space beside it); the text as it was when it isn't there. */
+export function removePath(text: string, path: string): string {
+  const q = quotedPath(path);
+  const i = text.indexOf(q);
+  if (i < 0) return text;
+  const end = i + q.length;
+  if (text[end] === ' ') return text.slice(0, i) + text.slice(end + 1);
+  if (text[i - 1] === ' ') return text.slice(0, i - 1) + text.slice(end);
+  return text.slice(0, i) + text.slice(end);
+}
+
+/** Paths already written in the text are not appended again. */
 export function withAttachments(text: string, paths: string[]): string {
-  const lines = paths.map((p) => `Attached: \`${p}\``);
+  const lines = paths.filter((p) => !text.includes(quotedPath(p))).map((p) => `Attached: ${quotedPath(p)}`);
   return [text.trim(), lines.join('\n')].filter(Boolean).join('\n\n');
 }
 

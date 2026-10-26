@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.7.0 (2026-10-26)
+
+- **A dropped file's path goes into the message box.** When you drop, paste or pick a file in a chat, its
+  local path appears in the box at the caret (the end if the box wasn't focused) once it has uploaded, so
+  you can write around it, like Claude Code in the terminal. Several files go in order; images after the
+  mark-up editor. The chips stay for progress and previews, and removing one also removes its path from the
+  text if it is still there. On send, a path already in the text is not appended again; one you deleted
+  from the text but kept the chip for is still appended as before. A failed upload inserts nothing.
+
 ## 1.6.1 (2026-10-26)
 
 - **Copy button after links in the chat.** Every link in a chat message has a small copy button right
