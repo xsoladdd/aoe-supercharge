@@ -161,7 +161,9 @@ test.describe('overview', () => {
   });
 
   test('the play buttons open a terminal tab attached to the chat', async ({ signedIn: page }) => {
-    const id = await sessionId('northwind-web control');
+    // Not a control chat: opening one marks its reply read, which the tests above look for on every engine.
+    const id = await sessionId('flaky e2e triage');
+    const worker = await sessionId('NW-0001');
     const opened = () => {
       try {
         return readFileSync(join(world().home, 'osascript.log'), 'utf8');
@@ -176,14 +178,14 @@ test.describe('overview', () => {
       await expect(page.getByText(/^Opened in (iTerm2|Terminal)$/)).toBeVisible();
       await expect.poll(opened).toContain(`"aoe session attach -p main ${id}"`);
     } else await expect(page.getByText(/attach command|Could not open/).first()).toBeVisible();
-    const play = page.getByRole('button', { name: 'Attach northwind-web control chat in a terminal' });
+    const play = page.getByRole('button', { name: 'Attach Build page templates in a terminal' });
     // It shows over the row's icon while you point at the row.
     await play.locator('..').hover();
     await expect(play).toBeVisible();
     await axe(page, 'sidebar play button');
     await play.click();
     if (process.platform === 'darwin')
-      await expect.poll(() => opened().split(`"aoe session attach -p main ${id}"`).length).toBeGreaterThan(2);
+      await expect.poll(opened).toContain(`"aoe session attach -p main ${worker}"`);
   });
 
   test('the sidebar shows your 5-hour and weekly usage and how many workers may run', async ({
