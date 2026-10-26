@@ -173,6 +173,13 @@ function inScope(s: FakeSession, scope: string | undefined): boolean {
   return true;
 }
 
+/** AoE 1.18+'s 409 body for a session that will not take input or start, or null. */
+function shelved(s: FakeSession) {
+  if (s.trashed_at) return { error: 'session_trashed', message: 'Session is in the trash' };
+  if (s.archived_at) return { error: 'session_archived', message: 'Session is archived' };
+  return null;
+}
+
 /** REST shape: AoE 1.17.2 omits the parent link from SessionResponse. */
 function toRest(s: FakeSession) {
   const {
@@ -432,6 +439,8 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     const id = c.req.param('id');
     if (!state.sessions.some((s) => s.id === id))
       return c.json({ error: 'not_found', message: 'No such session' }, 404);
+    const refused = shelved(state.sessions.find((s) => s.id === id)!);
+    if (refused) return c.json(refused, 409);
     const { message } = (await c.req.json()) as { message: string };
     state.sent.push({ id, message, at: new Date().toISOString() });
     const s = state.sessions.find((x) => x.id === id)!;
@@ -465,7 +474,8 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
       content: lines.join('\n'),
     });
   });
-  // Lifecycle, as AoE 1.17.2 does it (src/server/api/sessions/lifecycle.rs, ensure.rs).
+  // Lifecycle, as AoE does it (src/server/api/sessions/lifecycle.rs, ensure.rs); start and ensure
+  // refuse archived and trashed sessions like send (AoE 1.18+).
   const lifecycle = (
     method: 'patch' | 'post',
     action: string,
@@ -474,6 +484,8 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     app[method](`/api/sessions/:id/${action}`, async (c) => {
       const s = state.sessions.find((x) => x.id === c.req.param('id'));
       if (!s) return c.json({ error: 'not_found', message: 'Session not found' }, 404);
+      const refused = (action === 'start' || action === 'ensure') && shelved(s);
+      if (refused) return c.json(refused, 409);
       const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
       const out = apply(s, body);
       return c.json(out ?? toRest(s));

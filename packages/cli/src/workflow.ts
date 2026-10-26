@@ -37,7 +37,7 @@ import type { AoeCliListEntry } from './aoe/schemas.ts';
 import { VERSION, type Ctx } from './context.ts';
 import { mrProviders, toMrState } from './mr/index.ts';
 import { installUserSkills, readTemplate, render, SKILL_NAMES, upsertManagedBlock } from './skills.ts';
-import { TerminalBusyError } from './aoe/client.ts';
+import { AoeError, TerminalBusyError } from './aoe/client.ts';
 import { menuOnScreen } from './prompt.ts';
 import { uploadArgs } from './uploads.ts';
 import { transcriptStore, type TranscriptStore } from './transcript.ts';
@@ -882,7 +882,7 @@ export async function sessionAction(
       await aoe.stopSession(id);
       break;
     case 'start':
-      await aoe.startSession(id);
+      await unarchiving(ctx, id, () => aoe.startSession(id));
       break;
     case 'archive':
       await aoe.setArchived(id, true);
@@ -1557,11 +1557,34 @@ export class MenuOpenError extends CliError {
 /** The menu someone tried to answer is no longer the one on screen. */
 export class PromptChangedError extends CliError {}
 
+/**
+ * AoE 1.18+ refuses `/send` and `/start` on an archived or trashed session (409); 1.17 unarchived it on
+ * send. So unarchive and try once more, as sending always did; a trashed session has to be restored first.
+ */
+export async function unarchiving<T>(ctx: Ctx, sessionId: string, call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (err) {
+    if (!(err instanceof AoeError) || err.status !== 409) throw err;
+    if (err.code === 'session_trashed')
+      throw new CliError(
+        'This session is in the trash, so nothing was sent.',
+        EXIT.usage,
+        'Restore it from the trash first.',
+      );
+    if (err.code !== 'session_archived') throw err;
+    await ctx.aoe.setArchived(sessionId, false);
+    return call();
+  }
+}
+
 /** REST first, the CLI as fallback (SPEC §8.4). Tells `ctx.onTyped`, even on failure: it may have typed. */
 async function deliver(ctx: Ctx, sessionId: string, text: string) {
   try {
-    await ctx.aoe.send(sessionId, text);
+    await unarchiving(ctx, sessionId, () => ctx.aoe.send(sessionId, text));
   } catch (err) {
+    // A trashed session: `aoe send` refuses it too.
+    if (err instanceof CliError) throw err;
     const r = await ctx.aoeCli.send(sessionId, text);
     if (r.code !== 0) throw new CliError(`Could not deliver the message: ${(err as Error).message}`);
   } finally {

@@ -1,0 +1,40 @@
+  ⎿  User rejected Claude's plan:
+     ╭──────────────────────────╮
+     │ Plan                     │
+     │                          │
+     │ 1. Do the thing.         │
+     │ 2. Test it.              │
+     ╰──────────────────────────╯
+
+✻ Brewed for 0s · done 1:51 PM
+
+❯ please PLANFILE now
+
+⏺ Updated plan
+  ⎿  /plan to preview
+
+⏺ Done.
+
+✻ Churned for 0s · done 1:51 PM
+
+❯ please PLAN now
+  ⎿  User rejected Claude's plan:
+     ╭──────────────────────────╮
+     │ Rename the widget        │
+     │                          │
+     │ 1. Rename it.            │
+     │ 2. Run the tests.        │
+     ╰──────────────────────────╯
+
+✻ Worked for 0s · done 1:51 PM
+
+
+    + README.md
+    + .git/
+    * claude (agent) – Catch-all for any task that doesn't fit a more specific age…
+    * claude-code-guide (agent) – Use this agent when the user asks questions ("Can Claude...…
+    * Explore (agent) – Fast read-only search agent for locating code. Use it to fi…
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯ ook at @
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  ⏵⏵ auto mode on (shift+tab to cycle)

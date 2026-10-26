@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- **AoE 1.21.** The tested range is now AoE 1.17.2 to 1.21.x. The live contract passes on 1.18.0 and
+  1.21.0, and `supercharge start` accepts them.
+- **Messages to archived sessions still go in.** Since AoE 1.18, AoE refuses to send to an archived or
+  trashed session (and to start one), where it used to unarchive it, so you saw "Could not deliver the
+  message". Supercharge now unarchives the session and sends again. A session in the trash says to restore
+  it first instead.
+- **`doctor` on a fresh AoE 1.19+** says to run `aoe hooks approve` when AoE has not been allowed to write
+  agent hooks yet (older AoE: run `aoe` once, as before).
+- **Claude Code 2.1.308 prompts** (command between dashed lines, stacked "1 of 2" prompts, `/` and `@`
+  lists) are read as before; real screens are kept as test fixtures.
+- **Cost meter:** Sonnet 5.5 cache reads are $0.10 per million tokens (was $0.20), per Anthropic's pricing
+  page.
+
 ## 1.5.0 (2026-10-15)
 
 - **Images you send go in.** A message with an image used to sit unsent in Claude's input box until your

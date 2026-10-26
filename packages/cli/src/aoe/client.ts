@@ -23,6 +23,8 @@ export class AoeError extends Error {
     message: string,
     public kind: AoeErrorKind,
     public status?: number,
+    /** AoE's `error` field, e.g. `session_archived`. */
+    public code?: string,
   ) {
     super(message);
   }
@@ -100,6 +102,7 @@ export class AoeClient {
         `${method} ${path} failed (${res.status}): ${msg ?? 'unknown error'}`,
         'http',
         res.status,
+        (json as { error?: string })?.error,
       );
     }
     const parsed = schema.safeParse(json);
@@ -229,7 +232,7 @@ export class AoeClient {
     return this.lifecycle('PATCH', id, 'archive', { archived, kill_pane: true });
   }
 
-  /** Into AoE's trash: restorable until AoE purges it (session.trash_retention_days, 30 by default). */
+  /** Into AoE's trash: restorable until AoE purges it (session.trash_retention_minutes). */
   trashSession(id: string) {
     return this.lifecycle('POST', id, 'trash', { kill_pane: true });
   }
