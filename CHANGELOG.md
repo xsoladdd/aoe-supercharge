@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **Send interrupts by default while Claude works.** Send and Enter now stop Claude (Escape), then send;
+  the caret beside Send offers **Send when Claude is done** and **Send now**. With a menu open or messages
+  already held, and Claude not working, nothing changes: Send holds, and Escape is never pressed over a
+  menu. The daemon also holds an `interrupt` that arrives after Claude has stopped, rather than typing it
+  ahead of held messages.
+- **Status update.** Control chats get a **Status update** button next to Start fresh. It sends
+  `Status update` through the normal send path, held (never interrupting) if the chat is busy, and is off
+  while a send is in flight.
+
 ## 1.5.0 (2026-10-15)
 
 - **Images you send go in.** A message with an image used to sit unsent in Claude's input box until your

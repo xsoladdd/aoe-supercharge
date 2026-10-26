@@ -1,10 +1,4 @@
-import {
-  ArrowUpIcon,
-  CaretUpIcon,
-  CircleNotchIcon,
-  LightningIcon,
-  StopCircleIcon,
-} from '@phosphor-icons/react';
+import { ArrowUpIcon, CaretUpIcon, CircleNotchIcon, ClockIcon, LightningIcon } from '@phosphor-icons/react';
 import type { SendMode } from '@aoe-supercharge/core/shared';
 import {
   DropdownMenu,
@@ -15,8 +9,9 @@ import {
 import { cn } from '@/lib/utils';
 
 /**
- * The composer's send button. While Claude is busy (or a menu is open, or messages wait already) Send
- * holds the message until Claude is done; the caret beside it sends now instead, or stops Claude first.
+ * The composer's send button. While Claude works, Send stops Claude (Esc) and sends; the caret beside it
+ * holds the message until Claude is done, or sends it now. With a menu open or messages waiting already
+ * (Claude not working) Send holds the message, and the caret sends now.
  */
 export function SendButton({
   sending,
@@ -30,11 +25,17 @@ export function SendButton({
   empty: boolean;
   /** Send would hold the message rather than type it now. */
   wouldHold: boolean;
-  /** Claude is in a turn, so Interrupt can stop it. */
+  /** Claude is in a turn: Send interrupts it. */
   working: boolean;
   onSend: (mode: SendMode) => void;
 }) {
-  const label = sending ? 'Sending' : wouldHold ? 'Send when Claude is done' : 'Send message';
+  const label = sending
+    ? 'Sending'
+    : working
+      ? 'Interrupt and send'
+      : wouldHold
+        ? 'Send when Claude is done'
+        : 'Send message';
   return (
     <span className="flex shrink-0 items-center gap-0.5">
       {wouldHold && (
@@ -48,6 +49,19 @@ export function SendButton({
             <CaretUpIcon weight="bold" className="size-3.5" aria-hidden />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" side="top" className="w-72">
+            {working && (
+              <DropdownMenuItem
+                disabled={empty}
+                onSelect={() => onSend('hold')}
+                className="items-start py-1.5"
+              >
+                <ClockIcon className="mt-0.5" aria-hidden />
+                <span className="flex flex-col">
+                  <span className="font-medium">Send when Claude is done</span>
+                  <span className="text-xs text-muted-foreground">Held here until the turn ends.</span>
+                </span>
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem disabled={empty} onSelect={() => onSend('now')} className="items-start py-1.5">
               <LightningIcon className="mt-0.5" aria-hidden />
               <span className="flex flex-col">
@@ -55,19 +69,6 @@ export function SendButton({
                 <span className="text-xs text-muted-foreground">Claude reads it during this turn.</span>
               </span>
             </DropdownMenuItem>
-            {working && (
-              <DropdownMenuItem
-                disabled={empty}
-                onSelect={() => onSend('interrupt')}
-                className="items-start py-1.5"
-              >
-                <StopCircleIcon className="mt-0.5" aria-hidden />
-                <span className="flex flex-col">
-                  <span className="font-medium">Interrupt and send</span>
-                  <span className="text-xs text-muted-foreground">Stops Claude (Esc), then sends.</span>
-                </span>
-              </DropdownMenuItem>
-            )}
           </DropdownMenuContent>
         </DropdownMenu>
       )}
@@ -75,9 +76,11 @@ export function SendButton({
         type="submit"
         aria-label={label}
         title={
-          wouldHold
-            ? 'Send when Claude is done: held here until then, and you can still edit or cancel it. Every message is recorded in the audit log.'
-            : 'Send. Every message is recorded in the audit log.'
+          working
+            ? 'Interrupt and send: stops Claude (Esc), then sends. The caret holds it until Claude is done instead. Every message is recorded in the audit log.'
+            : wouldHold
+              ? 'Send when Claude is done: held here until then, and you can still edit or cancel it. Every message is recorded in the audit log.'
+              : 'Send. Every message is recorded in the audit log.'
         }
         aria-disabled={sending || undefined}
         className={cn(

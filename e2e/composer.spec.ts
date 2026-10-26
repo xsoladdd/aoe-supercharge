@@ -25,7 +25,7 @@ async function openChat(page: Page, id: string, title: string) {
 }
 
 test.describe('chat composer', () => {
-  test('while Claude works, Send holds the message: it survives a reload, can be edited or cancelled, and goes once Claude is done', async ({
+  test('while Claude works, "Send when Claude is done" holds the message: it survives a reload, can be edited or cancelled, and goes once Claude is done', async ({
     signedIn: page,
     browserName,
   }) => {
@@ -36,8 +36,12 @@ test.describe('chat composer', () => {
       const box = page.getByLabel(/^Message /);
       const message = `Use the staging database (${browserName})`;
       await box.fill(message);
-      await expect(page.getByRole('button', { name: 'Send when Claude is done' })).toBeVisible();
-      await box.press('Enter');
+      await expect(page.getByRole('button', { name: 'Interrupt and send' })).toBeVisible();
+      const sendHeld = async () => {
+        await page.getByRole('button', { name: 'More ways to send' }).click();
+        await page.getByRole('menuitem', { name: /Send when Claude is done/ }).click();
+      };
+      await sendHeld();
       const held = page.getByRole('list', { name: 'Held messages' });
       await expect(held.getByText(message)).toBeVisible();
       await expect(held.getByText('Held. Sends when Claude is done')).toBeVisible();
@@ -59,7 +63,7 @@ test.describe('chat composer', () => {
       await expect(box).toHaveValue(message);
       await expect(held).toHaveCount(0);
       await box.fill(`${message}, not production`);
-      await box.press('Enter');
+      await sendHeld();
       await expect(held.getByText(`${message}, not production`)).toBeVisible();
 
       await setStatus(id, 'Idle');
@@ -71,7 +75,10 @@ test.describe('chat composer', () => {
     }
   });
 
-  test('the menu beside Send sends now, or stops Claude first', async ({ signedIn: page, browserName }) => {
+  test('Send and Enter stop Claude first while it works; the menu beside Send sends now', async ({
+    signedIn: page,
+    browserName,
+  }) => {
     const title = `menu ${browserName}`;
     const id = await newSession(title, 'Running');
     try {
@@ -88,8 +95,8 @@ test.describe('chat composer', () => {
 
       const keysBefore = ((await fake('/__fake/state')) as { keys: unknown[] }).keys.length;
       await box.fill(`Stop: wrong file (${browserName})`);
-      await page.getByRole('button', { name: 'More ways to send' }).click();
-      await page.getByRole('menuitem', { name: /Interrupt and send/ }).click();
+      await expect(page.getByRole('button', { name: 'Interrupt and send' })).toBeVisible();
+      await box.press('Enter');
       await expect.poll(() => sentTo(id), { timeout: 15_000 }).toContain(`Stop: wrong file (${browserName})`);
       const keys = ((await fake('/__fake/state')) as { keys: { id: string; hex: string }[] }).keys.slice(
         keysBefore,
@@ -101,6 +108,50 @@ test.describe('chat composer', () => {
       });
     } finally {
       await removeSession(id);
+    }
+  });
+
+  test('with Claude not working Enter never presses Escape; an open menu hides the composer', async ({
+    signedIn: page,
+    browserName,
+  }) => {
+    const title = `idle ${browserName}`;
+    const id = await newSession(title, 'Idle');
+    try {
+      await openChat(page, id, title);
+      const box = page.getByLabel(/^Message /);
+      const message = `Go ahead (${browserName})`;
+      await box.fill(message);
+      await expect(page.getByRole('button', { name: 'Send message' })).toBeVisible();
+      const keysBefore = ((await fake('/__fake/state')) as { keys: unknown[] }).keys.length;
+      await box.press('Enter');
+      await expect.poll(() => sentTo(id)).toContain(message);
+      const { keys } = (await fake('/__fake/state')) as { keys: { id: string }[] };
+      expect(keys.slice(keysBefore).filter((k) => k.id === id)).toEqual([]);
+
+      // A menu on screen swaps the box for its prompt card, so Enter can't reach Escape there either.
+      await fake(`/__fake/sessions/${id}/permission`, { method: 'POST', body: '{}' });
+      await expect(box).toHaveCount(0, { timeout: 15_000 });
+    } finally {
+      await removeSession(id);
+    }
+  });
+
+  test('Status update shows on a control chat only, and sends the message', async ({ signedIn: page }) => {
+    const sessions = ((await fake('/__fake/state')) as { sessions: { id: string; title: string }[] })
+      .sessions;
+    const control = sessions.find((s) => s.title === 'northwind-web control')!;
+    const other = await newSession('not a control chat', 'Idle');
+    try {
+      await openChat(page, other, 'not a control chat');
+      await expect(page.getByRole('button', { name: 'Status update' })).toHaveCount(0);
+
+      await setStatus(control.id, 'Idle');
+      await openChat(page, control.id, control.title);
+      await page.getByRole('button', { name: 'Status update' }).click();
+      await expect.poll(() => sentTo(control.id)).toContain('Status update');
+    } finally {
+      await removeSession(other);
     }
   });
 
