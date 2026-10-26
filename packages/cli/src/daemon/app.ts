@@ -758,7 +758,8 @@ export function createApp(deps: AppDeps) {
         }
       }
       // Busy, a menu open, others already waiting, or no status read since the last typing: hold it.
-      if (mode === 'hold' && held) {
+      // An interrupt for a session that is no longer working lands here too: nothing to stop.
+      if (mode !== 'now' && held) {
         const release =
           held.has(id) || session.status === 'working' || session.prompt ? null : store.claimTyping(id);
         if (!release) return c.json({ held: await held.hold(id, message) } satisfies SendResult);
