@@ -7,6 +7,8 @@ import {
   parseTerminalMenu,
   prettyModel,
   splitAttachments,
+  insertPath,
+  removePath,
   withAttachments,
   contextWindow,
   promptDetail,
@@ -271,6 +273,37 @@ describe('attachments ride in the message as paths', () => {
       { path: '/tmp/notes.txt', name: 'notes.txt', url: null, image: false },
     ]);
     expect(withAttachments('', ['/a.png'])).toBe('Attached: `/a.png`');
+  });
+
+  it('does not append a path that is already written in the text', () => {
+    expect(withAttachments('See `/a.png` please', ['/a.png', '/b.txt'])).toBe(
+      'See `/a.png` please\n\nAttached: `/b.txt`',
+    );
+    expect(withAttachments('See `/a.png`', ['/a.png'])).toBe('See `/a.png`');
+    // deleted from the text, chip kept: still appended
+    expect(withAttachments('See', ['/a.png'])).toBe('See\n\nAttached: `/a.png`');
+  });
+
+  it('inserts a path at the caret with a space either side as needed', () => {
+    expect(insertPath('', 0, '/a')).toEqual({ text: '`/a`', end: 4 });
+    expect(insertPath('look at ', 8, '/a')).toEqual({ text: 'look at `/a`', end: 12 });
+    expect(insertPath('look at', 7, '/a')).toEqual({ text: 'look at `/a`', end: 12 });
+    expect(insertPath('lookat', 4, '/a')).toEqual({ text: 'look `/a` at', end: 9 });
+    expect(insertPath('a\nb', 2, '/a')).toEqual({ text: 'a\n`/a` b', end: 6 });
+    expect(insertPath('hi', 99, '/a').text).toBe('hi `/a`');
+    expect(insertPath('hi', -5, '/a').text).toBe('`/a` hi');
+    // several files: each goes after the last one
+    const one = insertPath('x y', 2, '/a');
+    expect(insertPath(one.text, one.end, '/b').text).toBe('x `/a` `/b` y');
+  });
+
+  it('takes a path back out of the text, if it is still there', () => {
+    expect(removePath('look `/a` here', '/a')).toBe('look here');
+    expect(removePath('`/a` here', '/a')).toBe('here');
+    expect(removePath('look `/a`', '/a')).toBe('look');
+    expect(removePath('look `/a`!', '/a')).toBe('look!');
+    expect(removePath('look `/a/b` here', '/a')).toBe('look `/a/b` here');
+    expect(removePath('look here', '/a')).toBe('look here');
   });
 
   it('reads folders and paths with spaces, and the bare paths older messages have', () => {

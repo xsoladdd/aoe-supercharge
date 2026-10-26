@@ -1,6 +1,6 @@
 import { CircleNotchIcon, FileIcon, WarningCircleIcon, XIcon } from '@phosphor-icons/react';
 import { useId, useState, useSyncExternalStore } from 'react';
-import type { Attachment } from '@aoe-supercharge/core/shared';
+import { insertPath, removePath, type Attachment } from '@aoe-supercharge/core/shared';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -32,6 +32,15 @@ interface Upload {
 const NONE: Upload[] = [];
 
 /**
+ * Where the paths of one drop, paste or pick go in the box: at `at`, one after the other (`turn` is the
+ * last file's upload, so they land in the order they were added).
+ */
+export interface Caret {
+  at: number;
+  turn: Promise<void>;
+}
+
+/**
  * Uploads by session. A file uploads as soon as you add it; once the daemon has it, it lands in the
  * draft of the session it was added to (even if you have switched chats since) as a path, which is
  * what gets sent. Outlives the composer, which unmounts whenever you switch chats.
@@ -44,7 +53,7 @@ class Uploads {
 
   of = (sessionId: string): Upload[] => this.bySession.get(sessionId) ?? NONE;
 
-  add(sessionId: string, blob: Blob, name: string) {
+  add(sessionId: string, blob: Blob, name: string, caret?: Caret) {
     const key = ++this.seq;
     const u: Upload = {
       key,
@@ -54,19 +63,29 @@ class Uploads {
       error: null,
       done: Promise.resolve(),
     };
+    const prev = caret?.turn ?? Promise.resolve();
     u.done = uploadFile(sessionId, blob, name).then(
-      (saved) => {
+      async (saved) => {
+        await prev;
+        // Its chip was removed while it uploaded: it is not wanted any more.
+        if (!this.all.some((x) => x.key === key)) return;
         const file: Attachment = {
           path: saved.path,
           name,
           url: saved.url,
           image: IMAGE_FILE.test(saved.file),
         };
-        drafts.update(sessionId, (d) => ({ ...d, files: [...d.files, file] }));
+        drafts.update(sessionId, (d) => {
+          if (!caret) return { ...d, files: [...d.files, file] };
+          const put = insertPath(d.text, caret.at, file.path);
+          caret.at = put.end;
+          return { text: put.text, files: [...d.files, file] };
+        });
         this.drop(key);
       },
       (e: unknown) => this.patch(key, { error: e instanceof ApiError ? e.message : 'Could not upload it.' }),
     );
+    if (caret) caret.turn = u.done;
     this.all = [...this.all, u];
     this.emit();
   }
@@ -124,7 +143,10 @@ export function AttachmentChips({ sessionId, files }: { sessionId: string; files
   const pending = useUploads(sessionId);
   if (!files.length && !pending.length) return null;
   const removeFile = (f: Attachment) =>
-    drafts.update(sessionId, (d) => ({ ...d, files: d.files.filter((x) => x.path !== f.path) }));
+    drafts.update(sessionId, (d) => ({
+      text: removePath(d.text, f.path),
+      files: d.files.filter((x) => x.path !== f.path),
+    }));
   return (
     <ul aria-label="Attachments" className="flex flex-wrap gap-2 px-3 pt-3">
       {files.map((f) => (
