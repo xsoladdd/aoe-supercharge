@@ -26,6 +26,7 @@ import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
 import { CleanupTaskButton } from '@/components/cleanup-task';
 import { CommentablePlan, CommentList, useComments } from '@/components/plan-comments';
 import { CommandLine } from '@/components/copy';
+import { MrLinkBase, projectMrBase } from '@/components/chat/mr-link-base';
 import { LiveStatus, MrBadge, StageBadge, StageStepper, STAGE_META } from '@/components/status';
 import {
   AlertDialog,
@@ -465,75 +466,77 @@ export function TaskPage({
   const asks = hasAsk(task, session);
 
   return (
-    <div className={cn('flex flex-col', tab === 'chat' && 'h-full min-h-0')}>
-      {/* One compact row that stays under the top bar, so the tabs are always in reach. */}
-      <header className="sticky top-14 z-[5] flex flex-wrap items-end gap-x-4 border-b border-border bg-surface/95 px-5 pt-2 backdrop-blur lg:px-7">
-        <div className="flex min-w-0 flex-1 items-center gap-x-2.5 pb-2.5">
-          {task.name && <span className="shrink-0 text-[1.0625rem] font-semibold">{task.name}</span>}
-          <span translate="no" className="shrink-0 font-mono text-[0.8125rem] text-muted-foreground">
-            {task.id}
-          </span>
-          <h1 className="min-w-0 truncate text-[1.0625rem] leading-snug font-semibold" title={task.title}>
-            {task.title}
-          </h1>
-          <StageBadge stage={task.stage} size="sm" />
-          {task.stage === 'done' && <CleanupTaskButton task={task} />}
-          {tab !== 'chat' && (
-            <LiveStatus
-              status={session?.status ?? 'missing'}
-              unread={session?.unread}
-              className="max-md:hidden"
-            />
-          )}
-        </div>
-        <nav aria-label="Task" className="-mb-px flex gap-1">
-          {TABS.map(({ key, label, icon: I, suffix }) => (
-            <Link
-              key={key}
-              href={`${base}${suffix}`}
-              aria-current={tab === key ? 'page' : undefined}
-              className={cn(
-                'inline-flex h-10 items-center gap-2 border-b-2 px-2.5 text-[0.9375rem] font-medium transition-colors',
-                tab === key
-                  ? 'border-foreground text-foreground'
-                  : 'border-transparent text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <I className="size-4" />
-              {label}
-              {key === 'overview' && asks && (
-                <span className="tint rounded-full px-1.5 text-xs font-semibold text-st-yellow">
-                  Needs you
-                </span>
-              )}
-              {key === 'plan' && session?.prompt?.kind === 'plan' && (
-                <span className="tint rounded-full px-1.5 text-xs font-semibold text-st-yellow">New</span>
-              )}
-            </Link>
-          ))}
-        </nav>
-      </header>
-
-      {tab === 'overview' && <Overview task={task} session={session} aoeOrigin={snap.health.aoe.origin} />}
-      {tab === 'plan' && <PlanTab task={task} session={session} />}
-      {tab === 'chat' &&
-        (session ? (
-          <div className="flex min-h-0 flex-1 flex-col">
-            <Suspense fallback={<Skeleton className="m-6 h-40" />}>
-              <SessionChat
-                key={session.id}
-                snap={snap}
-                session={session}
-                basePath={`${base}/chat`}
-                embedded
+    <MrLinkBase.Provider value={projectMrBase(snap, task.project)}>
+      <div className={cn('flex flex-col', tab === 'chat' && 'h-full min-h-0')}>
+        {/* One compact row that stays under the top bar, so the tabs are always in reach. */}
+        <header className="sticky top-14 z-[5] flex flex-wrap items-end gap-x-4 border-b border-border bg-surface/95 px-5 pt-2 backdrop-blur lg:px-7">
+          <div className="flex min-w-0 flex-1 items-center gap-x-2.5 pb-2.5">
+            {task.name && <span className="shrink-0 text-[1.0625rem] font-semibold">{task.name}</span>}
+            <span translate="no" className="shrink-0 font-mono text-[0.8125rem] text-muted-foreground">
+              {task.id}
+            </span>
+            <h1 className="min-w-0 truncate text-[1.0625rem] leading-snug font-semibold" title={task.title}>
+              {task.title}
+            </h1>
+            <StageBadge stage={task.stage} size="sm" />
+            {task.stage === 'done' && <CleanupTaskButton task={task} />}
+            {tab !== 'chat' && (
+              <LiveStatus
+                status={session?.status ?? 'missing'}
+                unread={session?.unread}
+                className="max-md:hidden"
               />
-            </Suspense>
+            )}
           </div>
-        ) : (
-          <p className="px-5 py-6 text-[0.9375rem] text-muted-foreground lg:px-7">
-            The worker’s AoE session no longer exists, so there is no chat to show.
-          </p>
-        ))}
-    </div>
+          <nav aria-label="Task" className="-mb-px flex gap-1">
+            {TABS.map(({ key, label, icon: I, suffix }) => (
+              <Link
+                key={key}
+                href={`${base}${suffix}`}
+                aria-current={tab === key ? 'page' : undefined}
+                className={cn(
+                  'inline-flex h-10 items-center gap-2 border-b-2 px-2.5 text-[0.9375rem] font-medium transition-colors',
+                  tab === key
+                    ? 'border-foreground text-foreground'
+                    : 'border-transparent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <I className="size-4" />
+                {label}
+                {key === 'overview' && asks && (
+                  <span className="tint rounded-full px-1.5 text-xs font-semibold text-st-yellow">
+                    Needs you
+                  </span>
+                )}
+                {key === 'plan' && session?.prompt?.kind === 'plan' && (
+                  <span className="tint rounded-full px-1.5 text-xs font-semibold text-st-yellow">New</span>
+                )}
+              </Link>
+            ))}
+          </nav>
+        </header>
+
+        {tab === 'overview' && <Overview task={task} session={session} aoeOrigin={snap.health.aoe.origin} />}
+        {tab === 'plan' && <PlanTab task={task} session={session} />}
+        {tab === 'chat' &&
+          (session ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <Suspense fallback={<Skeleton className="m-6 h-40" />}>
+                <SessionChat
+                  key={session.id}
+                  snap={snap}
+                  session={session}
+                  basePath={`${base}/chat`}
+                  embedded
+                />
+              </Suspense>
+            </div>
+          ) : (
+            <p className="px-5 py-6 text-[0.9375rem] text-muted-foreground lg:px-7">
+              The worker’s AoE session no longer exists, so there is no chat to show.
+            </p>
+          ))}
+      </div>
+    </MrLinkBase.Provider>
   );
 }

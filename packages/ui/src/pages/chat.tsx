@@ -82,6 +82,7 @@ import { useChat } from '@/components/chat/use-chat';
 import { useMarkRead } from '@/components/chat/use-mark-read';
 import { attachInTerminal, useAttachCommand } from '@/components/attach';
 import { CommandLine, copyText } from '@/components/copy';
+import { MrLinkBase, projectMrBase } from '@/components/chat/mr-link-base';
 import { useSessionOutput } from '@/components/session-chat';
 import { LiveStatus } from '@/components/status';
 import {
@@ -1155,6 +1156,16 @@ function ChatHeader({
               </a>
             </DropdownMenuItem>
           )}
+          {mr && (
+            <DropdownMenuItem
+              onSelect={async () => {
+                if (await copyText(mr.url)) toast.success('Copied', { description: mr.url });
+              }}
+            >
+              <CopyIcon />
+              Copy MR link
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => void attachInTerminal(session.id)}>
             <TerminalWindowIcon />
@@ -1238,6 +1249,7 @@ export function SessionChat({
   const [panelOpen, setPanelOpen] = usePanelOpen();
   const [fresh, setFresh] = useState(false);
   const role = useMemo(() => roleOf(snap, session.id), [snap, session.id]);
+  const mrBase = useMemo(() => projectMrBase(snap, role.project), [snap, role.project]);
   const { chat, error, refresh } = useChat(session.id);
   useMarkRead(session.id, !!session.unread);
   // Only for the claude.ai link now: the Terminal view is live.
@@ -1341,210 +1353,221 @@ export function SessionChat({
   const empty = chat && turns.length === 0 && pending.length === 0;
 
   return (
-    <div className="flex h-full min-h-0">
-      <div className="flex min-w-0 flex-1 flex-col">
-        {!embedded && <h1 className="sr-only">{title}</h1>}
-        <ChatHeader
-          session={session}
-          title={title}
-          role={role}
-          view={view}
-          basePath={basePath}
-          rcUrl={terminal.output?.rcUrl ?? null}
-          aoeOrigin={snap.health.aoe.origin}
-          mr={snap.tasks.find((t) => t.aoeSessionId === session.id)?.mr ?? null}
-          embedded={embedded}
-          panel={
-            role.kind === 'control' ? { open: panelOpen, toggle: () => setPanelOpen(!panelOpen) } : undefined
-          }
-          onStartFresh={() => setFresh(true)}
-        />
-        <StartFresh session={session} role={role} open={fresh} onOpenChange={setFresh} />
-        <RunCommand
-          session={session}
-          command={run.command}
-          anchor={run.anchor}
-          open={run.open}
-          onOpenChange={(open) => setRun((r) => ({ ...r, open }))}
-          onRan={(command) => onSent(`!${command}`, [], true)}
-          controlShell={role.kind === 'control'}
-        />
+    <MrLinkBase.Provider value={mrBase}>
+      <div className="flex h-full min-h-0">
+        <div className="flex min-w-0 flex-1 flex-col">
+          {!embedded && <h1 className="sr-only">{title}</h1>}
+          <ChatHeader
+            session={session}
+            title={title}
+            role={role}
+            view={view}
+            basePath={basePath}
+            rcUrl={terminal.output?.rcUrl ?? null}
+            aoeOrigin={snap.health.aoe.origin}
+            mr={snap.tasks.find((t) => t.aoeSessionId === session.id)?.mr ?? null}
+            embedded={embedded}
+            panel={
+              role.kind === 'control'
+                ? { open: panelOpen, toggle: () => setPanelOpen(!panelOpen) }
+                : undefined
+            }
+            onStartFresh={() => setFresh(true)}
+          />
+          <StartFresh session={session} role={role} open={fresh} onOpenChange={setFresh} />
+          <RunCommand
+            session={session}
+            command={run.command}
+            anchor={run.anchor}
+            open={run.open}
+            onOpenChange={(open) => setRun((r) => ({ ...r, open }))}
+            onRan={(command) => onSent(`!${command}`, [], true)}
+            controlShell={role.kind === 'control'}
+          />
 
-        {view === 'terminal' ? (
-          <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-4 lg:px-6">
-            <Suspense fallback={<p className="text-sm text-muted-foreground">Opening the terminal…</p>}>
-              <AgentTerminal sessionId={session.id} />
-            </Suspense>
-            <details className="text-sm text-muted-foreground">
-              <summary className="cursor-pointer select-none hover:text-foreground">
-                Attach in a terminal instead
-              </summary>
-              <CommandLine command={attach} className="mt-2 max-w-xl" />
-            </details>
-          </div>
-        ) : (
-          <div className="relative min-h-0 flex-1">
-            <div
-              ref={scroller}
-              onScroll={(e) => {
-                const el = e.currentTarget;
-                const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-                stick.current = near;
-                if (near !== atBottom) setAtBottom(near);
-              }}
-              role="log"
-              aria-label={`Conversation with ${title}`}
-              // Focusable so keyboard users can scroll the conversation.
-              tabIndex={0}
-              className="h-full overflow-y-auto overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset"
-            >
-              <div className="mx-auto max-w-3xl space-y-7 px-4 pt-5 pb-6">
-                {error && !chat && (
-                  <p role="alert" className="text-[0.9375rem] text-attn-error">
-                    {error} It retries by itself.
-                  </p>
-                )}
-                {!chat && !error && <ThreadSkeleton />}
-                {chat?.state === 'unavailable' && (
-                  <p className="rounded-lg border border-border bg-card px-4 py-3 text-[0.9375rem] text-muted-foreground">
-                    {chat.note}{' '}
-                    <Link href={`${basePath}?view=terminal`} className="text-foreground underline">
-                      Show terminal
-                    </Link>
-                  </p>
-                )}
-                {empty && chat.state !== 'unavailable' && (
-                  <EmptyState role={role} note={chat.note} onPick={pick} />
-                )}
-                {!!chat?.truncated && (
-                  <p className="text-center text-sm text-muted-foreground">
-                    {chat.truncated} earlier messages are not shown here. Attach in AoE for the full history.
-                  </p>
-                )}
-                {turns.map((t) =>
-                  t.kind === 'user' ? (
-                    <UserBubble key={t.id} text={t.text} />
-                  ) : t.kind === 'notices' ? (
-                    <div key={t.id} className="space-y-1.5">
-                      {t.items.map((n) => (
-                        <NoticeRow key={n.id} notice={n.notice} at={n.at} sessions={snap.sessions} />
-                      ))}
-                    </div>
-                  ) : t.kind === 'shell' ? (
-                    <ShellRun
-                      key={t.id}
-                      command={t.run.command}
-                      stdout={t.run.stdout}
-                      stderr={t.run.stderr}
-                    />
-                  ) : (
-                    <AssistantTurn
-                      key={t.id}
-                      turnId={t.id}
-                      blocks={t.blocks}
-                      running={running && t === lastTurn}
-                      cwd={session.projectPath}
-                      onRun={askToRun}
-                    />
-                  ),
-                )}
-                {pending.map((p) =>
-                  p.shell ? (
-                    <ShellRun key={p.key} command={p.text.slice(1)} stdout={null} stderr="" note="Running…" />
-                  ) : (
-                    <UserBubble
-                      key={p.key}
-                      text={p.text}
-                      note={running ? 'Queued. Claude is busy' : 'Sent'}
-                    />
-                  ),
-                )}
-                {chat && <EarlierTerminals sessionId={session.id} />}
-                {view === 'chat' && (
-                  <HeldBubbles session={session} held={held} onEdit={onEditHeld} onDelivered={onHeldSent} />
-                )}
-                {running && <Working />}
-                {role.kind === 'control' && <WorkerAsks snap={snap} project={role.project!} />}
-                {session.status === 'waiting' && !session.prompt && (
-                  <WaitingCallout terminalHref={`${basePath}?view=terminal`} />
-                )}
-                {session.status === 'error' && (
-                  <div
-                    role="alert"
-                    className="flex items-start gap-3 rounded-xl border border-attn-error/35 bg-attn-error/8 px-4 py-3"
-                  >
-                    <WarningCircleIcon weight="fill" className="mt-0.5 size-5 shrink-0 text-attn-error" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[0.9375rem] font-medium">AoE reports an error for this session</p>
-                      <p className="text-sm break-words text-muted-foreground">
-                        {session.lastError ?? 'No details from AoE.'} The terminal shows what the session last
-                        printed.
-                      </p>
-                    </div>
-                    <Button variant="secondary" size="sm" asChild>
-                      <Link href={`${basePath}?view=terminal`}>
-                        <TerminalWindowIcon />
-                        Show terminal
-                      </Link>
-                    </Button>
-                  </div>
-                )}
-                {session.status === 'stopped' && (
-                  <p className="text-center text-sm text-muted-foreground">
-                    This session is {LIVE_STATUS_LABEL.stopped.toLowerCase()}. Sending a message starts it
-                    again.
-                  </p>
-                )}
-              </div>
-            </div>
-            {!atBottom && (
-              <button
-                type="button"
-                onClick={jump}
-                className="absolute bottom-3 left-1/2 inline-flex h-9 -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-full border border-border-strong bg-card px-3.5 text-sm shadow-float hover:bg-raised"
-              >
-                <ArrowDownIcon className="size-4" />
-                Jump to latest
-              </button>
-            )}
-          </div>
-        )}
-
-        <div className={cn(view === 'terminal' && 'pt-3')}>
-          {session.archived ? (
-            <ArchivedNotice session={session} />
-          ) : session.prompt ? (
-            // While a menu is open a typed message would pick its highlighted option, so answer it here instead.
-            <div className="mx-auto max-h-[62dvh] w-full max-w-3xl overflow-y-auto overscroll-contain px-4 pb-3">
-              <PromptCard session={session} onAnswered={onAnswered} />
+          {view === 'terminal' ? (
+            <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-4 lg:px-6">
+              <Suspense fallback={<p className="text-sm text-muted-foreground">Opening the terminal…</p>}>
+                <AgentTerminal sessionId={session.id} />
+              </Suspense>
+              <details className="text-sm text-muted-foreground">
+                <summary className="cursor-pointer select-none hover:text-foreground">
+                  Attach in a terminal instead
+                </summary>
+                <CommandLine command={attach} className="mt-2 max-w-xl" />
+              </details>
             </div>
           ) : (
-            <>
-              {role.kind === 'control' && chat && <ControlModelNotice session={session} chat={chat} />}
-              <ChatComposer
-                session={session}
-                label={`Message ${title}`}
-                value={draft.text}
-                onChange={setDraft}
-                onSent={onSent}
-                inputRef={inputRef}
-                model={chat?.model ?? null}
-                effort={chat?.effort ?? null}
-                context={chat?.context ?? null}
-                held={held}
-                control={role.kind === 'control'}
-                onStartFresh={() => setFresh(true)}
-              />
-            </>
+            <div className="relative min-h-0 flex-1">
+              <div
+                ref={scroller}
+                onScroll={(e) => {
+                  const el = e.currentTarget;
+                  const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+                  stick.current = near;
+                  if (near !== atBottom) setAtBottom(near);
+                }}
+                role="log"
+                aria-label={`Conversation with ${title}`}
+                // Focusable so keyboard users can scroll the conversation.
+                tabIndex={0}
+                className="h-full overflow-y-auto overscroll-contain outline-none focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-inset"
+              >
+                <div className="mx-auto max-w-3xl space-y-7 px-4 pt-5 pb-6">
+                  {error && !chat && (
+                    <p role="alert" className="text-[0.9375rem] text-attn-error">
+                      {error} It retries by itself.
+                    </p>
+                  )}
+                  {!chat && !error && <ThreadSkeleton />}
+                  {chat?.state === 'unavailable' && (
+                    <p className="rounded-lg border border-border bg-card px-4 py-3 text-[0.9375rem] text-muted-foreground">
+                      {chat.note}{' '}
+                      <Link href={`${basePath}?view=terminal`} className="text-foreground underline">
+                        Show terminal
+                      </Link>
+                    </p>
+                  )}
+                  {empty && chat.state !== 'unavailable' && (
+                    <EmptyState role={role} note={chat.note} onPick={pick} />
+                  )}
+                  {!!chat?.truncated && (
+                    <p className="text-center text-sm text-muted-foreground">
+                      {chat.truncated} earlier messages are not shown here. Attach in AoE for the full
+                      history.
+                    </p>
+                  )}
+                  {turns.map((t) =>
+                    t.kind === 'user' ? (
+                      <UserBubble key={t.id} text={t.text} />
+                    ) : t.kind === 'notices' ? (
+                      <div key={t.id} className="space-y-1.5">
+                        {t.items.map((n) => (
+                          <NoticeRow key={n.id} notice={n.notice} at={n.at} sessions={snap.sessions} />
+                        ))}
+                      </div>
+                    ) : t.kind === 'shell' ? (
+                      <ShellRun
+                        key={t.id}
+                        command={t.run.command}
+                        stdout={t.run.stdout}
+                        stderr={t.run.stderr}
+                      />
+                    ) : (
+                      <AssistantTurn
+                        key={t.id}
+                        turnId={t.id}
+                        blocks={t.blocks}
+                        running={running && t === lastTurn}
+                        cwd={session.projectPath}
+                        onRun={askToRun}
+                      />
+                    ),
+                  )}
+                  {pending.map((p) =>
+                    p.shell ? (
+                      <ShellRun
+                        key={p.key}
+                        command={p.text.slice(1)}
+                        stdout={null}
+                        stderr=""
+                        note="Running…"
+                      />
+                    ) : (
+                      <UserBubble
+                        key={p.key}
+                        text={p.text}
+                        note={running ? 'Queued. Claude is busy' : 'Sent'}
+                      />
+                    ),
+                  )}
+                  {chat && <EarlierTerminals sessionId={session.id} />}
+                  {view === 'chat' && (
+                    <HeldBubbles session={session} held={held} onEdit={onEditHeld} onDelivered={onHeldSent} />
+                  )}
+                  {running && <Working />}
+                  {role.kind === 'control' && <WorkerAsks snap={snap} project={role.project!} />}
+                  {session.status === 'waiting' && !session.prompt && (
+                    <WaitingCallout terminalHref={`${basePath}?view=terminal`} />
+                  )}
+                  {session.status === 'error' && (
+                    <div
+                      role="alert"
+                      className="flex items-start gap-3 rounded-xl border border-attn-error/35 bg-attn-error/8 px-4 py-3"
+                    >
+                      <WarningCircleIcon weight="fill" className="mt-0.5 size-5 shrink-0 text-attn-error" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[0.9375rem] font-medium">AoE reports an error for this session</p>
+                        <p className="text-sm break-words text-muted-foreground">
+                          {session.lastError ?? 'No details from AoE.'} The terminal shows what the session
+                          last printed.
+                        </p>
+                      </div>
+                      <Button variant="secondary" size="sm" asChild>
+                        <Link href={`${basePath}?view=terminal`}>
+                          <TerminalWindowIcon />
+                          Show terminal
+                        </Link>
+                      </Button>
+                    </div>
+                  )}
+                  {session.status === 'stopped' && (
+                    <p className="text-center text-sm text-muted-foreground">
+                      This session is {LIVE_STATUS_LABEL.stopped.toLowerCase()}. Sending a message starts it
+                      again.
+                    </p>
+                  )}
+                </div>
+              </div>
+              {!atBottom && (
+                <button
+                  type="button"
+                  onClick={jump}
+                  className="absolute bottom-3 left-1/2 inline-flex h-9 -translate-x-1/2 cursor-pointer items-center gap-1.5 rounded-full border border-border-strong bg-card px-3.5 text-sm shadow-float hover:bg-raised"
+                >
+                  <ArrowDownIcon className="size-4" />
+                  Jump to latest
+                </button>
+              )}
+            </div>
           )}
+
+          <div className={cn(view === 'terminal' && 'pt-3')}>
+            {session.archived ? (
+              <ArchivedNotice session={session} />
+            ) : session.prompt ? (
+              // While a menu is open a typed message would pick its highlighted option, so answer it here instead.
+              <div className="mx-auto max-h-[62dvh] w-full max-w-3xl overflow-y-auto overscroll-contain px-4 pb-3">
+                <PromptCard session={session} onAnswered={onAnswered} />
+              </div>
+            ) : (
+              <>
+                {role.kind === 'control' && chat && <ControlModelNotice session={session} chat={chat} />}
+                <ChatComposer
+                  session={session}
+                  label={`Message ${title}`}
+                  value={draft.text}
+                  onChange={setDraft}
+                  onSent={onSent}
+                  inputRef={inputRef}
+                  model={chat?.model ?? null}
+                  effort={chat?.effort ?? null}
+                  context={chat?.context ?? null}
+                  held={held}
+                  control={role.kind === 'control'}
+                  onStartFresh={() => setFresh(true)}
+                />
+              </>
+            )}
+          </div>
         </div>
+        {role.kind === 'control' && panelOpen && (
+          <SidePanel onClose={() => setPanelOpen(false)}>
+            <ControlPanel snap={snap} project={role.project!} onHide={() => setPanelOpen(false)} />
+          </SidePanel>
+        )}
       </div>
-      {role.kind === 'control' && panelOpen && (
-        <SidePanel onClose={() => setPanelOpen(false)}>
-          <ControlPanel snap={snap} project={role.project!} onHide={() => setPanelOpen(false)} />
-        </SidePanel>
-      )}
-    </div>
+    </MrLinkBase.Provider>
   );
 }
 

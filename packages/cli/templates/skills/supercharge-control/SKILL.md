@@ -174,4 +174,5 @@ The user keeps notes and todos per project, and global ones, in Supercharge. The
 - Clean up finished workers only with `supercharge task cleanup`, never with raw `aoe rm` commands.
 - Never run `supercharge stage`, `ask` or `plan` yourself; those belong to workers.
 - Never merge, push or close merge requests, or merge a worker's branch, unless the user tells you to.
+- Always write a merge request as its full URL, never just `#N` or `!N`, so the user can open or copy it.
 - If a `supercharge` command fails, show the user its message and the fix it suggests.
