@@ -1,13 +1,14 @@
 import { CheckIcon, CopyIcon, PlayIcon } from '@phosphor-icons/react';
-import { inlineCommand, runnableCommand } from '@aoe-supercharge/core/shared';
+import { inlineCommand, mrRefs, runnableCommand } from '@aoe-supercharge/core/shared';
 import type { Element, ElementContent, Root } from 'hast';
-import { memo, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
+import { memo, useContext, useMemo, useState, type ComponentProps, type ReactNode } from 'react';
 import Markdown, { type Components } from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import { rehypeAttention } from '@/components/chat/attention';
-import { copyText } from '@/components/copy';
+import { MrLinkBase } from '@/components/chat/mr-link-base';
+import { copyText, LinkCopy } from '@/components/copy';
 import { TerminalsAt } from '@/components/chat/run-terminals';
 import { cn } from '@/lib/utils';
 
@@ -79,27 +80,6 @@ export function CodeBlock({
   );
 }
 
-/** Small muted copy button after a link: copies its URL, the check pops in for 1.5 s. */
-function LinkCopy({ href }: { href: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      type="button"
-      onClick={async () => {
-        if (await copyText(href)) {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        }
-      }}
-      aria-label="Copy link"
-      title="Copy link"
-      className="ml-0.5 inline-grid size-5 cursor-pointer place-items-center rounded-md align-middle text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
-    >
-      {copied ? <CheckIcon className="pop size-3 text-st-green" /> : <CopyIcon className="size-3" />}
-    </button>
-  );
-}
-
 /** Elements a terminal for an inline command shows under (or at the end of, for list items and cells). */
 const HOSTS = new Set(['p', 'li', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
 
@@ -129,6 +109,33 @@ function rehypeRunAnchors() {
   };
 }
 
+/** Turn "PR #18", "MR !12" and "(#19)" in plain text into links to that MR; code and links stay as written. */
+function rehypeMrRefs(base: string | null) {
+  return (tree: Root) => {
+    if (!base) return;
+    const walk = (node: Root | Element) => {
+      node.children = node.children.flatMap((child): ElementContent[] => {
+        if (child.type === 'element') {
+          if (child.tagName !== 'pre' && child.tagName !== 'code' && child.tagName !== 'a') walk(child);
+          return [child];
+        }
+        if (child.type !== 'text') return [child as ElementContent];
+        return mrRefs(child.value, base).map((piece): ElementContent =>
+          piece.href
+            ? {
+                type: 'element',
+                tagName: 'a',
+                properties: { href: piece.href },
+                children: [{ type: 'text', value: piece.text }],
+              }
+            : { type: 'text', value: piece.text },
+        );
+      });
+    };
+    walk(tree);
+  };
+}
+
 type Node = { node?: Element };
 const hostAnchor = (node: Element | undefined, anchorKey: string | undefined) => {
   const at = node?.properties.dataRunAnchor;
@@ -151,6 +158,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
   onRun?: (command: string, anchor?: string) => void;
   anchorKey?: string;
 }) {
+  const mrBase = useContext(MrLinkBase);
   const components = useMemo<Components>(() => {
     const base: Components = {
       pre: ({ node, children }) => {
@@ -254,6 +262,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
           rehypeSanitize,
           [rehypeHighlight, { detect: false, ignoreMissing: true }],
           rehypeRunAnchors,
+          [rehypeMrRefs, mrBase],
           rehypeAttention,
         ]}
         components={components}

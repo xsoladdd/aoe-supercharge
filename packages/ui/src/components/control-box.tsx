@@ -1,6 +1,7 @@
 import { BroadcastIcon, ChatCircleTextIcon, ChatTeardropTextIcon } from '@phosphor-icons/react';
 import { mrLabel, relativeTime, STAGE_LABEL, type Stage } from '@aoe-supercharge/core/shared';
 import { Link } from 'wouter';
+import { LinkCopy } from '@/components/copy';
 import { useSessionHref } from '@/lib/nav';
 import { LiveStatus, STAGE_META } from '@/components/status';
 import { Button } from '@/components/ui/button';
@@ -167,6 +168,7 @@ export function ControlBox({ view, remoteControl }: { view: ProjectView; remoteC
                       <span className="font-mono text-[0.875rem]">{t.id}</span>{' '}
                       {t.mr ? mrLabel(t.mr) : 'branch ready to merge'}
                     </Link>
+                    {t.mr && <LinkCopy href={t.mr.url} />}
                   </li>
                 ))}
               </ul>

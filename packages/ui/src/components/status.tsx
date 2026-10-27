@@ -27,6 +27,7 @@ import {
   type Stage,
   mrLabel,
 } from '@aoe-supercharge/core/shared';
+import { LinkCopy } from '@/components/copy';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 
@@ -182,33 +183,36 @@ export function MrBadge({ mr, className }: { mr: MrState | null; className?: str
               : 'text-muted-foreground';
   const label = mr.state === 'merged' ? 'Merged' : mr.state === 'closed' ? 'Closed' : pipelineLabel(p);
   return (
-    <a
-      href={mr.url}
-      target="_blank"
-      rel="noreferrer"
-      className={cn(
-        'inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md text-sm hover:underline',
-        className,
-      )}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <span translate="no" className="font-mono text-foreground">
-        {mrLabel(mr)}
-      </span>
-      <span className={cn('inline-flex items-center gap-1 whitespace-nowrap', tone)}>
-        <GitPullRequestIcon weight="bold" className="size-4" aria-hidden />
-        {label}
-      </span>
-      {mr.state === 'opened' && (
-        <span
-          className={cn(
-            'whitespace-nowrap',
-            mr.unresolvedThreads ? 'text-st-orange' : 'text-muted-foreground',
-          )}
-        >
-          {mr.unresolvedThreads} open {mr.unresolvedThreads === 1 ? 'thread' : 'threads'}
+    <>
+      <a
+        href={mr.url}
+        target="_blank"
+        rel="noreferrer"
+        className={cn(
+          'inline-flex flex-wrap items-center gap-x-2 gap-y-0.5 rounded-md text-sm hover:underline',
+          className,
+        )}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span translate="no" className="font-mono text-foreground">
+          {mrLabel(mr)}
         </span>
-      )}
-    </a>
+        <span className={cn('inline-flex items-center gap-1 whitespace-nowrap', tone)}>
+          <GitPullRequestIcon weight="bold" className="size-4" aria-hidden />
+          {label}
+        </span>
+        {mr.state === 'opened' && (
+          <span
+            className={cn(
+              'whitespace-nowrap',
+              mr.unresolvedThreads ? 'text-st-orange' : 'text-muted-foreground',
+            )}
+          >
+            {mr.unresolvedThreads} open {mr.unresolvedThreads === 1 ? 'thread' : 'threads'}
+          </span>
+        )}
+      </a>
+      <LinkCopy href={mr.url} />
+    </>
   );
 }

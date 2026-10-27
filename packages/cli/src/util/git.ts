@@ -31,27 +31,7 @@ export async function defaultBranch(cwd: string): Promise<string> {
   return (await currentBranch(cwd)) ?? 'main';
 }
 
-export interface RemoteRef {
-  host: string;
-  path: string;
-}
-
-/** git@host:group/repo.git | https://host/group/repo(.git) | ssh://git@host:22/group/repo.git → {host, path} */
-export function parseRemote(url: string | null): RemoteRef | null {
-  if (!url) return null;
-  const scp = url.match(/^[\w.-]+@([^:/]+):(.+?)(?:\.git)?\/?$/);
-  if (scp) return { host: scp[1]!.toLowerCase(), path: scp[2]! };
-  try {
-    const u = new URL(url);
-    const path = u.pathname
-      .replace(/^\/+/, '')
-      .replace(/\.git\/?$/, '')
-      .replace(/\/$/, '');
-    return path ? { host: u.hostname.toLowerCase(), path } : null;
-  } catch {
-    return null;
-  }
-}
+export { parseRemote, type RemoteRef } from '@aoe-supercharge/core/shared';
 
 // ── branch landing (no-MR flow) ──────────────────────────────────────────────
 

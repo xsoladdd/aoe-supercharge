@@ -160,10 +160,11 @@ test.describe('overview', () => {
     await expect(page.getByText(/aoe session attach -p \S+ [0-9a-f]{16}/)).toBeVisible();
   });
 
-  test('the play buttons open a terminal tab attached to the chat', async ({ signedIn: page }) => {
+  test('Attach terminal in the chat menu opens a terminal tab attached to the chat', async ({
+    signedIn: page,
+  }) => {
     // Not a control chat: opening one marks its reply read, which the tests above look for on every engine.
     const id = await sessionId('flaky e2e triage');
-    const worker = await sessionId('NW-0001');
     const opened = () => {
       try {
         return readFileSync(join(world().home, 'osascript.log'), 'utf8');
@@ -172,20 +173,13 @@ test.describe('overview', () => {
       }
     };
     await page.goto(`/chat/${id}`);
-    await page.getByRole('button', { name: 'Attach in a terminal' }).click();
+    await page.getByRole('button', { name: 'More session actions' }).click();
+    await page.getByRole('menuitem', { name: 'Attach terminal' }).click();
     // The fake osascript (packages/fake-aoe/bin) records the command; elsewhere than macOS it is copied.
     if (process.platform === 'darwin') {
       await expect(page.getByText(/^Opened in (iTerm2|Terminal)$/)).toBeVisible();
       await expect.poll(opened).toContain(`"aoe session attach -p main ${id}"`);
     } else await expect(page.getByText(/attach command|Could not open/).first()).toBeVisible();
-    const play = page.getByRole('button', { name: 'Attach Build page templates in a terminal' });
-    // It shows over the row's icon while you point at the row.
-    await play.locator('..').hover();
-    await expect(play).toBeVisible();
-    await axe(page, 'sidebar play button');
-    await play.click();
-    if (process.platform === 'darwin')
-      await expect.poll(opened).toContain(`"aoe session attach -p main ${worker}"`);
   });
 
   test('the sidebar shows your 5-hour and weekly usage and how many workers may run', async ({

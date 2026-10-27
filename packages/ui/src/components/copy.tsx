@@ -21,6 +21,28 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
+/** Small muted copy button after a link: copies its URL, the check pops in for 1.5 s. */
+export function LinkCopy({ href }: { href: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={async (e) => {
+        e.stopPropagation();
+        if (await copyText(href)) {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }
+      }}
+      aria-label="Copy link"
+      title="Copy link"
+      className="ml-0.5 inline-grid size-5 cursor-pointer place-items-center rounded-md align-middle text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
+    >
+      {copied ? <CheckIcon className="pop size-3 text-st-green" /> : <CopyIcon className="size-3" />}
+    </button>
+  );
+}
+
 /** A command the user runs themselves, with a copy button. */
 export function CommandLine({ command, className }: { command: string; className?: string }) {
   const [copied, setCopied] = useState(false);

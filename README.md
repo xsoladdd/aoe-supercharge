@@ -12,7 +12,7 @@ An opinionated parent/child dashboard for Claude Code, built on [Agent of Empire
 
 It runs as a small local daemon (Node 24, about 70 MB idle) bound to `127.0.0.1`. Merge requests are watched by a script, never by an LLM loop.
 
-> Status: v1.7.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 to 1.21.x (tested on 1.17.2, 1.18.0 and 1.21.0; see [AoE versions](#aoe-versions)); prompt screens checked against Claude Code 2.1.308.
+> Status: v1.8.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 to 1.21.x (tested on 1.17.2, 1.18.0 and 1.21.0; see [AoE versions](#aoe-versions)); prompt screens checked against Claude Code 2.1.308.
 > The design rationale lives in [SPEC.md](SPEC.md).
 
 ---
@@ -31,10 +31,10 @@ macOS and Linux only. On Windows, use WSL2 (AoE requires it). You need [Node.js 
 
 **Supercharge is not on npm or Homebrew yet**, and there is no tap, so `npm install -g aoe-supercharge`, `brew install` and the one-line `curl … | bash` do not work today. Install the packed release from GitHub, or from a checkout.
 
-**From a GitHub release.** Every release on the [Releases page](https://github.com/xsoladdd/aoe-supercharge/releases) has the packed CLI attached; CI builds it with `npm pack` when a `Release X.Y.Z` commit lands on `main` and makes the release and its `vX.Y.Z` tag (see [Releasing](CLAUDE.md#releasing)). For 1.7.0:
+**From a GitHub release.** Every release on the [Releases page](https://github.com/xsoladdd/aoe-supercharge/releases) has the packed CLI attached; CI builds it with `npm pack` when a `Release X.Y.Z` commit lands on `main` and makes the release and its `vX.Y.Z` tag (see [Releasing](CLAUDE.md#releasing)). For 1.8.0:
 
 ```bash
-npm install -g https://github.com/xsoladdd/aoe-supercharge/releases/download/v1.7.0/aoe-supercharge-1.7.0.tgz
+npm install -g https://github.com/xsoladdd/aoe-supercharge/releases/download/v1.8.0/aoe-supercharge-1.8.0.tgz
 ```
 
 This checks no dependencies: install them first (see [Dependencies](#dependencies)), then run `supercharge doctor`.
@@ -336,7 +336,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
    - While Claude is working, **Send holds** your message in Supercharge instead of typing it into the turn. It shows in the chat as held, with **Edit** (it goes back into the box) and **Cancel**, and the daemon types it in once Claude is done: one per turn, in order. Held messages, with their images and files, survive a reload and a closed tab.
   - The caret beside Send has **Send now** (Claude reads it during this turn, as Claude Code does) and **Interrupt and send** (Escape stops Claude, then it goes in). A menu on screen is never typed over; answer it on the card that replaces the composer. Every message is audited when it is typed in.
   - **Terminal** (top right, next to Chat) is the session's own terminal, live: what Claude Code shows, in colour, and every key you press goes straight in (arrows, Enter, Escape, Tab, Ctrl-C, paste), as if you were attached. Keys typed there skip the checks a sent message gets: they are not audited one by one (each time the terminal opens is, as `terminal_opened`) and nothing stops them while a menu is open. If the session is open in AoE's web view, that has the keyboard until you press **Take over**. While you are attached to the session in a terminal (`aoe session attach`), the dashboard shows it at your terminal's size and never resizes it.
-  - **▶ Attach in a terminal** (in the chat's header, and on each chat in the sidebar when you point at it) opens a new tab in iTerm2, or Terminal when iTerm2 is not installed, running `aoe session attach -p <profile> <session>`. The first time, macOS asks whether Supercharge may control iTerm2 (or Terminal); allow it. The daemon runs as a launchd service, so the question names the program it runs as rather than Supercharge. If you said no, turn it back on in System Settings → Privacy & Security → Automation. On Linux, or when it can't open a tab, the button copies the command instead and says why.
+  - **Attach terminal** (in the ⋯ menu at the top right of a chat) opens a new tab in iTerm2, or Terminal when iTerm2 is not installed, running `aoe session attach -p <profile> <session>`. The first time, macOS asks whether Supercharge may control iTerm2 (or Terminal); allow it. The daemon runs as a launchd service, so the question names the program it runs as rather than Supercharge. If you said no, turn it back on in System Settings → Privacy & Security → Automation. On Linux, or when it can't open a tab, it copies the command instead and says why.
   - **Attachments** go with the message you are writing, as many as you like, and Send sends the text and all of them as one message. Paste, drop or pick any file (up to 20 MB each, zips included); a pasted or picked image opens to be marked up first, and **Attach** (or Enter) puts it in the box. **Attach a path…** in the paperclip menu takes a file or folder already on this computer (`/Users/you/project/docs`, `~/Downloads/logs.zip`), checked before it is attached; nothing is copied. A browser can't upload a dropped folder, so dropping one opens that instead. Each attachment rides in the message as an ``Attached: `<path>` `` line that Claude opens with its file tool.
   - The **context ring** opens the figures behind it: tokens used of the window, the model, the last request's input, output and cache, and when Claude Code compacts. They are Claude Code's own when its status line reports them (Supercharge's status line, `agent.statusLine`), and otherwise an estimate from the transcript.
   - What needs you stands out: a report's 🔴 NEEDS YOU, 🟡 WORKING and ✅ DONE sections, watch notices, and errors each sit on a shade of their colour.
@@ -416,7 +416,7 @@ Self-hosted GitLab works: add the host to `mr.gitlab.hosts` and log in with `gla
   - Every cookie-authenticated write needs a CSRF token plus a matching `Origin`.
 - **AoE token:** read server-side only (`aoe url --token-only`) and never sent to the browser. Logs redact anything token-shaped.
 - **Prompts to agents** (`reply`) always require confirmation and are appended to `~/.local/state/supercharge/audit.jsonl`.
-- **Attach in a terminal** runs `osascript` on your Mac. The browser sends only a session id, which must be one of yours; the daemon builds the command and passes it to the script as an argument, never inside it. Each one is audited (`session_attach`).
+- **Attach terminal** runs `osascript` on your Mac. The browser sends only a session id, which must be one of yours; the daemon builds the command and passes it to the script as an argument, never inside it. Each one is audited (`session_attach`).
 
 ## AoE versions
 
