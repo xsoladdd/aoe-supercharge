@@ -80,7 +80,7 @@ import { ControlPanel } from '@/components/control-panel';
 import { shortPath, ToolCall } from '@/components/chat/tool-call';
 import { useChat } from '@/components/chat/use-chat';
 import { useMarkRead } from '@/components/chat/use-mark-read';
-import { AttachButton, useAttachCommand } from '@/components/attach';
+import { attachInTerminal, useAttachCommand } from '@/components/attach';
 import { CommandLine, copyText } from '@/components/copy';
 import { useSessionOutput } from '@/components/session-chat';
 import { LiveStatus } from '@/components/status';
@@ -1083,7 +1083,6 @@ function ChatHeader({
         </span>
       )}
       <LiveStatus status={session.status} unread={session.unread} className="max-sm:[&>span]:sr-only" />
-      <AttachButton sessionId={session.id} />
       <nav aria-label="View" className="flex rounded-lg border border-border bg-background p-0.5">
         {(
           [
@@ -1157,6 +1156,10 @@ function ChatHeader({
             </DropdownMenuItem>
           )}
           <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => void attachInTerminal(session.id)}>
+            <TerminalWindowIcon />
+            Attach terminal
+          </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={async () => {
               if (await copyText(attach)) toast.success('Copied', { description: attach });

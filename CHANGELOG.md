@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **No more play buttons; "Attach terminal" is in the chat's ⋯ menu.** A chat's icon in the sidebar no longer
+  turns into a play button when you point at it, and the play button in the chat header is gone. The same
+  action is now **Attach terminal** in the ⋯ menu at the top right of a chat, above Copy attach command.
+
 ## 1.7.0 (2026-10-26)
 
 - **A dropped file's path goes into the message box.** When you drop, paste or pick a file in a chat, its
