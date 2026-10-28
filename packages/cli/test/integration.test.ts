@@ -141,6 +141,8 @@ beforeAll(async () => {
     ['server.port', String(port)],
     ['mr.gitlab.hosts', 'gitlab.com,gitlab.example.com'],
     ['poll.mr', '10'],
+    // Node before 24.22 loses recursive fs.watch events on Linux after a file's second atomic rewrite.
+    ['poll.reconcile', '5'],
     ['poll.aoeSessions', '1'],
     ['poll.aoeSessionsIdle', '1'],
     ['notifications.enabled', 'false'],

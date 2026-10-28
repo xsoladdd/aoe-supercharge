@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **The flaky "marks it done once it lands on main" test is fixed.** It failed most release runs on CI: the
+  daemon only learned that the task was ready from its 60-second ledger rescan, because Node before 24.22
+  loses recursive `fs.watch` events on Linux once a file has been rewritten twice. The integration test now
+  sets `poll.reconcile` to 5 seconds, so a lost event costs seconds, not a minute. No product code changed.
+  On Linux, use Node 24.22 or newer so the dashboard doesn't lag behind the ledger either.
+
 ## 1.8.0 (2026-10-27)
 
 - **No more play buttons; "Attach terminal" is in the chat's ⋯ menu.** A chat's icon in the sidebar no longer

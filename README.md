@@ -188,7 +188,7 @@ supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_req
 - Every run is in the audit log (`scheduled_prompt`). Jobs live in `~/.local/share/supercharge/schedules.json`.
 - Only existing chats: a brand-new chat stops on Claude's "Do you trust this folder?" question, which nobody would be there to answer.
 
-**The ledger** is one JSON file per task plus its `plan.md`, written atomically under a per-task lock. Workers can report stages even when the daemon is down. The daemon picks changes up through `fs.watch`.
+**The ledger** is one JSON file per task plus its `plan.md`, written atomically under a per-task lock. Workers can report stages even when the daemon is down. The daemon picks changes up through `fs.watch`, with a rescan every `poll.reconcile` seconds as a safety net. On Linux, Node before 24.22 loses some of those `fs.watch` events, so the dashboard can lag by up to that interval: use Node 24.22 or newer there.
 
 ## CLI
 
