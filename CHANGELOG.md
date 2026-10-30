@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Sessions come back by themselves after a reboot.** AoE's own startup recovery only restarts sessions
+  it has a conversation id for, so most panes stayed dead (status `error`) until you opened the AoE TUI.
+  Once `aoe serve` answers, the daemon now asks AoE to restart each live session whose pane died, one at a
+  time, resuming its conversation where AoE knows it. A session you stopped stays stopped, and archived
+  and trashed ones are left alone. Each session is revived at most once per boot (kept in
+  `~/.local/state/supercharge/revived.json`). Each revival is logged and recorded in the audit log as
+  `session_revived`.
+
 - **The flaky "marks it done once it lands on main" test is fixed.** It failed most release runs on CI: the
   daemon only learned that the task was ready from its 60-second ledger rescan, because Node before 24.22
   loses recursive `fs.watch` events on Linux once a file has been rewritten twice. The integration test now

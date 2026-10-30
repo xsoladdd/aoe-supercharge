@@ -1,12 +1,15 @@
 import { watch, type FSWatcher } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
+import { uptime } from 'node:os';
 import {
   appendAudit,
   checkCompat,
   loadConfig,
+  readJson,
   readLocalCompat,
   readUsage,
   restartRequiredFor,
+  writeJsonAtomic,
   type Config,
 } from '@aoe-supercharge/core/node';
 import {
@@ -38,6 +41,17 @@ const MENU_YOUNG_MS = 2 * 60_000;
 const nowIso = () => new Date().toISOString();
 
 /**
+ * Sessions to bring back: AoE says `error` when a pane died with the tmux server (a reboot). A session
+ * you stopped says `stopped` and stays so; archived and trashed ones have no pane on purpose.
+ */
+export function toRevive(sessions: AoeSession[], done: string[]): AoeSession[] {
+  return sessions.filter(
+    (s) =>
+      normalizeAoeStatus(s.status) === 'error' && !s.archived_at && !s.trashed_at && !done.includes(s.id),
+  );
+}
+
+/**
  * Polls `GET /api/sessions` (AoE has no event stream we can use, SPEC §1.2) and merges parent
  * links from `aoe list --json`. Polls fast while a dashboard is open, slowly otherwise.
  */
@@ -55,6 +69,7 @@ export class AoeWatcher {
   /** Idle sessions whose pane was read: the idle spell it was read in. A menu found stays in `menuOpen` until it clears. */
   private menuRead = new Map<string, string | null>();
   private menuOpen = new Set<string>();
+  private reviving = false;
 
   constructor(
     private ctx: Ctx,
@@ -158,6 +173,8 @@ export class AoeWatcher {
     // Trashed sessions only matter for taking their workers out; archived ones stay listed, marked.
     const trashed = new Set(mine.filter((s) => s.trashed_at).map((s) => s.id));
     const live = mine.filter((s) => !s.trashed_at);
+    // In the background: each ensure can take a few seconds, and the dashboard shouldn't wait on them.
+    if (!this.reviving) void this.revive(live);
     const unknown = live.some((s) => !this.cliIndex.has(s.id));
     if (unknown || Date.now() - this.lastCliList > this.ctx.config.poll.reconcile * 1000) {
       try {
@@ -345,6 +362,40 @@ export class AoeWatcher {
         taskId: t.id,
         sessionId: t.aoeSessionId,
       });
+    }
+  }
+
+  /**
+   * Restart the pane of each session whose pane died (AoE's own startup recovery only takes sessions it
+   * knows a conversation id for), resuming its conversation, one at a time. Each session at most once
+   * per boot, so one that keeps failing is not retried in a loop.
+   */
+  async revive(sessions: AoeSession[], bootAt = Date.now() - uptime() * 1000): Promise<void> {
+    this.reviving = true;
+    try {
+      const file = this.ctx.paths.revivedFile;
+      const prev = await readJson<{ bootAt: number; ids: string[] }>(file).catch(() => null);
+      const ids = prev && Math.abs(prev.bootAt - bootAt) < 60_000 ? prev.ids : [];
+      for (const s of toRevive(sessions, ids)) {
+        // Written down first, so a crash halfway never revives it twice.
+        ids.push(s.id);
+        await writeJsonAtomic(file, { bootAt, ids });
+        try {
+          await this.ctx.aoe.ensureSession(s.id);
+        } catch (err) {
+          this.ctx.logger.warn('could not revive a session', {
+            sessionId: s.id,
+            err: (err as Error).message,
+          });
+          continue;
+        }
+        this.ctx.logger.info('revived a session whose pane had died', { sessionId: s.id, title: s.title });
+        await appendAudit(this.ctx.paths, { actor: 'daemon', action: 'session_revived', sessionId: s.id });
+      }
+    } catch (err) {
+      this.ctx.logger.warn('could not revive sessions', { err: (err as Error).message });
+    } finally {
+      this.reviving = false;
     }
   }
 

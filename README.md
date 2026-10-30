@@ -107,6 +107,8 @@ supercharge init                  # registers the project and starts its control
 
 `supercharge start` installs the user service (launchd on macOS, `systemd --user` on Linux), so the daemon comes back at login, and refreshes the skills in `~/.claude/skills/`. After upgrading, run it again, or `supercharge restart`.
 
+After a reboot the daemon starts `aoe serve` (`aoe.autoStart`) and brings back every session whose pane died with the reboot, one at a time, resuming its conversation where AoE knows it. You don't need to open the AoE TUI. A session you stopped stays stopped, and archived and trashed ones stay down. Each session is revived at most once per boot. Each revival is logged and recorded in the audit log (`session_revived`).
+
 Then talk to the control chat (in AoE, or from your phone; see [Phone access](#phone-access-remote-control)), for example: *"Split the launch checklist into tasks and start them."*
 
 ## How it works

@@ -380,7 +380,8 @@ export interface AuditEntry {
     | 'aoe_upgrade'
     | 'terminal_opened'
     | 'session_attach'
-    | 'scheduled_prompt';
+    | 'scheduled_prompt'
+    | 'session_revived';
   project?: string | null;
   taskId?: string | null;
   sessionId?: string | null;

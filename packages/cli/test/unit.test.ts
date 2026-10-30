@@ -24,7 +24,7 @@ import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '..
 import { renderCaddyfile } from '../src/commands/proxy.ts';
 import { landedOn, markLanded } from '../src/daemon/branch-watcher.ts';
 import { MrWatcher } from '../src/daemon/mr-watcher.ts';
-import { AoeWatcher } from '../src/daemon/watchers.ts';
+import { AoeWatcher, toRevive } from '../src/daemon/watchers.ts';
 import { answerPrompt } from '../src/workflow.ts';
 import { CONSENT_MENU, trustMenu } from '../../fake-aoe/src/server.ts';
 import { CostWatcher, OfficeWatcher, WeatherWatcher } from '../src/daemon/office.ts';
@@ -1040,5 +1040,57 @@ describe('startup dialogs: reading an idle session, answering without a stray En
     const ignored = press([CONSENT_MENU]);
     await expect(answer(ignored.ctx, key, 2)).rejects.toThrow(/did not take the answer/);
     expect(ignored.keys).toEqual([['2']]);
+  });
+});
+
+describe('reviving sessions whose pane died (a reboot)', () => {
+  const s = (id: string, status: string, o: Record<string, string> = {}) => ({ id, status, title: id, ...o });
+  const sessions = [
+    s('dead', 'Error'),
+    s('stopped', 'Stopped'),
+    s('idle', 'Idle'),
+    s('starting', 'Starting'),
+    s('archived', 'Error', { archived_at: '2026-10-29T10:00:00Z' }),
+    s('trashed', 'Error', { trashed_at: '2026-10-29T10:00:00Z' }),
+    s('odd', 'Unknown'),
+  ];
+
+  it('picks only live sessions AoE says errored, and not twice', () => {
+    expect(toRevive(sessions, []).map((x) => x.id)).toEqual(['dead']);
+    expect(toRevive(sessions, ['dead'])).toEqual([]);
+  });
+
+  it('ensures each one once per boot, and again after the next boot', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'sc-revive-'));
+    try {
+      const paths = resolvePaths({ HOME: home }, home);
+      await mkdir(paths.stateDir, { recursive: true });
+      const ensured: string[] = [];
+      const ctx = {
+        paths,
+        logger: { info: () => {}, warn: () => {} },
+        aoe: { ensureSession: async (id: string) => void ensured.push(id) },
+      };
+      const w = new AoeWatcher(ctx as never, {} as never);
+      const boot = Date.parse('2026-10-30T05:03:00Z');
+      await w.revive(sessions, boot);
+      await w.revive(sessions, boot + 20_000); // a daemon restart in the same boot (uptime jitters)
+      expect(ensured).toEqual(['dead']);
+      await w.revive([...sessions, s('later', 'error')], boot); // a pane AoE flags a few polls later
+      expect(ensured).toEqual(['dead', 'later']);
+      await w.revive(sessions, boot + 3_600_000); // the next boot
+      expect(ensured).toEqual(['dead', 'later', 'dead']);
+      const audit = (await readFile(paths.auditFile, 'utf8'))
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l));
+      expect(audit.map((a) => [a.action, a.sessionId])).toEqual([
+        ['session_revived', 'dead'],
+        ['session_revived', 'later'],
+        ['session_revived', 'dead'],
+      ]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });
