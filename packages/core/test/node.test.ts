@@ -43,6 +43,15 @@ describe('config', () => {
     expect(c.config.mr.gitlab.hosts).toEqual(['gitlab.com']);
     expect(c.config.remoteControl.enabled).toBe(false);
   });
+  it('aoe add gets 300 s by default; the timeout is whole seconds from 1 to 3600', async () => {
+    expect((await loadConfig(paths)).config.aoe.addTimeoutSeconds).toBe(300);
+    for (const bad of [0, 3601, 1.5])
+      await expect(patchConfig(paths, { aoe: { addTimeoutSeconds: bad } })).rejects.toBeInstanceOf(
+        ConfigValidationError,
+      );
+    await setConfigValue(paths, 'aoe.addTimeoutSeconds', '600');
+    expect((await loadConfig(paths)).config.aoe.addTimeoutSeconds).toBe(600);
+  });
   it('patches while preserving comments, and reports restart-required keys', async () => {
     const r = await patchConfig(paths, { poll: { mr: 30 }, server: { port: 4999 } });
     expect(r.changedKeys.sort()).toEqual(['poll.mr', 'server.port']);

@@ -8,6 +8,7 @@ import {
   readUsage,
   SAFE_ARG,
   writeFileAtomic,
+  type AuditEntry,
   type Config,
 } from '@aoe-supercharge/core/node';
 import {
@@ -47,7 +48,7 @@ import { uploadArgs } from './uploads.ts';
 import { transcriptStore, type TranscriptStore } from './transcript.ts';
 import { CliError, EXIT } from './util/errors.ts';
 import { daemonHealth } from './util/daemon-client.ts';
-import { run } from './util/exec.ts';
+import { run, type RunResult } from './util/exec.ts';
 import {
   commitsAhead,
   currentBranch,
@@ -56,6 +57,7 @@ import {
   parseRemote,
   remoteUrl,
   revParse,
+  worktreeOf,
 } from './util/git.ts';
 
 export function assertSafeArg(value: string, what: string) {
@@ -309,6 +311,7 @@ export async function initProject(
       tool: 'claude',
       extraArgs,
       launch: true,
+      timeoutMs: ctx.config.aoe.addTimeoutSeconds * 1000,
     });
     const created = (await listAoe(ctx)).find((s) => !before.has(s.id) && s.title === title);
     if (!created)
@@ -415,99 +418,110 @@ export async function newTask(
   const brief =
     opts.brief?.trim() || '(no brief given; ask the control chat or the user if anything is unclear)';
 
-  const promptFile = ctx.ledger.sessionPromptFile(project.name, id);
-  assertSafeArg(promptFile, 'The session prompt path');
-  await writeFileAtomic(
-    promptFile,
-    render(await readTemplate('roles/worker.md'), {
-      project: project.name,
-      taskId: id,
-      title,
-      branch,
-      baseBranch,
-      brief,
-    }),
-  );
-
   const before = new Set(sessionsBefore.map((s) => s.id));
   const model = workerModel(
     opts.model ?? (ctx.config.agent.model || null),
     ctx.config.agent.workerPermissionMode,
   );
   const effort = opts.effort ?? (ctx.config.agent.effort === 'default' ? null : ctx.config.agent.effort);
-  const r = await ctx.aoeCli.add({
-    path: project.repoPath,
-    title: `${id} ${title}`,
-    parent: project.controlSessionId,
-    worktreeBranch: branch,
-    newBranch: true,
-    baseBranch,
-    tool: 'claude',
-    extraArgs: [
-      '--append-system-prompt-file',
-      promptFile,
-      ...modelArgs(ctx.config, { model, effort }),
-      ...(await claudeSettingsArgs(ctx)),
-      ...uploadArgs(ctx.paths),
-      '--permission-mode',
-      ctx.config.agent.workerPermissionMode,
-      ...ctx.config.agent.extraArgs,
-    ],
-    launch: true,
-  });
-  const created = (await listAoe(ctx)).find(
-    (s) => !before.has(s.id) && (s.worktree?.branch === branch || s.title === `${id} ${title}`),
-  );
-  if (!created) {
-    throw new CliError(
-      `aoe add failed: ${(r.stderr || r.stdout || r.error?.message || '').trim() || `no session was created for ${branch}`}`,
-      EXIT.error,
-      'Check "aoe list"; a half-made worktree can be removed with "aoe worktree cleanup".',
-    );
-  }
-  const launchWarn = launchWarning(r, created.id);
-
-  const at = new Date().toISOString();
-  const task: TaskRecord = {
-    schema: 1,
-    rev: 1,
-    id,
-    project: project.name,
-    name: pickWorkerName(await ctx.ledger.takenNames(project.name), project.name),
-    desk: pickDesk(await ctx.ledger.takenDesks(project.name)),
-    title,
-    brief: opts.brief?.trim() ?? '',
-    branch,
-    baseBranch,
-    worktreePath: created.path ?? '',
-    aoeSessionId: created.id,
-    parentSessionId: project.controlSessionId,
-    stage: 'planning',
-    blockedFrom: null,
-    openQuestion: null,
-    plan: null,
-    mr: null,
-    model,
-    effort,
-    kickoffAt: null,
-    kickoffSeenAt: null,
-    kickoffTries: 0,
-    createdAt: at,
-    updatedAt: at,
-    history: [{ at, from: null, to: 'planning', by: opts.actor ?? 'control', note: 'Task created' }],
-  };
+  // A failed start rolls back only what it made: the branch counts as ours only if it is new.
+  const branchExisted = !!(await revParse(project.repoPath, `refs/heads/${branch}`));
+  let r: RunResult | null = null;
+  let sessionId: string | null = null;
+  let launchWarn: string | null = null;
+  let task: TaskRecord;
   try {
+    const promptFile = ctx.ledger.sessionPromptFile(project.name, id);
+    assertSafeArg(promptFile, 'The session prompt path');
+    await writeFileAtomic(
+      promptFile,
+      render(await readTemplate('roles/worker.md'), {
+        project: project.name,
+        taskId: id,
+        title,
+        branch,
+        baseBranch,
+        brief,
+      }),
+    );
+    r = await ctx.aoeCli.add({
+      path: project.repoPath,
+      title: `${id} ${title}`,
+      parent: project.controlSessionId,
+      worktreeBranch: branch,
+      newBranch: true,
+      baseBranch,
+      tool: 'claude',
+      extraArgs: [
+        '--append-system-prompt-file',
+        promptFile,
+        ...modelArgs(ctx.config, { model, effort }),
+        ...(await claudeSettingsArgs(ctx)),
+        ...uploadArgs(ctx.paths),
+        '--permission-mode',
+        ctx.config.agent.workerPermissionMode,
+        ...ctx.config.agent.extraArgs,
+      ],
+      launch: true,
+      timeoutMs: ctx.config.aoe.addTimeoutSeconds * 1000,
+    });
+    const created = (await listAoe(ctx)).find(
+      (s) => !before.has(s.id) && (s.worktree?.branch === branch || s.title === `${id} ${title}`),
+    );
+    if (!created) throw new Error(`no session was created for ${branch}`);
+    sessionId = created.id;
+    launchWarn = launchWarning(r, created.id);
+
+    const at = new Date().toISOString();
+    task = {
+      schema: 1,
+      rev: 1,
+      id,
+      project: project.name,
+      name: pickWorkerName(await ctx.ledger.takenNames(project.name), project.name),
+      desk: pickDesk(await ctx.ledger.takenDesks(project.name)),
+      title,
+      brief: opts.brief?.trim() ?? '',
+      branch,
+      baseBranch,
+      worktreePath: created.path ?? '',
+      aoeSessionId: created.id,
+      parentSessionId: project.controlSessionId,
+      stage: 'planning',
+      blockedFrom: null,
+      openQuestion: null,
+      plan: null,
+      mr: null,
+      model,
+      effort,
+      kickoffAt: null,
+      kickoffSeenAt: null,
+      kickoffTries: 0,
+      createdAt: at,
+      updatedAt: at,
+      history: [{ at, from: null, to: 'planning', by: opts.actor ?? 'control', note: 'Task created' }],
+    };
     await ctx.ledger.createTask(task);
   } catch (err) {
-    await ctx.aoe.deleteSession(created.id, { deleteWorktree: true, deleteBranch: true }).catch(() => {});
-    throw err;
+    throw await failStart(ctx, {
+      project: project.name,
+      id,
+      repo: project.repoPath,
+      branch,
+      baseBranch,
+      branchExisted,
+      sessionId,
+      actor: opts.actor ?? 'cli',
+      r,
+      err,
+    });
   }
   await appendAudit(ctx.paths, {
     actor: opts.actor ?? 'cli',
     action: 'task_created',
     project: project.name,
     taskId: id,
-    sessionId: created.id,
+    sessionId: task.aoeSessionId,
     details: {
       branch,
       baseBranch,
@@ -534,6 +548,99 @@ export async function newTask(
   const after = usageReport(await readUsage(ctx.paths), usage.activeWorkers + 1, ctx.config.limits);
   const saved = (await ctx.ledger.getTask(project.name, id)) ?? task;
   return { ...saved, usage: after, ...(warnings.length ? { warnings } : {}) };
+}
+
+interface StartMade {
+  project: string;
+  id: string;
+  repo: string;
+  branch: string;
+  baseBranch: string;
+  /** The branch was there before this start, so it and its worktree are never ours to remove. */
+  branchExisted: boolean;
+  /** The session this start registered, if it got that far. */
+  sessionId: string | null;
+}
+
+/** Roll back a failed `task new`, record `task_failed`, and say what to do next. */
+async function failStart(
+  ctx: Ctx,
+  o: StartMade & { actor: AuditEntry['actor']; r: RunResult | null; err: unknown },
+): Promise<CliError> {
+  const secs = ctx.config.aoe.addTimeoutSeconds;
+  const timedOut = !o.sessionId && !!o.r?.timedOut;
+  const reason = timedOut
+    ? `aoe add timed out after ${secs} s creating ${o.branch}.`
+    : !o.sessionId && o.r
+      ? `aoe add failed: ${(o.r.stderr || o.r.stdout || o.r.error?.message || '').trim() || `no session was created for ${o.branch}`}`
+      : o.err instanceof Error
+        ? o.err.message
+        : String(o.err);
+  const { removed, kept } = await rollbackStart(ctx, o);
+  await appendAudit(ctx.paths, {
+    actor: o.actor,
+    action: 'task_failed',
+    project: o.project,
+    taskId: o.id,
+    sessionId: o.sessionId,
+    details: { reason, branch: o.branch, baseBranch: o.baseBranch, timedOut, removed, kept },
+  });
+  const left = kept.length ? `Kept ${kept.join('; ')}.` : 'Nothing was left behind.';
+  const next = timedOut
+    ? `Raise aoe.addTimeoutSeconds (now ${secs}), e.g. "supercharge config set aoe.addTimeoutSeconds ${Math.min(secs * 2, 3600)}" or on the Settings page, then run the same command again.`
+    : 'Check "aoe list", then try again.';
+  return new CliError(reason, EXIT.error, `${left} ${next}`);
+}
+
+/**
+ * Undo what a failed `task new` made, and nothing else: the session it registered; its branch and that
+ * branch's worktree only when the branch is new and has no commits of its own; its ledger dir only while it
+ * has no task.json. Never throws: what could not be removed comes back in `kept`.
+ */
+export async function rollbackStart(
+  ctx: Pick<Ctx, 'aoe' | 'ledger'>,
+  o: StartMade,
+): Promise<{ removed: string[]; kept: string[] }> {
+  const removed: string[] = [];
+  const kept: string[] = [];
+  const attempt = async (what: string, fn: () => Promise<unknown>) => {
+    try {
+      await fn();
+      removed.push(what);
+    } catch (e) {
+      kept.push(`${what} (${e instanceof Error ? e.message : String(e)})`);
+    }
+  };
+  const git = async (args: string[]) => {
+    const r = await run('git', args, { cwd: o.repo, timeoutMs: 300_000 });
+    if (r.code !== 0) throw new Error(r.stderr.trim() || `git ${args[0]} failed`);
+  };
+  const sessionId = o.sessionId;
+  if (sessionId)
+    await attempt(`AoE session ${sessionId}`, () =>
+      ctx.aoe.deleteSession(sessionId, { deleteWorktree: true, deleteBranch: false }),
+    );
+  if (!o.branchExisted && (await revParse(o.repo, `refs/heads/${o.branch}`))) {
+    if ((await commitsAhead(o.repo, o.baseBranch, o.branch)) !== 0) {
+      kept.push(
+        `branch ${o.branch} and its worktree (it has commits not on ${o.baseBranch}, or git could not tell)`,
+      );
+    } else {
+      const wt = await worktreeOf(o.repo, o.branch);
+      // Twice --force: git locks a worktree while `worktree add` runs, and a killed add leaves it locked.
+      if (wt) await attempt(`worktree ${wt}`, () => git(['worktree', 'remove', '--force', '--force', wt]));
+      await attempt(`branch ${o.branch}`, () => git(['branch', '-D', o.branch]));
+    }
+  }
+  const hasTask = await ctx.ledger.getTask(o.project, o.id).then(
+    (t) => !!t,
+    () => true,
+  );
+  if (!hasTask)
+    await attempt(`task dir ${o.id}`, () =>
+      rm(ctx.ledger.taskDir(o.project, o.id), { recursive: true, force: true }),
+    );
+  return { removed, kept };
 }
 
 export interface KickoffWait {

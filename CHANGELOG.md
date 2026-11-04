@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **`aoe add` gets as long as you need.** `task new` used to kill `aoe add` after a fixed 120 seconds, and
+  `git worktree add` alone can take longer on a large repository. The timeout is now `aoe.addTimeoutSeconds`
+  (default 300, 1 to 3600), on the Settings page with the other AoE settings, and it takes effect on the next
+  start without a restart. The General chat and `init` use it too.
+
+- **A failed `task new` cleans up after itself.** When `aoe add` runs out of time or fails (or the task can't
+  be saved), the start is rolled back: its ledger entry, the AoE session if one was registered, and its
+  branch and worktree, the last two only when this start created the branch and it has no commits. Nothing
+  it did not create is touched. The audit log records `task_failed` with the reason and what was removed or
+  kept, and the error says what to do: raise `aoe.addTimeoutSeconds`, or check `aoe list`, then run it
+  again. The task id is not reused.
+
 - **Sessions come back by themselves after a reboot.** AoE's own startup recovery only restarts sessions
   it has a conversation id for, so most panes stayed dead (status `error`) until you opened the AoE TUI.
   Once `aoe serve` answers, the daemon now asks AoE to restart each live session whose pane died, one at a

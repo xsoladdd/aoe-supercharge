@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import type { MrState, TaskRecord } from '@aoe-supercharge/core/shared';
 import { project as projectRecord, task as taskRecord } from '../../core/test/office-fixtures.ts';
 import { checkCleanup, cleanupAllDone, cleanupTask } from '../src/cleanup.ts';
 import type { Ctx } from '../src/context.ts';
+import { rollbackStart } from '../src/workflow.ts';
 import { run } from '../src/util/exec.ts';
 
 /**
@@ -326,5 +327,64 @@ describe('cleanupTask', () => {
     ]);
     expect(w.deleteSession).toHaveBeenCalledTimes(1);
     expect(await w.ledger.getTask('alpha', 'AS-0003')).not.toBeNull();
+  });
+});
+
+describe('rollbackStart: undoes only what a failed task new made', () => {
+  /** A start of AS-0002 that got as far as its prompt file and `git worktree add -b`. */
+  async function failedStart(withCommit = false) {
+    const w = await world();
+    const branch = 'sc/as-0002-new';
+    const wt2 = join(w.root, 'wt2');
+    await g(w.repo, 'worktree', 'add', '-q', '-b', branch, wt2, 'main');
+    if (withCommit) await w.commit(wt2, 'd.txt');
+    await mkdir(w.ledger.taskDir('alpha', 'AS-0002'), { recursive: true });
+    await writeFile(w.ledger.sessionPromptFile('alpha', 'AS-0002'), 'prompt');
+    const made = { project: 'alpha', id: 'AS-0002', repo: w.repo, branch, baseBranch: 'main' };
+    return { ...w, wt2, made };
+  }
+  const branches = (repo: string) => g(repo, 'branch', '--list');
+
+  it('removes the session, the new branch and its worktree, and the task dir; nothing else', async () => {
+    const w = await failedStart();
+    const r = await rollbackStart(w.ctx, { ...w.made, branchExisted: false, sessionId: 'sess-2' });
+    expect(r.kept).toEqual([]);
+    expect(w.deleteSession).toHaveBeenCalledExactlyOnceWith('sess-2', {
+      deleteWorktree: true,
+      deleteBranch: false,
+    });
+    expect(existsSync(w.wt2)).toBe(false);
+    expect(await branches(w.repo)).not.toMatch(/as-0002/);
+    expect(existsSync(w.ledger.taskDir('alpha', 'AS-0002'))).toBe(false);
+    // AS-0001's worktree, branch and task are untouched.
+    expect(existsSync(w.wt)).toBe(true);
+    expect(await branches(w.repo)).toContain(w.branch);
+    expect(await w.ledger.getTask('alpha', 'AS-0001')).not.toBeNull();
+  });
+
+  it('keeps a new branch (and its worktree) that already has a commit', async () => {
+    const w = await failedStart(true);
+    const r = await rollbackStart(w.ctx, { ...w.made, branchExisted: false, sessionId: null });
+    expect(r.kept).toEqual([
+      expect.stringMatching(/^branch sc\/as-0002-new and its worktree \(it has commits/),
+    ]);
+    expect(existsSync(w.wt2)).toBe(true);
+    expect(await branches(w.repo)).toMatch(/as-0002/);
+    expect(w.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it('never touches a branch that was there before the start, even with no commits', async () => {
+    const w = await failedStart();
+    const r = await rollbackStart(w.ctx, { ...w.made, branchExisted: true, sessionId: null });
+    expect(r.removed).toEqual(['task dir AS-0002']);
+    expect(existsSync(w.wt2)).toBe(true);
+    expect(await branches(w.repo)).toMatch(/as-0002/);
+    expect(w.deleteSession).not.toHaveBeenCalled();
+  });
+
+  it('leaves a task dir that holds a task.json', async () => {
+    const w = await failedStart();
+    await rollbackStart(w.ctx, { ...w.made, id: 'AS-0001', branchExisted: true, sessionId: null });
+    expect(await w.ledger.getTask('alpha', 'AS-0001')).not.toBeNull();
   });
 });

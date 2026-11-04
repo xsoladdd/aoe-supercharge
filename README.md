@@ -121,6 +121,7 @@ Then talk to the control chat (in AoE, or from your phone; see [Phone access](#p
   - a git worktree,
   - an AoE session that is a child of the control session,
   - a ledger entry.
+- **A start that fails leaves nothing behind.** `aoe add` creates the worktree, which can take minutes on a large repository; it gets `aoe.addTimeoutSeconds` (default 300). If it runs out of time or fails, `task new` removes what that start made and nothing else: the ledger entry, the AoE session if one was registered, and the branch and worktree, but only when the start created the branch and it has no commits. The error says what to do next (raise the timeout, or check `aoe list`, then run it again), and the audit log records `task_failed` with the reason. The task id is not reused; the `task_failed` entry explains the gap.
 - The control chat runs `task new` itself; you can run it by hand too, or press **New task** on a project's page in the dashboard (title, brief, model and effort; it runs the same code and is audited as you). It is the only place the dashboard starts a worker, and only when you submit the form. If your usage says to wait, nothing is started: the form shows why and offers **Start anyway**.
 - **Model and effort.** A control chat starts on Opus at `xhigh` effort (`agent.controlModel`, `agent.controlEffort`) and is locked to them: its Model picker in the composer is shown, with a lock, and cannot be changed, so nothing is typed into the chat that Claude Code would save as your default. The `opus` alias is Opus 5.5 on the current Claude Code and follows the next Opus; pin a full model id in Settings to stop that. Workers get a `--model` and an `--effort` per task from the control chat (the table is in its skill); `agent.model` and `agent.effort` are only the fallbacks. Both apply to that one session. Existing control chats keep the arguments they were started with; new ones get `xhigh`.
 - **Startup prompts show up in the dashboard.** Claude Code's "Do you trust this folder?" and its MCP approval fire no hook, so AoE says Idle while they wait. Supercharge reads the screen of a new session (and of an idle one once per idle spell) and shows them as an answer card in the chat, with a Needs-you item. Answering presses just the keys, so a second dialog is never answered for you. Dialogs drawn without numbers are answered with the arrow keys and Enter.
@@ -245,6 +246,7 @@ hostname = "supercharge.localhost"
 [aoe]
 profile = "main"
 autoStart = true                   # start `aoe serve --daemon` when needed
+addTimeoutSeconds = 300            # how long `aoe add` (it makes the worktree) may take
 
 [agent]
 workerPermissionMode = "plan"      # plan | default | acceptEdits | auto

@@ -48,6 +48,11 @@ export const ConfigSchema = z.strictObject({
         )
         .default('')
         .describe('AoE daemon URL. Empty means discover it with `aoe url`.'),
+      addTimeoutSeconds: seconds(
+        300,
+        1,
+        'Seconds to wait for `aoe add` when a task starts. It creates the worktree, which can take minutes on a large repository. A start that runs out is rolled back.',
+      ),
     })
     .prefault({}),
   agent: z

@@ -102,6 +102,11 @@ if (cmd === '--version' || cmd === '-V') {
       die(`git worktree add failed: ${e.stderr?.toString() ?? e.message}`);
     }
   }
+  // After the worktree, before the session is registered: where a slow or failing real `aoe add` stops.
+  // FAKE_AOE_ADD_SLEEP_MS=N: take N ms here (a large repo). FAKE_AOE_ADD_FAIL=1: give up here.
+  if (process.env.FAKE_AOE_ADD_SLEEP_MS)
+    await new Promise((r) => setTimeout(r, Number(process.env.FAKE_AOE_ADD_SLEEP_MS)));
+  if (process.env.FAKE_AOE_ADD_FAIL === '1') die('Error: could not start the session');
   const parentSession = parent ? (await api('/__fake/state')).sessions.find((s) => s.id === parent) : null;
   const s = await api('/__fake/sessions', {
     method: 'POST',

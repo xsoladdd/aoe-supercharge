@@ -369,6 +369,7 @@ export interface AuditEntry {
     | 'office_mark'
     | 'daemon_restart'
     | 'task_created'
+    | 'task_failed'
     | 'project_init'
     | 'general_session_created'
     | 'sessions_adopted'

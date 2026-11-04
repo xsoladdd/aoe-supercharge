@@ -43,7 +43,13 @@ async function addScratch(
   o: { title: string; group?: string; parent?: string; extraArgs: string[] },
 ): Promise<{ id: string; path: string; warning: string | null }> {
   const seen = new Set(before.map((s) => s.id));
-  const r = await ctx.aoeCli.add({ scratch: true, tool: 'claude', launch: true, ...o });
+  const r = await ctx.aoeCli.add({
+    scratch: true,
+    tool: 'claude',
+    launch: true,
+    timeoutMs: ctx.config.aoe.addTimeoutSeconds * 1000,
+    ...o,
+  });
   const created = (await listAoe(ctx)).find((s) => !seen.has(s.id) && s.title === o.title);
   if (!created)
     throw new CliError(

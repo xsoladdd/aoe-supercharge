@@ -232,6 +232,44 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
   });
 
+  it('rolls back a start whose aoe add runs out of time or fails, and touches nothing else', async () => {
+    const sessionsBefore = fake.state.sessions.map((s) => s.id).sort();
+    const branches = () => execFileSync('git', ['branch', '--list'], { cwd: repo }).toString();
+    const failed = async () =>
+      (await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as { action: string; taskId?: string; details?: Record<string, unknown> })
+        .filter((a) => a.action === 'task_failed');
+
+    expect((await sc(['config', 'set', 'aoe.addTimeoutSeconds', '1'])).code).toBe(0);
+    const slow = await sc(['task', 'new', 'Huge repo'], { extraEnv: { FAKE_AOE_ADD_SLEEP_MS: '5000' } });
+    expect((await sc(['config', 'set', 'aoe.addTimeoutSeconds', '300'])).code).toBe(0);
+    expect(slow.code).not.toBe(0);
+    expect(slow.stderr).toMatch(/aoe add timed out after 1 s creating sc\/no-0003-huge-repo/);
+    expect(slow.stderr).toMatch(/Nothing was left behind\. Raise aoe\.addTimeoutSeconds/);
+    expect(branches()).not.toMatch(/no-0003/);
+    expect(existsSync(join(`${repo}-worktrees`, 'sc-no-0003-huge-repo'))).toBe(false);
+    expect(existsSync(join(home, '.local/share/supercharge/projects/northwind/tasks/NO-0003'))).toBe(false);
+    expect((await failed()).at(-1)).toMatchObject({
+      taskId: 'NO-0003',
+      details: { timedOut: true, kept: [] },
+    });
+
+    const broken = await sc(['task', 'new', 'Broken start'], { extraEnv: { FAKE_AOE_ADD_FAIL: '1' } });
+    expect(broken.code).not.toBe(0);
+    expect(broken.stderr).toMatch(/aoe add failed: Error: could not start the session/);
+    expect(branches()).not.toMatch(/no-0004/);
+    expect(existsSync(join(home, '.local/share/supercharge/projects/northwind/tasks/NO-0004'))).toBe(false);
+    expect((await failed()).at(-1)).toMatchObject({ taskId: 'NO-0004', details: { timedOut: false } });
+
+    // The ids stay used (the audit explains the gap); every other session, branch and worktree is still there.
+    expect(fake.state.sessions.map((s) => s.id).sort()).toEqual(sessionsBefore);
+    expect(branches()).toContain(worker.branch);
+    expect(existsSync(worker.worktree)).toBe(true);
+    expect((await readTask('NO-0001')).stage).not.toBe('done');
+  });
+
   it('whoami identifies the worker and rejects a foreign session id', async () => {
     const ok = await sc(['whoami', '--json'], {
       cwd: worker.worktree,
