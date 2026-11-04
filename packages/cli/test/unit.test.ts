@@ -22,7 +22,7 @@ import { parseUpdateCheck, releaseAsset } from '../src/commands/aoe-upgrade.ts';
 import { claudeModelsCheck, hookConsentFix } from '../src/commands/doctor.ts';
 import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '../src/statusline.ts';
 import { renderCaddyfile } from '../src/commands/proxy.ts';
-import { landedOn, markLanded } from '../src/daemon/branch-watcher.ts';
+import { landedOn, markLanded, renamedTo } from '../src/daemon/branch-watcher.ts';
 import { MrWatcher } from '../src/daemon/mr-watcher.ts';
 import { AoeWatcher, toRevive } from '../src/daemon/watchers.ts';
 import { answerPrompt } from '../src/workflow.ts';
@@ -283,6 +283,51 @@ describe('branch landing without an MR (SPEC §11.3)', () => {
     expect(t.history.at(-1)).toMatchObject({ by: 'daemon', note: 'Branch landed on main' });
     expect(markLanded(ready({ mr: mr({}) }), 'main').stage).toBe('ready_for_review');
     expect(markLanded(mrTask('implementing'), 'main').stage).toBe('implementing');
+  });
+});
+
+describe('a worker renames the task branch', () => {
+  async function worktree() {
+    const dir = await mkdtemp(join(tmpdir(), 'sc-rename-'));
+    const g = async (...args: string[]) => {
+      const r = await run('git', args, { cwd: dir, timeoutMs: 10_000 });
+      if (r.code !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
+      return r.stdout.trim();
+    };
+    await g('init', '-q', '-b', 'main');
+    await g('config', 'user.email', 't@example.com');
+    await g('config', 'user.name', 'T');
+    await g('config', 'commit.gpgsign', 'false');
+    await g('commit', '-q', '--allow-empty', '-m', 'a');
+    await g('checkout', '-q', '-b', 'sc/nw-0001-t');
+    return { dir, g, task: { ...mrTask('implementing'), worktreePath: dir } };
+  }
+
+  it('the old branch is gone and the worktree is on another: that is the new branch', async () => {
+    const { dir, g, task } = await worktree();
+    expect(await renamedTo(task)).toBeNull();
+    await g('branch', '-m', 'bugfix/t');
+    expect(await renamedTo(task)).toBe('bugfix/t');
+    await rm(dir, { recursive: true, force: true });
+  });
+  it('the old branch still exists: a worker that switched for a while is left alone', async () => {
+    const { dir, g, task } = await worktree();
+    await g('checkout', '-q', '-b', 'bugfix/t');
+    expect(await renamedTo(task)).toBeNull();
+    await rm(dir, { recursive: true, force: true });
+  });
+  it('on the base branch, detached, or done: nothing to follow', async () => {
+    const { dir, g, task } = await worktree();
+    await g('checkout', '-q', 'main');
+    await g('branch', '-q', '-D', 'sc/nw-0001-t');
+    expect(await renamedTo(task)).toBeNull();
+    await g('checkout', '-q', '--detach');
+    expect(await renamedTo(task)).toBeNull();
+    await g('checkout', '-q', '-b', 'bugfix/t');
+    expect(await renamedTo(task)).toBe('bugfix/t');
+    expect(await renamedTo({ ...task, stage: 'done' })).toBeNull();
+    expect(await renamedTo({ ...task, worktreePath: join(dir, 'missing') })).toBeNull();
+    await rm(dir, { recursive: true, force: true });
   });
 });
 

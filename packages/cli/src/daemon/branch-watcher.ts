@@ -1,7 +1,8 @@
-import { applyStage } from '@aoe-supercharge/core/node';
+import { existsSync } from 'node:fs';
+import { applyStage, appendAudit } from '@aoe-supercharge/core/node';
 import { transition, type TaskRecord } from '@aoe-supercharge/core/shared';
 import type { Ctx } from '../context.ts';
-import { hasLanded, revParse } from '../util/git.ts';
+import { currentBranch, hasLanded, revParse } from '../util/git.ts';
 import type { Store } from './store.ts';
 
 /** Tasks a worker reported ready to merge without an MR (SPEC §11.3). */
@@ -41,10 +42,31 @@ export class BranchWatcher {
     this.timer.unref();
   }
 
+  /** A worker that renamed its branch: point the task at the new name, so MR lookup, landing and cleanup follow. */
+  private async followRename(task: TaskRecord): Promise<void> {
+    const to = await renamedTo(task).catch(() => null);
+    if (!to) return;
+    await this.ctx.ledger
+      .updateTask(task.project, task.id, (t) => (t.branch === task.branch ? { ...t, branch: to } : t))
+      .then(() => {
+        this.ctx.logger.info('task branch renamed', { task: task.id, from: task.branch, to });
+        return appendAudit(this.ctx.paths, {
+          actor: 'daemon',
+          action: 'task_branch_renamed',
+          project: task.project,
+          taskId: task.id,
+          sessionId: task.aoeSessionId,
+          details: { from: task.branch, to },
+        });
+      })
+      .catch((err) => this.ctx.logger.warn('branch rename update failed', { task: task.id, err }));
+  }
+
   async pollOnce(): Promise<void> {
     if (this.running) return;
     this.running = true;
     try {
+      for (const task of this.store.tasks) await this.followRename(task);
       for (const task of this.store.tasks.filter(isBranchReady)) {
         const project = this.store.projects.find((p) => p.name === task.project);
         if (!project) continue;
@@ -58,6 +80,18 @@ export class BranchWatcher {
       this.running = false;
     }
   }
+}
+
+/**
+ * The branch the worktree is on now when the worker renamed the task's branch: the task's old branch is
+ * gone and the worktree sits on another one (not the base branch). Null otherwise, so a worker that
+ * only switched branches for a while is left alone.
+ */
+export async function renamedTo(task: TaskRecord): Promise<string | null> {
+  if (task.stage === 'done' || !task.worktreePath || !existsSync(task.worktreePath)) return null;
+  const now = await currentBranch(task.worktreePath);
+  if (!now || now === task.branch || now === task.baseBranch) return null;
+  return (await revParse(task.worktreePath, `refs/heads/${task.branch}`)) ? null : now;
 }
 
 /** The base ref the task's branch landed on (`main` or `origin/main`), or null if it hasn't. */

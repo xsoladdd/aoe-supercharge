@@ -428,6 +428,10 @@ export function buildProgram(): Command {
       'model for this worker: opus, sonnet, fable, haiku or a full id. Workers plan with Opus: sonnet (or none) starts on opusplan, Opus while planning and Sonnet once the plan is approved',
     )
     .option('--effort <level>', 'effort for this worker: low, medium, high, xhigh or max')
+    .option(
+      '--permission-mode <mode>',
+      'permission mode for this worker only: plan, default, acceptEdits or auto (default: agent.workerPermissionMode)',
+    )
     .option('--force', 'start even when your usage or the worker cap says to wait')
     .option('--json', 'machine-readable output')
     .action(
@@ -440,6 +444,7 @@ export function buildProgram(): Command {
           base?: string;
           model?: string;
           effort?: string;
+          permissionMode?: string;
           force?: boolean;
           json?: boolean;
         },
@@ -455,6 +460,7 @@ export function buildProgram(): Command {
           base: o.base,
           model: o.model,
           effort: o.effort,
+          permissionMode: o.permissionMode,
           force: o.force,
           actor: who?.role === 'control' ? 'control' : 'user',
         });
@@ -502,7 +508,7 @@ export function buildProgram(): Command {
   task
     .command('cleanup [task-id]')
     .description(
-      'remove a finished worker: its AoE session, worktree and branch. Refuses unless its work is on origin/main',
+      'remove a finished worker: its AoE session, worktree and branch. Refuses unless its work has landed on origin/<its base branch> (merged, cherry-picked or squashed) or in its merged pull request, and the worktree is clean',
     )
     .option('-p, --project <name>', 'project (default: the one for this repository)')
     .option('--all-done', 'every done task of the project; the ones that are not safe are skipped')

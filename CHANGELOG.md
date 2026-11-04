@@ -14,6 +14,17 @@
   kept, and the error says what to do: raise `aoe.addTimeoutSeconds`, or check `aoe list`, then run it
   again. The task id is not reused.
 
+- **A renamed task branch is followed.** When a worker renames its branch (for example `sc/cb-0001-…` to
+  `bugfix/…`) and the old name is gone, the daemon now updates the task's branch from the worktree's current
+  one, so merge request lookup, the landed check and `task cleanup` keep working instead of reporting
+  "Branch … is gone". It is checked with the merge request poll (every `poll.mr` seconds) and recorded in
+  the audit log as `task_branch_renamed`.
+- **`task cleanup` says what it checks.** Its `--help`, the README and the control-chat skill said the work had
+  to be on `origin/main`. It checks `origin/<base>`, the task's own base branch (merged, an equivalent patch,
+  or squashed), or its merged pull request, and that the worktree is clean.
+- **`supercharge task new --permission-mode <plan|default|acceptEdits|auto>`.** Overrides
+  `agent.workerPermissionMode` for that one task, so a small overnight task need not stall at plan approval.
+  The mode is recorded in the `task_created` audit entry. The control-chat skill's `task new` section covers it.
 - **Sessions come back by themselves after a reboot.** AoE's own startup recovery only restarts sessions
   it has a conversation id for, so most panes stayed dead (status `error`) until you opened the AoE TUI.
   Once `aoe serve` answers, the daemon now asks AoE to restart each live session whose pane died, one at a

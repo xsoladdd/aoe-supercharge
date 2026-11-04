@@ -377,6 +377,7 @@ export interface AuditEntry {
     | 'session_action'
     | 'task_removed'
     | 'task_restored'
+    | 'task_branch_renamed'
     | 'task_cleaned_up'
     | 'aoe_upgrade'
     | 'terminal_opened'

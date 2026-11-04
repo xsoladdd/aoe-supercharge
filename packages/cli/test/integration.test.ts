@@ -441,6 +441,28 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
   });
 
+  it('task new --permission-mode overrides the config for that task only and is audited', async () => {
+    const bad = await sc(['task', 'new', 'Nope', '--permission-mode', 'yolo']);
+    expect(bad.code).toBe(2);
+    expect(bad.stderr).toMatch(/plan, default, acceptEdits, auto/);
+    const r = await sc(['task', 'new', 'Overnight fix', '--permission-mode', 'auto', '--force', '--json']);
+    expect(r.code, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout);
+    const args = fake.state.sessions.find((s) => s.id === out.aoeSessionId)?.extra_args ?? '';
+    expect(args).toContain('--permission-mode auto');
+    // Not plan mode, so the opusplan model switch for plan-mode workers does not apply.
+    expect(out.model).not.toBe('opusplan');
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"action":"task_created".*"permissionMode":"auto"/);
+    const next = await sc(['task', 'new', 'Back to plan', '--force', '--json']);
+    expect(next.code, next.stderr).toBe(0);
+    const nextArgs =
+      fake.state.sessions.find((s) => s.id === JSON.parse(next.stdout).aoeSessionId)?.extra_args ?? '';
+    expect(nextArgs).toContain('--permission-mode plan');
+    for (const t of [out, JSON.parse(next.stdout)])
+      expect((await sc(['stage', 'done'], { cwd: t.worktree })).code).toBe(0);
+  });
+
   it('holds new workers while the 5-hour window is nearly used, unless forced', async () => {
     expect((await sc(['statusline'], { input: statusInput(90) })).code).toBe(0);
     const held = await sc(['task', 'new', 'Another one', '--json']);

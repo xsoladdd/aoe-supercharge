@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   appendAudit,
   applyStage,
+  PERMISSION_MODES,
   readHeld,
   readUsage,
   SAFE_ARG,
@@ -386,6 +387,8 @@ export async function newTask(
     /** claude --model for this worker; defaults to agent.model. */
     model?: string;
     effort?: string;
+    /** claude --permission-mode for this worker; defaults to agent.workerPermissionMode. */
+    permissionMode?: string;
     /** Start even when your usage or the worker cap says to wait (only when the user says so). */
     force?: boolean;
     /** How long to wait for the session's prompt before leaving the first message to the daemon. */
@@ -395,6 +398,15 @@ export async function newTask(
   const title = opts.title.trim();
   if (!title) throw new CliError('A task needs a title.', EXIT.usage);
   checkModelPick(opts);
+  if (
+    opts.permissionMode !== undefined &&
+    !(PERMISSION_MODES as readonly string[]).includes(opts.permissionMode)
+  )
+    throw new CliError(
+      `Unknown permission mode "${opts.permissionMode}".`,
+      EXIT.usage,
+      `Use one of: ${PERMISSION_MODES.join(', ')}.`,
+    );
   const project = await resolveProject(ctx, opts.cwd, opts.project);
   if (!project.controlSessionId)
     throw new CliError(
@@ -419,10 +431,8 @@ export async function newTask(
     opts.brief?.trim() || '(no brief given; ask the control chat or the user if anything is unclear)';
 
   const before = new Set(sessionsBefore.map((s) => s.id));
-  const model = workerModel(
-    opts.model ?? (ctx.config.agent.model || null),
-    ctx.config.agent.workerPermissionMode,
-  );
+  const permissionMode = opts.permissionMode ?? ctx.config.agent.workerPermissionMode;
+  const model = workerModel(opts.model ?? (ctx.config.agent.model || null), permissionMode);
   const effort = opts.effort ?? (ctx.config.agent.effort === 'default' ? null : ctx.config.agent.effort);
   // A failed start rolls back only what it made: the branch counts as ours only if it is new.
   const branchExisted = !!(await revParse(project.repoPath, `refs/heads/${branch}`));
@@ -459,7 +469,7 @@ export async function newTask(
         ...(await claudeSettingsArgs(ctx)),
         ...uploadArgs(ctx.paths),
         '--permission-mode',
-        ctx.config.agent.workerPermissionMode,
+        permissionMode,
         ...ctx.config.agent.extraArgs,
       ],
       launch: true,
@@ -527,6 +537,7 @@ export async function newTask(
       baseBranch,
       model,
       effort,
+      permissionMode,
       ...(usage.canStart ? {} : { forced: usage.advice }),
     },
   });
