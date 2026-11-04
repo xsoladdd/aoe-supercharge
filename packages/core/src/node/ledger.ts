@@ -369,6 +369,7 @@ export interface AuditEntry {
     | 'office_mark'
     | 'daemon_restart'
     | 'task_created'
+    | 'task_failed'
     | 'project_init'
     | 'general_session_created'
     | 'sessions_adopted'
@@ -376,11 +377,13 @@ export interface AuditEntry {
     | 'session_action'
     | 'task_removed'
     | 'task_restored'
+    | 'task_branch_renamed'
     | 'task_cleaned_up'
     | 'aoe_upgrade'
     | 'terminal_opened'
     | 'session_attach'
-    | 'scheduled_prompt';
+    | 'scheduled_prompt'
+    | 'session_revived';
   project?: string | null;
   taskId?: string | null;
   sessionId?: string | null;

@@ -33,6 +33,13 @@ export async function defaultBranch(cwd: string): Promise<string> {
 
 export { parseRemote, type RemoteRef } from '@aoe-supercharge/core/shared';
 
+/** Path of the worktree that has `branch` checked out, or null. */
+export async function worktreeOf(cwd: string, branch: string): Promise<string | null> {
+  const out = await git(cwd, ['worktree', 'list', '--porcelain']);
+  const entry = out?.split('\n\n').find((e) => e.split('\n').includes(`branch refs/heads/${branch}`));
+  return entry?.match(/^worktree (.+)$/m)?.[1] ?? null;
+}
+
 // ── branch landing (no-MR flow) ──────────────────────────────────────────────
 
 /** Commit sha of a ref, or null if it doesn't exist. */

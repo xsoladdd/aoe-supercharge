@@ -7,6 +7,9 @@ import type { Paths } from './paths.ts';
 import { validTimeZone } from '../shared/office-ambience.ts';
 
 /** Arguments that land on AoE's shell launch line must not contain shell metacharacters (SPEC §10.1). */
+/** What `agent.workerPermissionMode` and `task new --permission-mode` accept. */
+export const PERMISSION_MODES = ['plan', 'default', 'acceptEdits', 'auto'] as const;
+
 export const SAFE_ARG = /^[A-Za-z0-9_@%+=:,./-]+$/;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/;
@@ -48,6 +51,11 @@ export const ConfigSchema = z.strictObject({
         )
         .default('')
         .describe('AoE daemon URL. Empty means discover it with `aoe url`.'),
+      addTimeoutSeconds: seconds(
+        300,
+        1,
+        'Seconds to wait for `aoe add` when a task starts. It creates the worktree, which can take minutes on a large repository. A start that runs out is rolled back.',
+      ),
     })
     .prefault({}),
   agent: z
@@ -58,7 +66,7 @@ export const ConfigSchema = z.strictObject({
         .default([])
         .describe('Extra claude arguments for every session.'),
       workerPermissionMode: z
-        .enum(['plan', 'default', 'acceptEdits', 'auto'])
+        .enum(PERMISSION_MODES)
         .default('plan')
         .describe('Permission mode workers start in.'),
       controlModel: z

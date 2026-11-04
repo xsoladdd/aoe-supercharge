@@ -141,6 +141,8 @@ beforeAll(async () => {
     ['server.port', String(port)],
     ['mr.gitlab.hosts', 'gitlab.com,gitlab.example.com'],
     ['poll.mr', '10'],
+    // Node before 24.22 loses recursive fs.watch events on Linux after a file's second atomic rewrite.
+    ['poll.reconcile', '5'],
     ['poll.aoeSessions', '1'],
     ['poll.aoeSessionsIdle', '1'],
     ['notifications.enabled', 'false'],
@@ -228,6 +230,44 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(fake.state.sessions.some((s) => s.id === out.aoeSessionId)).toBe(true);
     // Done with it: close it so later assertions about NO-0001 stay simple.
     expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+  });
+
+  it('rolls back a start whose aoe add runs out of time or fails, and touches nothing else', async () => {
+    const sessionsBefore = fake.state.sessions.map((s) => s.id).sort();
+    const branches = () => execFileSync('git', ['branch', '--list'], { cwd: repo }).toString();
+    const failed = async () =>
+      (await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8'))
+        .trim()
+        .split('\n')
+        .map((l) => JSON.parse(l) as { action: string; taskId?: string; details?: Record<string, unknown> })
+        .filter((a) => a.action === 'task_failed');
+
+    expect((await sc(['config', 'set', 'aoe.addTimeoutSeconds', '1'])).code).toBe(0);
+    const slow = await sc(['task', 'new', 'Huge repo'], { extraEnv: { FAKE_AOE_ADD_SLEEP_MS: '5000' } });
+    expect((await sc(['config', 'set', 'aoe.addTimeoutSeconds', '300'])).code).toBe(0);
+    expect(slow.code).not.toBe(0);
+    expect(slow.stderr).toMatch(/aoe add timed out after 1 s creating sc\/no-0003-huge-repo/);
+    expect(slow.stderr).toMatch(/Nothing was left behind\. Raise aoe\.addTimeoutSeconds/);
+    expect(branches()).not.toMatch(/no-0003/);
+    expect(existsSync(join(`${repo}-worktrees`, 'sc-no-0003-huge-repo'))).toBe(false);
+    expect(existsSync(join(home, '.local/share/supercharge/projects/northwind/tasks/NO-0003'))).toBe(false);
+    expect((await failed()).at(-1)).toMatchObject({
+      taskId: 'NO-0003',
+      details: { timedOut: true, kept: [] },
+    });
+
+    const broken = await sc(['task', 'new', 'Broken start'], { extraEnv: { FAKE_AOE_ADD_FAIL: '1' } });
+    expect(broken.code).not.toBe(0);
+    expect(broken.stderr).toMatch(/aoe add failed: Error: could not start the session/);
+    expect(branches()).not.toMatch(/no-0004/);
+    expect(existsSync(join(home, '.local/share/supercharge/projects/northwind/tasks/NO-0004'))).toBe(false);
+    expect((await failed()).at(-1)).toMatchObject({ taskId: 'NO-0004', details: { timedOut: false } });
+
+    // The ids stay used (the audit explains the gap); every other session, branch and worktree is still there.
+    expect(fake.state.sessions.map((s) => s.id).sort()).toEqual(sessionsBefore);
+    expect(branches()).toContain(worker.branch);
+    expect(existsSync(worker.worktree)).toBe(true);
+    expect((await readTask('NO-0001')).stage).not.toBe('done');
   });
 
   it('whoami identifies the worker and rejects a foreign session id', async () => {
@@ -399,6 +439,28 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(settings.statusLine.command).toMatch(/supercharge\.mjs' statusline$/);
     expect((await readTask(out.id)).model).toBe('opusplan');
     expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+  });
+
+  it('task new --permission-mode overrides the config for that task only and is audited', async () => {
+    const bad = await sc(['task', 'new', 'Nope', '--permission-mode', 'yolo']);
+    expect(bad.code).toBe(2);
+    expect(bad.stderr).toMatch(/plan, default, acceptEdits, auto/);
+    const r = await sc(['task', 'new', 'Overnight fix', '--permission-mode', 'auto', '--force', '--json']);
+    expect(r.code, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout);
+    const args = fake.state.sessions.find((s) => s.id === out.aoeSessionId)?.extra_args ?? '';
+    expect(args).toContain('--permission-mode auto');
+    // Not plan mode, so the opusplan model switch for plan-mode workers does not apply.
+    expect(out.model).not.toBe('opusplan');
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(/"action":"task_created".*"permissionMode":"auto"/);
+    const next = await sc(['task', 'new', 'Back to plan', '--force', '--json']);
+    expect(next.code, next.stderr).toBe(0);
+    const nextArgs =
+      fake.state.sessions.find((s) => s.id === JSON.parse(next.stdout).aoeSessionId)?.extra_args ?? '';
+    expect(nextArgs).toContain('--permission-mode plan');
+    for (const t of [out, JSON.parse(next.stdout)])
+      expect((await sc(['stage', 'done'], { cwd: t.worktree })).code).toBe(0);
   });
 
   it('holds new workers while the 5-hour window is nearly used, unless forced', async () => {

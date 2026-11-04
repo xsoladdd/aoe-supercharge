@@ -719,6 +719,9 @@ export function createApp(deps: AppDeps) {
       // Usage limits are a question for the user, not a failure: the form offers "Start anyway".
       if (err instanceof CliError && err.exitCode === EXIT.limited)
         return c.json({ error: 'limited', message: err.message.replace(/^Not starting "[^"]*": /, '') }, 409);
+      // The form shows only the message, and a failed start's hint says what to do next.
+      if (err instanceof CliError && err.hint)
+        return c.json({ error: 'task_failed', message: `${err.message} ${err.hint}` }, 400);
       return sendError(c, err, 'task_failed');
     }
   });

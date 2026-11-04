@@ -68,6 +68,7 @@ supercharge task new "<short imperative title>" --model <sonnet|opus> --effort <
 
 - Write the brief to a temporary file outside the repository (for example under `/tmp`). Include the goal, constraints, acceptance criteria, the files or areas to start from, and anything the worker must not touch. A precise brief saves the worker from exploring.
 - Use `--brief "<text>"` for short briefs instead of a file.
+- Workers start in plan mode and wait for the user to approve their plan. For a small, well-scoped task the user wants to run unattended (for example overnight), add `--permission-mode auto` (also `plan`, `default` or `acceptEdits`); it applies to that task only and is recorded in the audit log. Otherwise leave it out.
 - The JSON output contains the task id, the worker's name, branch, worktree, AoE session id, model, effort, and the usage after it started (`usage.canStartCount`). Tell the user which workers you started, by name and id (for example "Gareth (CB-0019)").
 - Do not create more tasks than the user asked for. Ask first when the split is unclear.
 
@@ -148,7 +149,7 @@ or, for every done worker of the project at once:
 supercharge task cleanup --all-done
 ```
 
-- It is safe to hand out: it fetches origin first and refuses unless the work is on `origin/main` (merged, an equivalent patch, a pull request recorded as merged, or squashed so that merging it would change nothing) and the worktree has nothing uncommitted. It removes the session, the worktree and the branch, and records it in the audit log. Add `--dry-run` to only check.
+- It is safe to hand out: it fetches origin first and refuses unless the work is on `origin/<base>`, the task's own base branch (merged, an equivalent patch, a pull request recorded as merged, or squashed so that merging it would change nothing) and the worktree has nothing uncommitted. It removes the session, the worktree and the branch, and records it in the audit log. Add `--dry-run` to only check.
 - If it refuses, show the user its message and what it says to do. Don't work around it.
 - **Never give raw `aoe rm`, `aoe remove` or `git worktree remove` commands, and never use `--purge`, `--delete-worktree` or `--delete-branch` yourself.** They don't check anything, and unpushed commits are lost for good.
 - The dashboard has the same thing: a **Clean up** button on a done task.

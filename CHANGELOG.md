@@ -1,5 +1,44 @@
 # Changelog
 
+## Unreleased
+
+- **`aoe add` gets as long as you need.** `task new` used to kill `aoe add` after a fixed 120 seconds, and
+  `git worktree add` alone can take longer on a large repository. The timeout is now `aoe.addTimeoutSeconds`
+  (default 300, 1 to 3600), on the Settings page with the other AoE settings, and it takes effect on the next
+  start without a restart. The General chat and `init` use it too.
+
+- **A failed `task new` cleans up after itself.** When `aoe add` runs out of time or fails (or the task can't
+  be saved), the start is rolled back: its ledger entry, the AoE session if one was registered, and its
+  branch and worktree, the last two only when this start created the branch and it has no commits. Nothing
+  it did not create is touched. The audit log records `task_failed` with the reason and what was removed or
+  kept, and the error says what to do: raise `aoe.addTimeoutSeconds`, or check `aoe list`, then run it
+  again. The task id is not reused.
+
+- **A renamed task branch is followed.** When a worker renames its branch (for example `sc/cb-0001-…` to
+  `bugfix/…`) and the old name is gone, the daemon now updates the task's branch from the worktree's current
+  one, so merge request lookup, the landed check and `task cleanup` keep working instead of reporting
+  "Branch … is gone". It is checked with the merge request poll (every `poll.mr` seconds) and recorded in
+  the audit log as `task_branch_renamed`.
+- **`task cleanup` says what it checks.** Its `--help`, the README and the control-chat skill said the work had
+  to be on `origin/main`. It checks `origin/<base>`, the task's own base branch (merged, an equivalent patch,
+  or squashed), or its merged pull request, and that the worktree is clean.
+- **`supercharge task new --permission-mode <plan|default|acceptEdits|auto>`.** Overrides
+  `agent.workerPermissionMode` for that one task, so a small overnight task need not stall at plan approval.
+  The mode is recorded in the `task_created` audit entry. The control-chat skill's `task new` section covers it.
+- **Sessions come back by themselves after a reboot.** AoE's own startup recovery only restarts sessions
+  it has a conversation id for, so most panes stayed dead (status `error`) until you opened the AoE TUI.
+  Once `aoe serve` answers, the daemon now asks AoE to restart each live session whose pane died, one at a
+  time, resuming its conversation where AoE knows it. A session you stopped stays stopped, and archived
+  and trashed ones are left alone. Each session is revived at most once per boot (kept in
+  `~/.local/state/supercharge/revived.json`). Each revival is logged and recorded in the audit log as
+  `session_revived`.
+
+- **The flaky "marks it done once it lands on main" test is fixed.** It failed most release runs on CI: the
+  daemon only learned that the task was ready from its 60-second ledger rescan, because Node before 24.22
+  loses recursive `fs.watch` events on Linux once a file has been rewritten twice. The integration test now
+  sets `poll.reconcile` to 5 seconds, so a lost event costs seconds, not a minute. No product code changed.
+  On Linux, use Node 24.22 or newer so the dashboard doesn't lag behind the ledger either.
+
 ## 1.8.0 (2026-10-27)
 
 - **No more play buttons; "Attach terminal" is in the chat's ⋯ menu.** A chat's icon in the sidebar no longer

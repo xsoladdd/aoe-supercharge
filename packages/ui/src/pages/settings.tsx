@@ -79,6 +79,7 @@ const LABEL: Record<string, string> = {
   'aoe.profile': 'AoE profile',
   'aoe.autoStart': 'Start aoe serve when needed',
   'aoe.url': 'AoE URL',
+  'aoe.addTimeoutSeconds': 'aoe add timeout (s)',
   'agent.kind': 'Agent',
   'agent.extraArgs': 'Extra claude arguments',
   'agent.workerPermissionMode': 'Worker permission mode',

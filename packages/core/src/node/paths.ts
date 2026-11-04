@@ -29,6 +29,8 @@ export interface Paths {
   daemonStateFile: string;
   /** The terminals a chat's Run opened, so they reconnect after a reload or a daemon restart. */
   runTerminalsFile: string;
+  /** The sessions the daemon revived after their pane died, and the boot it did it in. */
+  revivedFile: string;
   localFixturesDir: string;
   claudeDir: string;
   claudeSkillsDir: string;
@@ -70,6 +72,7 @@ export function resolvePaths(
     compatLocalFile: join(stateDir, 'compat.local.json'),
     daemonStateFile: join(stateDir, 'daemon.json'),
     runTerminalsFile: join(stateDir, 'terminals.json'),
+    revivedFile: join(stateDir, 'revived.json'),
     localFixturesDir: join(stateDir, 'fixtures'),
     claudeDir,
     claudeSkillsDir: join(claudeDir, 'skills'),

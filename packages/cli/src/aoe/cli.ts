@@ -16,6 +16,8 @@ export interface AddSessionOptions {
   /** Joined with spaces onto AoE's shell launch line. Every element must already be shell-safe. */
   extraArgs?: string[];
   launch?: boolean;
+  /** How long `aoe add` may run before it is killed (`aoe.addTimeoutSeconds`). */
+  timeoutMs?: number;
 }
 
 /** Thin wrapper for the AoE CLI. Used for what REST lacks: parent links, `add -P`, version, serve control. */
@@ -93,7 +95,7 @@ export class AoeCli {
     if (o.baseBranch) args.push('--base-branch', o.baseBranch);
     if (o.extraArgs?.length) args.push('--extra-args', o.extraArgs.join(' '));
     if (o.launch) args.push('-l');
-    return this.exec(args, 120_000);
+    return this.exec(args, o.timeoutMs ?? 300_000);
   }
 
   async send(id: string, message: string): Promise<RunResult> {
