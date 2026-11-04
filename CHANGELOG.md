@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.9.0 (2026-11-04)
 
 - **`aoe add` gets as long as you need.** `task new` used to kill `aoe add` after a fixed 120 seconds, and
   `git worktree add` alone can take longer on a large repository. The timeout is now `aoe.addTimeoutSeconds`
