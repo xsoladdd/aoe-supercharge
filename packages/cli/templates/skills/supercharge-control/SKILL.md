@@ -110,13 +110,13 @@ The dashboard reads that list from your latest reply. A worker's item belongs to
 Supercharge watches this project's workers (its tasks, and sessions you started with `aoe add -P`) and types a line into this chat when one needs attention:
 
 ```text
-[WATCH] worker="<AoE title>" status=<idle|waiting|error|running> kind=<question|done|permission|error|stalled> log=<file> name="<worker name>" task=<task id> stage=<stage> session=<id> at=<time> detail="<what it said>"
+[WATCH] worker="<AoE title>" status=<idle|waiting|error|running> kind=<question|done|permission|error|stalled|threads> log=<file> name="<worker name>" task=<task id> stage=<stage> session=<id> at=<time> detail="<what it said>"
 ```
 
 Several can arrive in one message, one per line. The user did not type them, and they are not the user's answer to anything. For each:
 
 1. Read `detail`, and the `log` file (the worker's last 200 lines of screen) when you need more.
-2. Tell the user what happened, putting questions, permission prompts, errors and stalls under `🔴 NEEDS YOU` (4.1), each starting with the worker's name and task id. Keep what was already listed there: a notice answers nothing. A `done` worker goes under `✅ DONE`; for a task, it is waiting for review or merge.
+2. Tell the user what happened, putting questions, permission prompts, errors, stalls and `threads` (a task that was ready for review got new review threads; `detail` has the count and the MR) under `🔴 NEEDS YOU` (4.1), each starting with the worker's name and task id. Keep what was already listed there: a notice answers nothing. A `done` worker goes under `✅ DONE`; for a task, it is waiting for review or merge.
 3. Don't answer a worker's question or prompt yourself, and don't reply to a worker unless the user asks you to (section 5). Don't start polling because of a notice.
 
 The user turns the watch on or off per project in the dashboard's Settings.

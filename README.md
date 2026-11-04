@@ -199,7 +199,7 @@ supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_req
 | Command | What it does |
 |---|---|
 | `supercharge start` / `stop` / `restart` | Install, refresh, stop or restart the user service |
-| `supercharge status [--project <p>] [--json]` | Overview; `--project` gives the control-chat status JSON |
+| `supercharge status [--project <p>] [--json]` | Overview; `--project` gives the control-chat status JSON. Archived workers are left out of the counts and the blocked list |
 | `supercharge logs [-f] [-n N] [--raw]` | Daemon logs (rotated, tokens redacted) |
 | `supercharge open [--print]` | One-time sign-in link, opened in your browser |
 | `supercharge config get [key]` / `set <key> <value>` / `edit` / `path` | Read and change `config.toml` (comments preserved, validated) |
@@ -210,6 +210,7 @@ supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_req
 | `supercharge init [--name <p>] [--commit]` | Register the current repository |
 | `supercharge task new "<title>" [--brief …] [--brief-file …] [--base …] [--model …] [--effort …] [--permission-mode …]` | Create a task |
 | `supercharge task list [--project <p>] [--json]` | List tasks |
+| `supercharge task quiet <task-id> [--off]` | No stalled notices for a worker you parked on purpose (questions and the rest still come); `--off` undoes it |
 | `supercharge task cleanup <task-id> \| --all-done [--dry-run] [--json]` | Remove a finished worker's session, worktree and branch. Refuses unless its work is on `origin/<base>` (its base branch) or in its merged pull request (see [Cleaning up](#cleaning-up-finished-workers)) |
 | `supercharge whoami [--json]` | `control`, `worker`, `general-control`, `general` or `none` for this session |
 | `supercharge stage <stage> [--note …] [--mr <url>]` | Report a stage change |
@@ -405,7 +406,7 @@ The rules:
 
 - **Ready:** the MR is open, its pipeline passed, and zero threads are unresolved. The task moves to `ready_for_review` and you get a desktop notification (osascript or notify-send; toggleable).
 - **Merged:** the task moves to `done`.
-- **Ready, then a new thread or pipeline appears:** the task goes back to `watching_mr`.
+- **Ready, then a new thread or pipeline appears:** the task goes back to `watching_mr`. A new thread also sends the control chat a `kind=threads` watch notice with the MR and its unresolved count.
 
 Self-hosted GitLab works: add the host to `mr.gitlab.hosts` and log in with `glab auth login --hostname <host>`. GitHub Enterprise works the same way with `mr.github.hosts` and `gh auth login --hostname <host>`.
 

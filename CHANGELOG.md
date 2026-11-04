@@ -25,6 +25,25 @@
 - **`supercharge task new --permission-mode <plan|default|acceptEdits|auto>`.** Overrides
   `agent.workerPermissionMode` for that one task, so a small overnight task need not stall at plan approval.
   The mode is recorded in the `task_created` audit entry. The control-chat skill's `task new` section covers it.
+
+- **`supercharge status` leaves archived workers out of its counts.** Archiving a worker only stops its
+  pane, so the task kept its stage. Before this fix, `status` counted it under `implementing` or
+  `blocked`, listed its old question, and counted it in the overview's `blocked`. Now archived tasks are
+  left out of the per-stage `counts` and the `blocked` list. Each entry in `tasks[]` carries
+  `archived: true`, and unarchiving counts the task again. Archived workers never counted against the
+  worker cap, so that is unchanged.
+
+- **The control chat hears about new review threads.** When a task already `ready_for_review` got a new
+  unresolved thread, the MR watcher moved it back to `watching_mr`, but nothing reached the control chat.
+  Now the watch sends a `[WATCH] … kind=threads` notice, with the MR URL and the number of unresolved
+  threads, once each time the task steps back. The control skill lists it under NEEDS YOU.
+
+- **`supercharge task quiet <task-id> [--off]` stops stalled notices for one task.** Use it for a worker
+  you parked on purpose, for example one waiting on a reviewer. The watch then sends no `stalled`
+  notices for that task. Questions, permission prompts, errors, done and threads still come through.
+  It is stored on the task and shown as `quiet` in `status --project <p> --json`. `--off` turns stalled
+  notices back on.
+
 - **Sessions come back by themselves after a reboot.** AoE's own startup recovery only restarts sessions
   it has a conversation id for, so most panes stayed dead (status `error`) until you opened the AoE TUI.
   Once `aoe serve` answers, the daemon now asks AoE to restart each live session whose pane died, one at a

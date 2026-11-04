@@ -111,6 +111,8 @@ export interface TaskRecord {
   kickoffSeenAt?: string | null;
   /** How many times the first message was sent; above KICKOFF_MAX_TRIES once Supercharge gave up. */
   kickoffTries?: number;
+  /** Parked on purpose (`supercharge task quiet`): the watch sends no stalled notices for it. */
+  quiet?: boolean;
   createdAt: string;
   updatedAt: string;
   history: HistoryEntry[];
@@ -379,6 +381,10 @@ export interface ProjectStatus {
     branch: string;
     aoeStatus: LiveStatus | 'missing';
     mr: { url: string; pipeline: PipelineStatus | null; unresolvedThreads: number } | null;
+    /** Archived in AoE: left out of `counts` and `blocked` until unarchived. */
+    archived: boolean;
+    /** No stalled notices for it (`supercharge task quiet`). */
+    quiet: boolean;
     updatedAt: string;
   }[];
   generatedAt: string;

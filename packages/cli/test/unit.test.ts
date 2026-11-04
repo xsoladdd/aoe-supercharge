@@ -31,6 +31,7 @@ import { CostWatcher, OfficeWatcher, WeatherWatcher } from '../src/daemon/office
 import { at, project, session as view, T0, task as taskRecord } from '../../core/test/office-fixtures.ts';
 import { RunTerminals } from '../src/daemon/run-terminals.ts';
 import { Store } from '../src/daemon/store.ts';
+import { buildProjectStatus } from '../src/status.ts';
 import { countUnresolvedThreads, GitLabProvider, parseMrView } from '../src/mr/gitlab.ts';
 import { Notifier } from '../src/notify.ts';
 import { renderLaunchdPlist, renderSystemdUnit } from '../src/service/index.ts';
@@ -182,6 +183,41 @@ describe('MR watcher transitions (daemon actor)', () => {
     const t = w.advance(mrTask('implementing'), mr({ pipeline: 'failed' }));
     expect(t.stage).toBe('implementing');
     expect(t.mr?.pipeline).toBe('failed');
+  });
+});
+
+describe('status: archived workers', () => {
+  const tasks = [
+    taskRecord('AS-0001', 'alpha', 's1', {
+      stage: 'blocked',
+      openQuestion: { text: 'Which?', askedAt: at(-5), answeredAt: null },
+    }),
+    taskRecord('AS-0002', 'alpha', 's2', { stage: 'implementing', quiet: true }),
+  ];
+  const statusOf = (archived: boolean) =>
+    buildProjectStatus(
+      project('alpha', 'ctl'),
+      tasks,
+      [view('s1', 'stopped', { archived }), view('s2', 'stopped', { archived })],
+      false,
+    );
+
+  it('leaves archived tasks out of the counts and blocked, and says so per task', () => {
+    const st = statusOf(true);
+    expect(st.counts.blocked).toBe(0);
+    expect(st.counts.implementing).toBe(0);
+    expect(st.blocked).toEqual([]);
+    expect(st.tasks.map((t) => [t.id, t.archived, t.quiet])).toEqual([
+      ['AS-0001', true, false],
+      ['AS-0002', true, true],
+    ]);
+  });
+
+  it('counts them again once unarchived', () => {
+    const st = statusOf(false);
+    expect(st.counts.blocked).toBe(1);
+    expect(st.counts.implementing).toBe(1);
+    expect(st.blocked.map((b) => b.taskId)).toEqual(['AS-0001']);
   });
 });
 

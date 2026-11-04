@@ -506,6 +506,23 @@ export function buildProgram(): Command {
     });
 
   task
+    .command('quiet <task-id>')
+    .description(
+      'no stalled notices for a worker you parked on purpose (e.g. waiting on a reviewer); questions and the rest still come',
+    )
+    .option('-p, --project <name>', 'project (default: the one for this repository)')
+    .option('--off', 'send its stalled notices again')
+    .action(async (taskId: string, o: { project?: string; off?: boolean }) => {
+      const x = await ctx();
+      const project = (await resolveProject(x, cwd(), o.project)).name;
+      const id = taskId.toUpperCase();
+      if (!(await x.ledger.getTask(project, id)))
+        throw new CliError(`Unknown task ${id} in ${project}.`, EXIT.usage);
+      await x.ledger.updateTask(project, id, (t) => ({ ...t, quiet: !o.off }));
+      out(`${sym.ok} ${id} ${o.off ? 'sends stalled notices again' : 'is quiet: no stalled notices'}`);
+    });
+
+  task
     .command('cleanup [task-id]')
     .description(
       'remove a finished worker: its AoE session, worktree and branch. Refuses unless its work has landed on origin/<its base branch> (merged, cherry-picked or squashed) or in its merged pull request, and the worktree is clean',
@@ -862,10 +879,15 @@ async function statusProject(x: Ctx, name: string, asJson: boolean) {
   else {
     const project = await x.ledger.getProject(name);
     if (!project) throw new CliError(`Unknown project "${name}".`, EXIT.usage);
-    // Daemon down: read AoE directly. buildProjectStatus only needs id + status.
+    // Daemon down: read AoE directly. buildProjectStatus only needs id, status and archived.
     const sessions = await x.aoe
-      .listSessions()
-      .then((list) => list.map((s) => ({ id: s.id, status: normalizeAoeStatus(s.status) }) as SessionView))
+      .listSessions('all')
+      .then((list) =>
+        list.map(
+          (s) =>
+            ({ id: s.id, status: normalizeAoeStatus(s.status), archived: !!s.archived_at }) as SessionView,
+        ),
+      )
       .catch(() => null);
     st = buildProjectStatus(
       project,
@@ -907,12 +929,15 @@ async function statusOverview(x: Ctx, asJson: boolean) {
           aoe: { state: string; message: string | null; serveVersion: string | null };
           daemon: { rssMb: number };
         };
+        sessions: { id: string; archived: boolean }[];
       }>(x, 'GET', '/api/snapshot')
     : null;
   const installed = await x.aoeCli.version();
   const compat = await checkAoeCompat(x, installed);
   const projects = await x.ledger.listProjects();
-  const tasks = await x.ledger.listTasks();
+  // Archived workers are left out when the daemon can say which they are.
+  const archived = new Set(snap?.body?.sessions?.filter((s) => s.archived).map((s) => s.id));
+  const tasks = (await x.ledger.listTasks()).filter((t) => !archived.has(t.aoeSessionId));
   const data = {
     daemon: {
       running: !!health,

@@ -315,6 +315,55 @@ describe('watchEvents', () => {
     expect(stallCandidates(workers, now, 60, () => false)).toEqual([]);
   });
 
+  it('does not call a quiet task stalled, nor pick it for a pane read', () => {
+    const input = world({
+      sessions: [session('ctl', 'idle'), session('s1', 'idle', { statusSince: minutesAgo(40) })],
+      tasks: [task('AS-0001', 'alpha', 's1', { quiet: true })],
+    });
+    expect(eventsOf(input)).toEqual([]);
+    expect(stallCandidates(watchWorkers(input, input.projects[0]!), now, 15, () => false)).toEqual([]);
+  });
+
+  it('tells about new review threads once a ready task goes back to watching_mr', () => {
+    const mr = {
+      provider: 'gitlab' as const,
+      host: 'gitlab.com',
+      repo: 'a/b',
+      iid: 7,
+      url: 'https://gitlab.com/a/b/-/merge_requests/7',
+      state: 'opened' as const,
+      draft: false,
+      pipeline: 'success' as const,
+      unresolvedThreads: 2,
+      detailedMergeStatus: null,
+      checkedAt: null,
+      error: null,
+    };
+    const back = {
+      at: at(-5),
+      from: 'ready_for_review' as const,
+      to: 'watching_mr' as const,
+      by: 'daemon' as const,
+      note: null,
+    };
+    const w = (extra: Partial<TaskRecord>) =>
+      world({
+        sessions: [session('ctl', 'idle'), session('s1', 'idle')],
+        tasks: [task('AS-0001', 'alpha', 's1', { stage: 'watching_mr', mr, history: [back], ...extra })],
+      });
+    expect(eventsOf(w({}))).toMatchObject([
+      {
+        key: `threads:AS-0001:${at(-5)}`,
+        hold: null,
+        kind: 'threads',
+        detail: '2 unresolved thread(s) on https://gitlab.com/a/b/-/merge_requests/7',
+      },
+    ]);
+    // First time watching it, or the pipeline (not a thread) sent it back: nothing.
+    expect(eventsOf(w({ history: [{ ...back, from: 'mr_raised' }] }))).toEqual([]);
+    expect(eventsOf(w({ mr: { ...mr, unresolvedThreads: 0, pipeline: 'failed' } }))).toEqual([]);
+  });
+
   it("reads a plain worker's QUESTION: or DONE: instead of calling it stalled", () => {
     const w = world({
       sessions: [

@@ -1,7 +1,7 @@
 /**
  * Worker watch: a line typed into a project's control chat when one of its workers needs attention
- * (a question, done, a permission prompt, an error, or idle too long). The daemon writes these, and so
- * did `control-watch.sh` before it, in the same shape:
+ * (a question, done, a permission prompt, an error, new review threads, or idle too long). The daemon
+ * writes these, and so did `control-watch.sh` before it, in the same shape:
  *
  *   [WATCH] worker="fix-1989-ci" status=error kind=error log=/path/to/capture.txt
  *
@@ -14,7 +14,7 @@ import { workerName } from './names.ts';
 import type { Stage } from './stages.ts';
 import type { NeedsYouItem, ProjectRecord, SessionView, TaskRecord } from './types.ts';
 
-export const WATCH_KINDS = ['question', 'done', 'permission', 'error', 'stalled'] as const;
+export const WATCH_KINDS = ['question', 'done', 'permission', 'error', 'stalled', 'threads'] as const;
 export type WatchKind = (typeof WATCH_KINDS)[number];
 
 export interface WatchNotice {
@@ -240,7 +240,8 @@ export function backgroundShells(pane: string): number {
 /** Whether a worker has been idle long enough, by AoE's clock, to be called stalled (given no marker). */
 function stallIdleMs(w: WatchWorker, now: Date, stallMinutes: number, busyAt?: string): number | null {
   const s = w.session;
-  if (s?.status !== 'idle' || (w.task && !WORKING_STAGES.includes(w.task.stage))) return null;
+  if (s?.status !== 'idle' || (w.task && (w.task.quiet || !WORKING_STAGES.includes(w.task.stage))))
+    return null;
   const since = s.statusSince ? Date.parse(s.statusSince) : NaN;
   // Background shells running count as work: the idle clock starts when they were last seen.
   const from = Math.max(since, busyAt ? Date.parse(busyAt) : NaN);
@@ -365,6 +366,21 @@ export function watchEvents(input: WatchEventsInput): WatchEvent[] {
           break;
       }
     }
+    // Back from ready_for_review because a reviewer opened threads: told once per step back.
+    const last = w.task?.history.at(-1);
+    if (
+      w.task?.stage === 'watching_mr' &&
+      w.task.mr?.unresolvedThreads &&
+      last?.from === 'ready_for_review' &&
+      last.to === 'watching_mr'
+    )
+      events.push({
+        ...base,
+        key: `threads:${w.task.id}:${last.at}`,
+        hold: null,
+        kind: 'threads',
+        detail: `${w.task.mr.unresolvedThreads} unresolved thread(s) on ${w.task.mr.url}`,
+      });
     const marker = w.task ? null : input.markers[w.sessionId];
     if (marker)
       events.push({

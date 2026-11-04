@@ -332,6 +332,19 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(t.openQuestion?.answeredAt).not.toBeNull();
   });
 
+  it('task quiet marks a task quiet (and --off undoes it); status --json shows it', async () => {
+    const quiet = async () =>
+      JSON.parse((await sc(['status', '--project', 'northwind', '--json'])).stdout).tasks.find(
+        (t: { id: string }) => t.id === 'NO-0001',
+      ).quiet;
+    expect((await sc(['task', 'quiet', 'no-0001', '-p', 'northwind'])).code).toBe(0);
+    expect((await readTask('NO-0001')).quiet).toBe(true);
+    expect(await quiet()).toBe(true);
+    expect((await sc(['task', 'quiet', 'NO-0001', '-p', 'northwind', '--off'])).code).toBe(0);
+    expect(await quiet()).toBe(false);
+    expect((await sc(['task', 'quiet', 'NO-0099', '-p', 'northwind'])).code).toBe(2);
+  });
+
   it('reply is explicit and audited', async () => {
     const r = await sc(['reply', 'NO-0001', 'Use the deck from Friday.', '--yes']);
     expect(r.code, r.stderr).toBe(0);
