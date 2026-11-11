@@ -348,6 +348,21 @@ export interface Snapshot {
   };
 }
 
+/**
+ * A desktop notification for a dashboard tab to show instead of the daemon's own, so a click opens
+ * `href` (the item's page). `at` lets a tab skip one replayed after a reconnect.
+ */
+export interface BrowserNotice {
+  /** The Needs-you item's id; a newer notice for it replaces the one still on screen. */
+  id: string;
+  title: string;
+  body: string;
+  href: string;
+  at: string;
+  /** Settings' "Send a test": shown even on the page it opens. */
+  test?: boolean;
+}
+
 export type SnapshotEvent =
   | { type: 'snapshot'; data: Snapshot }
   | { type: 'sessions'; data: SessionView[] }
@@ -363,7 +378,8 @@ export type SnapshotEvent =
   | { type: 'watch'; data: Record<string, WatchSummary> }
   | { type: 'held'; data: Record<string, HeldMessage[]> }
   | { type: 'schedules'; data: ScheduleView[] }
-  | { type: 'health'; data: Health };
+  | { type: 'health'; data: Health }
+  | { type: 'notify'; data: BrowserNotice };
 
 export interface ProjectStatus {
   project: string;

@@ -287,6 +287,9 @@ export function createApp(deps: AppDeps) {
         send(snap.seq, 'snapshot', snap);
       }
       const unsub = store.subscribe((e) => send(e.seq, e.type, e.data));
+      // A tab that shows desktop notifications itself: the daemon leaves them to it while it is open.
+      const notifies = c.req.query('notify') === '1';
+      if (notifies) store.notifyClients++;
       deps.onClientConnected();
       const ping = setInterval(() => {
         chain = chain
@@ -295,6 +298,7 @@ export function createApp(deps: AppDeps) {
       }, 20_000);
       await new Promise<void>((done) => stream.onAbort(() => done()));
       closed = true;
+      if (notifies) store.notifyClients--;
       clearInterval(ping);
       unsub();
     }),

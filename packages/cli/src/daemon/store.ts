@@ -1,6 +1,7 @@
 import {
   computeNeedsYou,
   EMPTY_GENERAL,
+  type BrowserNotice,
   type GeneralRecord,
   type Health,
   type HeldMessage,
@@ -259,6 +260,17 @@ export class Store {
     if (same(ui, this.ui)) return;
     this.ui = ui;
     this.emit({ type: 'snapshot', data: this.snapshot() });
+  }
+
+  /**
+   * Dashboard tabs on the event stream that show desktop notifications themselves (they asked with
+   * `?notify=1`, having the browser's permission): while one is open, the daemon sends none of its own.
+   */
+  notifyClients = 0;
+
+  /** A desktop notification for those tabs to show. */
+  notify(notice: Omit<BrowserNotice, 'at'>) {
+    this.emit({ type: 'notify', data: { ...notice, at: new Date().toISOString() } });
   }
 
   /** Needs-you items you dismissed (by item id, when). */

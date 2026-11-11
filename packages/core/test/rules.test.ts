@@ -4,9 +4,12 @@ import {
   derivePrefix,
   evaluateMr,
   formatTaskId,
+  needsYouPath,
+  needsYouShownOn,
   normalizeAoeStatus,
   relativeTime,
   slugify,
+  type NeedsYouItem,
   type SessionView,
   type TaskRecord,
 } from '@aoe-supercharge/core/shared';
@@ -456,5 +459,42 @@ describe('computeNeedsYou: what a control chat lists about its workers (relayed)
       'control_relayed',
       'question',
     ]);
+  });
+});
+
+describe('which page a Needs-you item opens, and which pages show it (seen on visit)', () => {
+  const base: NeedsYouItem = {
+    id: 'question:AS-0002',
+    kind: 'question',
+    project: 'aoe',
+    taskId: 'AS-0002',
+    sessionId: 'sess-2',
+    title: 'Aldric (AS-0002)',
+    detail: 'Which one?',
+    since: '2026-11-11T10:00:00.000Z',
+  };
+  it('opens a task item on its task page, a control item on its chat, a failed run on the schedules', () => {
+    expect(needsYouPath(base)).toBe('/p/aoe/t/AS-0002');
+    expect(needsYouPath({ ...base, kind: 'control_waiting', taskId: null, sessionId: 'c 1' })).toBe(
+      '/chat/c%201',
+    );
+    expect(needsYouPath({ ...base, kind: 'schedule_failed' })).toBe('/schedules');
+    expect(needsYouPath({ ...base, project: null, taskId: null, sessionId: 'g1' })).toBe('/chat/g1');
+  });
+  it('is shown on its task page (any tab), its chat and its project page, not elsewhere', () => {
+    expect(needsYouShownOn(base, '/p/aoe/t/AS-0002')).toBe(true);
+    expect(needsYouShownOn(base, '/p/aoe/t/AS-0002/chat')).toBe(true);
+    expect(needsYouShownOn(base, '/chat/sess-2')).toBe(true);
+    expect(needsYouShownOn(base, '/p/aoe')).toBe(true);
+    expect(needsYouShownOn(base, '/p/aoe/settings')).toBe(false);
+    expect(needsYouShownOn(base, '/p/aoe/t/AS-0003')).toBe(false);
+    expect(needsYouShownOn(base, '/chat/sess-3')).toBe(false);
+    expect(needsYouShownOn(base, '/p/other')).toBe(false);
+    expect(needsYouShownOn(base, '/office')).toBe(false);
+  });
+  it('a control chat item is shown on that chat, and an encoded id still matches', () => {
+    const control = { ...base, kind: 'control_needs' as const, taskId: null, sessionId: 'c 1' };
+    expect(needsYouShownOn(control, '/chat/c%201')).toBe(true);
+    expect(needsYouShownOn(control, '/chat/c%201?view=terminal')).toBe(true);
   });
 });

@@ -42,7 +42,7 @@ import { RunTerminals } from '../src/daemon/run-terminals.ts';
 import { Store } from '../src/daemon/store.ts';
 import { buildProjectStatus } from '../src/status.ts';
 import { countUnresolvedThreads, GitLabProvider, parseMrView } from '../src/mr/gitlab.ts';
-import { Notifier } from '../src/notify.ts';
+import { deliverNotice, Notifier, type Notice, type NotifyOptions } from '../src/notify.ts';
 import { renderLaunchdPlist, renderSystemdUnit } from '../src/service/index.ts';
 import { removeManagedBlock, upsertManagedBlock } from '../src/skills.ts';
 import { parseRemote } from '../src/util/git.ts';
@@ -680,21 +680,43 @@ describe('Notifier', () => {
   it('does not replay items that existed at startup, and honours toggles', async () => {
     const config = defaultConfig();
     config.notifications.aoeWaiting = false;
-    const send = vi.fn(async (_title: string, _body: string) => true);
+    const send = vi.fn(async (_n: Notice) => true);
     const n = new Notifier(() => config, send);
     n.arm([item('a', 'question')]);
     await n.onNeedsYou([item('a', 'question'), item('b', 'mr_ready'), item('c', 'approval')]);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send.mock.calls[0]?.[0]).toBe('Ready for review');
+    // A click opens the page the item opens in the dashboard.
+    expect(send.mock.calls[0]?.[0]).toEqual({
+      id: 'b',
+      title: 'Ready for review',
+      body: 't: d',
+      href: '/p/p',
+    });
     await n.onNeedsYou([item('b', 'mr_ready')]);
     expect(send).toHaveBeenCalledTimes(1);
   });
   it("does not notify what a control chat passes on: the worker's own item already did", async () => {
-    const send = vi.fn(async (_title: string, _body: string) => true);
+    const send = vi.fn(async (_n: Notice) => true);
     const n = new Notifier(() => defaultConfig(), send);
     n.arm([]);
     await n.onNeedsYou([item('q', 'question'), item('r', 'control_relayed')]);
-    expect(send.mock.calls.map((c) => c[0])).toEqual(['Question from a worker']);
+    expect(send.mock.calls.map((c) => c[0].title)).toEqual(['Question from a worker']);
+  });
+  it('leaves notifications to a dashboard tab that shows them, and sends its own (with a link) without one', async () => {
+    const shown: unknown[] = [];
+    const tabs = { notifyClients: 1, notify: (n: unknown) => void shown.push(n) };
+    const send = vi.fn(async (_t: string, _b: string, _o?: NotifyOptions) => true);
+    const deliver = deliverNotice(tabs, () => 'http://127.0.0.1:4280', send);
+    const notice = { id: 'question:AS-1', title: 'Question', body: 'b', href: '/p/x/t/AS-1' };
+    await deliver(notice);
+    expect(shown).toEqual([notice]);
+    expect(send).not.toHaveBeenCalled();
+    tabs.notifyClients = 0;
+    await deliver(notice);
+    expect(send).toHaveBeenCalledWith('Question', 'b', {
+      open: 'http://127.0.0.1:4280/p/x/t/AS-1',
+      group: 'supercharge:question:AS-1',
+    });
   });
 });
 

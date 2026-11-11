@@ -14,6 +14,48 @@ export function promptDetail(prompt: SessionPrompt | null): string {
   return prompt.question || 'Claude is asking you something';
 }
 
+/**
+ * The dashboard page an item opens (and where it counts as seen): a task's page, the worker a control
+ * chat passes it on for, a chat, a project, or the schedules.
+ */
+export function needsYouPath(item: NeedsYouItem): string {
+  const chat = (id: string) => `/chat/${encodeURIComponent(id)}`;
+  if (item.kind === 'schedule_failed') return '/schedules';
+  // Task items open the task page, whose first tab shows its question or menu with the answer.
+  if (item.project && item.taskId) return `/p/${item.project}/t/${item.taskId}`;
+  // Passed on by a control chat: the worker it is about, who has the answer cards.
+  if (item.relay)
+    return item.project && item.relay.taskId
+      ? `/p/${item.project}/t/${item.relay.taskId}`
+      : chat(item.relay.sessionId);
+  if (item.sessionId && item.kind.startsWith('control_')) return chat(item.sessionId);
+  if (item.project) return `/p/${item.project}`;
+  if (item.sessionId) return chat(item.sessionId);
+  return '/';
+}
+
+/**
+ * Whether the dashboard page at `path` shows `item`, so opening it counts as seeing it: the page it
+ * opens, its chat, its task's page (any tab), its project's page, or the schedules for a failed run.
+ */
+export function needsYouShownOn(item: NeedsYouItem, path: string): boolean {
+  const p = path.split(/[?#]/)[0]!.replace(/\/+$/, '') || '/';
+  if (p === needsYouPath(item)) return true;
+  const seg = p.split('/').map((s) => {
+    try {
+      return decodeURIComponent(s);
+    } catch {
+      return s;
+    }
+  });
+  if (seg[1] === 'chat' && seg[2]) return item.sessionId === seg[2] || item.relay?.sessionId === seg[2];
+  if (seg[1] === 'p' && seg[2] && item.project === seg[2]) {
+    if (seg[3] === 't') return !!seg[4] && (item.taskId === seg[4] || item.relay?.taskId === seg[4]);
+    return seg[3] !== 'settings';
+  }
+  return p === '/schedules' && item.kind === 'schedule_failed';
+}
+
 export interface NeedsYouInput {
   tasks: TaskRecord[];
   sessions: SessionView[];

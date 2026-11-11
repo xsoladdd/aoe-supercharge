@@ -1,4 +1,11 @@
-import { ArrowsClockwiseIcon, BellRingingIcon, FloppyDiskIcon, SpeakerHighIcon } from '@phosphor-icons/react';
+import {
+  ArrowsClockwiseIcon,
+  BellIcon,
+  BellRingingIcon,
+  BellSlashIcon,
+  FloppyDiskIcon,
+  SpeakerHighIcon,
+} from '@phosphor-icons/react';
 import { useEffect, useMemo, useState } from 'react';
 import { doorLabel, type Health, type ProjectRecord } from '@aoe-supercharge/core/shared';
 import { toast } from 'sonner';
@@ -30,6 +37,7 @@ import {
   type ScalePref,
   type ThemePref,
 } from '@/lib/theme';
+import { askNoticePermission, useNoticePermission } from '@/lib/notifications';
 import { playNudge } from '@/lib/nudge';
 import { cn } from '@/lib/utils';
 import { PageHeader } from '@/pages/overview';
@@ -567,6 +575,41 @@ function WatchProjects({
   );
 }
 
+/**
+ * Browser notifications: while a dashboard tab may show them, it shows the daemon's, and a click opens
+ * the item. Hidden once allowed (or where the browser has none).
+ */
+function BrowserNoticesButton() {
+  const permission = useNoticePermission();
+  if (permission === 'granted' || permission === 'unsupported') return null;
+  if (permission === 'denied')
+    return (
+      <Button
+        variant="outline"
+        disabled
+        title="Blocked for this site in the browser: allow notifications in its site settings, then reload."
+      >
+        <BellSlashIcon />
+        Browser notifications blocked
+      </Button>
+    );
+  return (
+    <Button
+      variant="outline"
+      title="A click on a notification then opens what it is about"
+      onClick={async () => {
+        const p = await askNoticePermission();
+        if (p === 'granted') toast.success('Browser notifications on: a click opens the item');
+        else if (p === 'denied')
+          toast.error('Blocked in the browser', { description: 'Allow it in the site settings.' });
+      }}
+    >
+      <BellIcon />
+      Allow browser notifications
+    </Button>
+  );
+}
+
 export function SettingsPage({
   health,
   sound,
@@ -677,7 +720,8 @@ export function SettingsPage({
       if (r.ok) toast.success('Test notification sent');
       else
         toast.error('The notification could not be shown', {
-          description: 'macOS: allow notifications for Script Editor. Linux: install notify-send.',
+          description:
+            'macOS: allow notifications for Script Editor, or allow browser notifications here. Linux: install notify-send.',
         });
     } catch (e) {
       toast.error((e as Error).message);
@@ -699,6 +743,7 @@ export function SettingsPage({
         }
       >
         <div className="flex flex-wrap gap-2">
+          <BrowserNoticesButton />
           <Button variant="outline" onClick={testNotification}>
             <BellRingingIcon />
             Test notification

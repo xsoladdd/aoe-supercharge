@@ -17,7 +17,7 @@ import {
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { Link, useLocation } from 'wouter';
-import { isRelayed, STAGE_LABEL, type SessionView, type Snapshot } from '@aoe-supercharge/core/shared';
+import { STAGE_LABEL, type SessionView, type Snapshot } from '@aoe-supercharge/core/shared';
 import { Wordmark } from '@/components/brand';
 import { LiveStatus, STAGE_META } from '@/components/status';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -46,6 +46,7 @@ import { UsageMeter } from '@/components/usage';
 import { sendJson } from '@/lib/api';
 import { generalView, pinnedFirst, projectViews, sessionMap, unmanagedGroups } from '@/lib/derive';
 import { chatHref } from '@/lib/nav';
+import { unseen, useSeen } from '@/lib/seen';
 import { useResolvedTheme } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
@@ -199,7 +200,9 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
   const sessions = useMemo(() => sessionMap(snap), [snap]);
   const theme = useResolvedTheme();
   // What a control chat passes on counts once, as its worker's own item.
-  const needs = useMemo(() => snap.needsYou.filter((n) => !isRelayed(n)), [snap.needsYou]);
+  // Seen items drop out of the badges until something new happens on them (lib/seen).
+  const { seen } = useSeen();
+  const needs = useMemo(() => unseen(snap.needsYou, seen), [snap.needsYou, seen]);
   const needsByProject = useMemo(() => {
     const m = new Map<string, number>();
     for (const n of needs) if (n.project) m.set(n.project, (m.get(n.project) ?? 0) + 1);

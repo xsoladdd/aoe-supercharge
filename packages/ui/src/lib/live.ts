@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type {
+  BrowserNotice,
   OfficeState,
   MrState,
   SessionCost,
@@ -56,9 +57,26 @@ function markChanged(prev: TaskRecord[], next: TaskRecord[]) {
   return changed;
 }
 
+/** This tab shows desktop notifications (the daemon then sends none of its own while it is open). */
+let showsNotices = false;
+const noticeListeners = new Set<(n: BrowserNotice) => void>();
+
+/** Notifications the daemon hands this tab; only sent once `claimNotices(true)`. */
+export function onNotice(fn: (n: BrowserNotice) => void): () => void {
+  noticeListeners.add(fn);
+  return () => noticeListeners.delete(fn);
+}
+
+/** Tell the daemon whether this tab shows its notifications: reconnects the stream when it changes. */
+export function claimNotices(on: boolean) {
+  if (on === showsNotices) return;
+  showsNotices = on;
+  if (source) connectEvents();
+}
+
 function connectEvents() {
   source?.close();
-  source = new EventSource('/api/events', { withCredentials: true });
+  source = new EventSource(showsNotices ? '/api/events?notify=1' : '/api/events', { withCredentials: true });
   const on = <T>(type: string, fn: (data: T) => void) =>
     source!.addEventListener(type, (e) => {
       try {
@@ -88,6 +106,9 @@ function connectEvents() {
   on<Record<string, WatchSummary>>('watch', (watch) => patchSnapshot({ watch }));
   on<Record<string, HeldMessage[]>>('held', (held) => patchSnapshot({ held }));
   on<ScheduleView[]>('schedules', (schedules) => patchSnapshot({ schedules }));
+  on<BrowserNotice>('notify', (n) => {
+    for (const fn of noticeListeners) fn(n);
+  });
   source.onopen = () => set({ connection: 'live' });
   source.onerror = async () => {
     set({ connection: 'reconnecting' });

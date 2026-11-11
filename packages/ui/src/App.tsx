@@ -22,9 +22,11 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { sendJson } from '@/lib/api';
 import { HeaderSlotContext } from '@/lib/header-slot';
+import { useBrowserNotices } from '@/lib/notifications';
 import { useNeedsYouNudge } from '@/lib/nudge';
 import { OFFICE_WINDOW, useOfficeWindowLinks, useOfficeWindowLocation } from '@/lib/office-window';
 import { useRunawayToasts } from '@/lib/office';
+import { useSeenOnVisit } from '@/lib/seen';
 import { SelectionProvider, useAppContextMenu } from '@/lib/selection';
 import { useSearchParam } from '@/lib/nav';
 import { startLive, useLive, type Connection } from '@/lib/live';
@@ -223,6 +225,10 @@ export function App() {
   useSyncScaleFrom(snap?.ui.scale);
   // The dashboard window nudges; an office window beside it would only say it twice.
   useNeedsYouNudge(isOfficeWindow ? undefined : snap?.needsYou, snap?.ui.sound ?? true);
+  useBrowserNotices(!isOfficeWindow, navigate);
+  // Chats and task pages show their own asks, and the office queues them at your door.
+  const listShown = !isChat && !taskParams && !isOffice;
+  useSeenOnVisit(isOfficeWindow ? undefined : snap?.needsYou, location, listShown);
   useOfficeWindowLinks(navigate);
   useRunawayToasts(isOfficeWindow ? null : snap, navigate);
   useAppContextMenu();
@@ -334,8 +340,7 @@ export function App() {
                 </header>
 
                 <HealthBanners health={snap.health} connection={live.connection} />
-                {/* Chats and task pages show their own asks, and the office queues them at your door. */}
-                {!isChat && !taskParams && !isOffice && <NeedsYouStrip items={snap.needsYou} />}
+                {listShown && <NeedsYouStrip items={snap.needsYou} />}
 
                 <main
                   id="main"

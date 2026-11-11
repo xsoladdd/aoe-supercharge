@@ -1,5 +1,7 @@
 import { isRelayed, type NeedsYouItem } from '@aoe-supercharge/core/shared';
 import { useEffect, useRef, useState } from 'react';
+import { useFaviconBadge } from './favicon';
+import { unseen, useSeen } from './seen';
 
 const NUDGE_EVENT = 'supercharge:nudge';
 let audio: HTMLAudioElement | null = null;
@@ -18,11 +20,18 @@ const RENUDGE_AFTER_MS = 30 * 60_000;
 
 /**
  * Watches Needs-you for items that were not there before (not on first load) and nudges: plays the
- * sound when it is on, tells listeners (the control chat's status strip) which items are new, and
- * keeps the count in the tab title. Items flicker out and back in (a session going briefly back to
- * work, an AoE poll that failed), so each item nudges once per RENUDGE_AFTER_MS, not on every return.
+ * sound when it is on, and tells listeners (the control chat's status strip) which items are new.
+ * Items flicker out and back in (a session going briefly back to work, an AoE poll that failed), so
+ * each item nudges once per RENUDGE_AFTER_MS, not on every return. The tab title and the red badge on
+ * the tab icon count the items you have not seen yet (lib/seen).
  */
 export function useNeedsYouNudge(all: NeedsYouItem[] | undefined, sound: boolean) {
+  const { seen: seenAt } = useSeen();
+  const count = all ? unseen(all, seenAt).length : 0;
+  useEffect(() => {
+    if (all) document.title = count ? `(${count}) Supercharge` : 'Supercharge';
+  }, [all, count]);
+  useFaviconBadge(count);
   const seen = useRef<Set<string> | null>(null);
   const nudged = useRef(new Map<string, number>());
   useEffect(() => {
@@ -43,7 +52,6 @@ export function useNeedsYouNudge(all: NeedsYouItem[] | undefined, sound: boolean
       }
     }
     seen.current = ids;
-    document.title = items.length ? `(${items.length}) Supercharge` : 'Supercharge';
   }, [all, sound]);
 }
 

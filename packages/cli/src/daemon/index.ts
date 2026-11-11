@@ -10,8 +10,8 @@ import {
   writeJsonAtomic,
 } from '@aoe-supercharge/core/node';
 import type { Health } from '@aoe-supercharge/core/shared';
-import { checkAoeCompat, createCtx, SHIPPED_COMPAT, VERSION } from '../context.ts';
-import { notify, Notifier } from '../notify.ts';
+import { checkAoeCompat, createCtx, dashboardOrigin, SHIPPED_COMPAT, VERSION } from '../context.ts';
+import { deliverNotice, Notifier } from '../notify.ts';
 import { mrProviders } from '../mr/index.ts';
 import { createApp } from './app.ts';
 import { RunTerminals } from './run-terminals.ts';
@@ -130,7 +130,8 @@ async function runWorker(): Promise<void> {
     officeTheme: ctx.config.ui.officeTheme,
   };
 
-  const notifier = new Notifier(() => ctx.config);
+  const deliver = deliverNotice(store, () => dashboardOrigin(ctx.config));
+  const notifier = new Notifier(() => ctx.config, deliver);
   const transcripts = transcriptStore(ctx);
   const aoeWatcher = new AoeWatcher(ctx, store, new PromptReader(ctx, transcripts), transcripts);
   const ledgerWatcher = new LedgerWatcher(ctx, store);
@@ -197,7 +198,14 @@ async function runWorker(): Promise<void> {
       void shutdown(RESTART_EXIT_CODE);
     },
     onClientConnected: () => aoeWatcher.nudge(),
-    testNotification: () => notify('Supercharge', 'Notifications are working.'),
+    testNotification: () =>
+      deliver({
+        id: 'test',
+        title: 'Supercharge',
+        body: 'Notifications are working.',
+        href: '/',
+        test: true,
+      }),
     transcripts,
     office: officeWatcher,
     watch: workerWatch,

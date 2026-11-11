@@ -827,6 +827,26 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(text).toMatch(/^data: \{"seq":/m);
   });
 
+  it('a tab on the stream with ?notify=1 gets the notifications, and the daemon sends none itself', async () => {
+    const ctrl = new AbortController();
+    const res = await fetch(`${base()}/api/events?notify=1`, {
+      headers: { authorization: `Bearer ${bearer}` },
+      signal: ctrl.signal,
+    });
+    const reader = res.body!.getReader();
+    let text = '';
+    while (!text.includes('\n\n')) text += new TextDecoder().decode((await reader.read()).value);
+    const test = await fetch(`${base()}/api/notifications/test`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${bearer}` },
+    });
+    expect(await test.json()).toEqual({ ok: true });
+    while (!/^event: notify$/m.test(text)) text += new TextDecoder().decode((await reader.read()).value);
+    ctrl.abort();
+    const data = text.split(/^event: notify$/m)[1]!.match(/^data: (.*)$/m)![1]!;
+    expect(JSON.parse(data)).toMatchObject({ id: 'test', title: 'Supercharge', href: '/', test: true });
+  });
+
   it('the MR watcher moves the task to ready_for_review and it shows in Needs you', async () => {
     await writeFile(
       join(glabDir, 'mr-7.json'),

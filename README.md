@@ -367,6 +367,17 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
 `http://supercharge.localhost:4280`. Dark by default, with a light mode. It's built to be read from across a desk.
 
 - **Needs you** (pinned): blocked questions, approvals or input waiting in AoE, control chats waiting on you or that have replied (a reply is marked read as soon as you have its chat open and visible), session errors, MRs ready for review, MRs closed, scheduled prompts that failed. Oldest first, each one click from its context. Every item has a Dismiss button (×): it stays away until something new happens on it (a new question, a new wait, a newer reply). Items clear by themselves once their task is done or cleaned up; archived workers give none, and a control chat's item about a worker that is done, archived or cleaned up clears too.
+  - **Seen on visit:** an item counts as seen once you have opened the chat, task or project page it belongs to, or any page with the Needs-you list, while the dashboard is in front of you. Seen items drop out of the sidebar's badges, the count in the tab title and the red badge on the tab icon until something new happens on them. The list still shows them, greyed. This is kept per browser.
+  - **Desktop notifications** (one per new item; the per-type switches are under Settings):
+
+    | | What you get | A click |
+    |---|---|---|
+    | A dashboard tab is open with browser notifications allowed | The tab shows a browser notification, and the daemon sends none of its own. None for the page you are on. | Focuses the tab and opens the item |
+    | No such tab, macOS, `terminal-notifier` installed | The daemon's notification through terminal-notifier (optional, never required: `brew install terminal-notifier`) | Opens the item in your browser |
+    | No such tab, macOS | The daemon's notification through osascript | Opens nothing useful |
+    | No such tab, Linux | notify-send | — |
+
+    Allow browser notifications with **Allow browser notifications** in Settings; the dashboard also asks once on your first click. On macOS, the browser itself must be allowed under System Settings → Notifications.
 - **Sidebar:** projects, then each control chat, then its workers. Every row shows a status icon and stage. Then **General** (chats with no project, and the General control chat; see [General chats](#general-chats-no-project)). Your other AoE sessions are grouped under their parent too.
 - **Project page:** a **New task** button that starts a worker from a form, the control chat's live status and a rollup of its workers, then a worker list showing:
   - stage stepper,
@@ -446,7 +457,7 @@ For tasks in `mr_raised`, `watching_mr` or `ready_for_review`, the daemon checks
 
 The rules:
 
-- **Ready:** the MR is open, its pipeline passed, and zero threads are unresolved. The task moves to `ready_for_review` and you get a desktop notification (osascript or notify-send; toggleable).
+- **Ready:** the MR is open, its pipeline passed, and zero threads are unresolved. The task moves to `ready_for_review` and you get a desktop notification (from the dashboard tab, or osascript or notify-send; toggleable).
 - **Merged:** the task moves to `done`.
 - **Ready, then a new thread or pipeline appears:** the task goes back to `watching_mr`. A new thread also sends the control chat a `kind=threads` watch notice with the MR and its unresolved count.
 

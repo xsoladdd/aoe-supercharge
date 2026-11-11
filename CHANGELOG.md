@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A click on a notification opens what it is about.** While a dashboard tab is open with browser
+  notifications allowed (Settings, or the dashboard asks once on your first click), the tab shows each
+  notification itself and a click focuses it on the item's chat or task. The daemon sends none of its own
+  meanwhile, so you never get two. With no tab open the daemon keeps its own notification, through
+  terminal-notifier with a link when that happens to be installed, otherwise osascript.
+- **A red badge on the tab icon, and badges clear once you've looked.** The tab icon shows a red count of
+  the Needs-you items you haven't seen, like Slack. An item counts as seen once you have opened its chat,
+  task or project page, or the Needs-you list. It then drops out of the tab icon, the tab title and the
+  sidebar's badges until something new happens on it, and the list shows it greyed. This is kept per browser.
+
 - **Autonomous mode, per project.** Project settings has an Autonomous mode switch with an "until" time (the
   next 08:00 by default), and the project page shows a banner with Turn off while it is on. Meanwhile new
   workers start in `auto` permission mode (no plan menu), the worker watch is on, and the control chat is told
