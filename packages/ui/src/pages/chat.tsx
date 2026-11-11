@@ -41,6 +41,7 @@ import {
   type Snapshot,
   mrLabel,
   splitAttachments,
+  keepNewPaths,
   withAttachments,
   type MrState,
 } from '@aoe-supercharge/core/shared';
@@ -580,6 +581,11 @@ function ChatComposer({
   const [draft] = useDraft(sessionId);
   const uploading = useUploads(sessionId);
   const [editing, setEditing] = useState<{ file: File; caret: Caret }[]>([]);
+  // The box as the mark-up dialog found it: files that land while it is open are kept on Attach.
+  const editStart = useRef('');
+  useEffect(() => {
+    editStart.current = value;
+  }, [editing[0]?.file]);
   const [dragging, setDragging] = useState(false);
   const [askPath, setAskPath] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
@@ -816,8 +822,18 @@ function ChatComposer({
         initialText={value}
         onClose={() => setEditing((q) => q.slice(1))}
         onAttach={(png, text) => {
-          uploads.add(sessionId, png, 'screenshot.png', editing[0]?.caret);
-          onChange(text);
+          const caret = editing[0]?.caret;
+          // The image's path goes right after the message written with it, then any files that landed.
+          if (caret) caret.at = text.length;
+          uploads.add(sessionId, png, 'screenshot.png', caret);
+          onChange(
+            keepNewPaths(
+              text,
+              editStart.current,
+              value,
+              draft.files.map((f) => f.path),
+            ),
+          );
           setEditing((q) => q.slice(1));
         }}
       />

@@ -72,7 +72,16 @@ test.describe('auth', () => {
 });
 
 test.describe('overview', () => {
+  // The seeded unread reply is cleared by any test that opens the control chat (and every engine shares
+  // one world), so these two put it back themselves.
+  const unreadReply = async () =>
+    fake(`/__fake/sessions/${await sessionId('northwind-web control')}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'Idle', unread: true }),
+    });
+
   test('lists projects, Needs you and unmanaged AoE sessions', async ({ signedIn: page }) => {
+    await unreadReply();
     await expect(page.getByRole('link', { name: /northwind-web/ }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: /apollo-api/ }).first()).toBeVisible();
     const needs = page.locator('section[aria-labelledby="needs-you-heading"]');
@@ -91,6 +100,7 @@ test.describe('overview', () => {
   test('"Control chat replied" can be dismissed until the control chat replies again', async ({
     signedIn: page,
   }) => {
+    await unreadReply();
     const needs = page.locator('section[aria-labelledby="needs-you-heading"]');
     const replied = needs.locator('li', { hasText: 'northwind-web control chat' }).filter({
       hasText: 'Control chat replied',
@@ -943,14 +953,17 @@ test.describe('project', () => {
       expect(await sentTo(id)).toEqual(sentBefore);
 
       await page.getByLabel(/^Message /).press('Enter');
-      const esc = (t: string) => t.replace(/[()/.]/g, '\\$&');
+      const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+      // The files' paths sit in the text (the image's right after its message), so only the folder,
+      // which has no upload, rides as an "Attached:" line.
+      const upload = (name: string) => `\`/\\S+/uploads/${id}/\\S+-${esc(name)}\``;
       await expect
         .poll(async () => (await sentTo(id)).at(-1) ?? '', { timeout: 15_000 })
-        .toMatch(new RegExp(`^${esc(message)}\\n\\n(Attached: \`[^\`]+\`\\n?){3}$`));
-      const sent = (await sentTo(id)).at(-1)!;
-      expect(sent).toMatch(new RegExp(`^Attached: \`/\\S+/uploads/${id}/\\S+-screenshot\\.png\`$`, 'm'));
-      expect(sent).toMatch(new RegExp(`^Attached: \`/\\S+/uploads/${id}/\\S+-logs\\.zip\`$`, 'm'));
-      expect(sent).toContain(`Attached: \`${folder}\``);
+        .toMatch(
+          new RegExp(
+            `^${esc(message)} ${upload('screenshot.png')} ${upload('logs.zip')}\\n\\nAttached: \`${esc(folder)}\`$`,
+          ),
+        );
       const log = page.getByRole('log', { name: /^Conversation with/ });
       await expect(log.getByRole('img', { name: 'screenshot.png' }).first()).toBeVisible({ timeout: 15_000 });
       // The context meter reads the latest reply's token usage.

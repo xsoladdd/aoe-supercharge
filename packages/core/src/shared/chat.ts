@@ -285,6 +285,20 @@ export function removePath(text: string, path: string): string {
   return text.slice(0, i) + text.slice(end);
 }
 
+/**
+ * The text the mark-up dialog hands back, with the paths that landed in the box while it was open (in
+ * the box now, not in the text the dialog started from) put back at the end, so attaching keeps them.
+ */
+export function keepNewPaths(edited: string, started: string, current: string, paths: string[]): string {
+  let text = edited;
+  for (const p of paths) {
+    const q = quotedPath(p);
+    if (current.includes(q) && !started.includes(q) && !text.includes(q))
+      text = insertPath(text, text.length, p).text;
+  }
+  return text;
+}
+
 /** Paths already written in the text are not appended again. */
 export function withAttachments(text: string, paths: string[]): string {
   const lines = paths.filter((p) => !text.includes(quotedPath(p))).map((p) => `Attached: ${quotedPath(p)}`);

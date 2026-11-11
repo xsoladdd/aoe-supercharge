@@ -9,6 +9,7 @@ import {
   splitAttachments,
   insertPath,
   removePath,
+  keepNewPaths,
   withAttachments,
   contextWindow,
   promptDetail,
@@ -34,6 +35,13 @@ describe('parseTerminalMenu: menus at the bottom of a Claude Code pane', () => {
       expect(menu).toMatchObject({ numbered: false, cursor: 1, multi: false, tabs: [] });
     },
   );
+
+  it('a startup dialog stays a menu even when the transcript still ends in an unanswered tool call', () => {
+    const menu = parseTerminalMenu(fixture('claude-2.1.285-trust-80.txt'))!;
+    expect(promptKind('Bash', menu)).toBe('menu');
+    expect(promptKind('ExitPlanMode', menu)).toBe('menu');
+    expect(promptKind(null, parseTerminalMenu(fixture('claude-2.1.285-mcp-approval.txt'))!)).toBe('menu');
+  });
 
   it('reads the real MCP approval from a repo .mcp.json: its title is the question, the cursor is on the last row', () => {
     const menu = parseTerminalMenu(fixture('claude-2.1.285-mcp-approval.txt'))!;
@@ -253,6 +261,16 @@ describe('prettyModel', () => {
 });
 
 describe('attachments ride in the message as paths', () => {
+  it('attaching a marked-up image keeps the paths that landed while the dialog was open, not ones taken out', () => {
+    const zip = '/u/1-logs.zip';
+    const old = '/u/0-old.txt';
+    const started = `Look ${'`'}${old}${'`'}`;
+    const current = `${started} ${'`'}${zip}${'`'}`;
+    // The dialog's text dropped the old path and was edited; the zip arrived meanwhile.
+    expect(keepNewPaths('Look here', started, current, [old, zip])).toBe(`Look here ${'`'}${zip}${'`'}`);
+    expect(keepNewPaths('Look', 'Look', 'Look', [zip])).toBe('Look');
+  });
+
   it('round-trips text and files, and maps uploads to dashboard URLs', () => {
     const msg = withAttachments('Look at the header', [
       '/home/me/.local/state/supercharge/uploads/abc123/20261005T031500-1a2b-screenshot.png',

@@ -24,6 +24,26 @@
   chats are not affected. Control chats started before pick it up at their next restart. The daemon writes
   the settings file when it starts.
 - **Control skill: after an interrupted `task new`, run `supercharge task list` before starting it again.**
+- **CI is green again.** These checks had been failing:
+  - **The live AoE contract had never passed on GitHub's runners**, which have no `claude`: AoE refuses
+    `--tool claude` without one, even with `--cmd-override`. The sandbox now puts a `claude` stub first on its
+    PATH.
+  - **AoE 1.22 keeps its daemon socket under the config dir.** macOS's long `$TMPDIR` made that path too
+    long for a Unix socket ("Daemon Unix socket path is too long"), so on macOS the sandbox now lives in
+    `/tmp`. When `aoe serve --daemon` fails, the contract prints the tail of AoE's `debug.log`, which used to
+    be deleted with the sandbox.
+  - **The axe target-size check**: the copy-link button after a merge request (and the run button after a
+    command in the chat) keep a 24px box at any interface size.
+  - **E2E specs**: they now expect a picked file's path in the text (as 1.7.0 made it), the name in a
+    General chat's breadcrumb, and an unread control reply they set up themselves.
+- **AoE 1.22.x is supported.** The live contract passes against AoE 1.22.3 (22/22, macOS), and the tested
+  range is now `>=1.17.2 <1.23.0`.
+- **The trust dialog shows as the question it is.** A session showing a startup dialog (trust, MCP approval)
+  while its transcript still ends in an unanswered tool call was shown as "Claude needs permission" for that
+  call. The dialog on screen now wins.
+- **Attaching a marked-up image keeps the other files' paths.** Picking an image and a file together, the
+  file's path landed in the box while the image was being marked up, and **Attach** then replaced the box
+  with the dialog's text. The path is kept now, and the image's own path goes right after its message.
 
 - **`aoe add` gets as long as you need.** `task new` used to kill `aoe add` after a fixed 120 seconds, and
   `git worktree add` alone can take longer on a large repository. The timeout is now `aoe.addTimeoutSeconds`

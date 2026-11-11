@@ -1165,7 +1165,7 @@ All four phases are built. The verification behind each claim below is listed in
   - reduced motion,
   - screenshots at 1440×900 and 1080×1920 in both themes.
 - **`web-design-guidelines` audit.** Findings were fixed, except Title Case, which conflicts with the sentence case chosen in §14.0.
-- **Live contract** against the real AoE 1.17.2 and 1.18.0 binaries: 18/18 each, sandboxed.
+- **Live contract** against the real AoE 1.17.2 and 1.18.0 binaries: 18/18 each, sandboxed. Against 1.21.0 and 1.22.3: 22/22 each, with no `claude` installed (a `claude` stub goes first on the sandbox's PATH, since AoE refuses `--tool claude` without one, even with `--cmd-override`). AoE 1.22 keeps its daemon socket under the config dir, so on macOS the sandbox lives in `/tmp`: the default `$TMPDIR` is too long for a Unix socket path.
 - **`install.sh --dry-run`** under bash, zsh, and piped.
 
 ### 20.5 Still open

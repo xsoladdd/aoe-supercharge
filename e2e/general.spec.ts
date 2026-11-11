@@ -37,10 +37,13 @@ test.describe('General', () => {
     await Promise.race([page.waitForURL((u) => u.pathname !== before), anyway.waitFor()]);
     if (await anyway.isVisible()) await anyway.click();
     await expect(dialog).toBeHidden();
-    await expect(page.getByRole('navigation', { name: 'breadcrumb' })).toContainText(title);
 
+    // The new chat opens. Its breadcrumb is General › its name, not its title (SPEC §14.7); the row has both.
     const row = group.getByRole('link', { name: new RegExp(title) });
     await expect(row).toBeVisible();
+    const href = (await row.getAttribute('href'))!;
+    await expect(page).toHaveURL((u) => u.pathname === href);
+    await expect(page.getByRole('navigation', { name: 'breadcrumb' })).toContainText('General');
     await expect(
       sidebar
         .locator('[data-sidebar="group"]', { hasText: 'Other AoE sessions' })

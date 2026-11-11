@@ -19,7 +19,7 @@ const sentTo = async (id: string) =>
     .filter((m) => m.id === id)
     .map((m) => m.message);
 
-async function openChat(page: Page, id: string, title: string) {
+async function openChat(page: Page, id: string, title: string | RegExp) {
   await page.goto(`/chat/${id}`);
   await expect(page.getByRole('heading', { level: 1, name: title })).toBeVisible({ timeout: 15_000 });
 }
@@ -147,7 +147,8 @@ test.describe('chat composer', () => {
       await expect(page.getByRole('button', { name: 'Status update' })).toHaveCount(0);
 
       await setStatus(control.id, 'Idle');
-      await openChat(page, control.id, control.title);
+      // The heading is the AoE title until the transcript's own title ("Northwind launch plan") loads.
+      await openChat(page, control.id, /^(northwind-web control|Northwind launch plan)$/);
       await page.getByRole('button', { name: 'Status update' }).click();
       await expect.poll(() => sentTo(control.id)).toContain('Status update');
     } finally {
@@ -181,21 +182,20 @@ test.describe('chat composer', () => {
       await expect(box).toHaveValue('');
       await page.goBack();
       await expect(page.getByRole('heading', { level: 1, name: `draft a ${browserName}` })).toBeVisible();
-      await expect(box).toHaveValue(`Half a thought (${browserName})`);
+      // A picked file's path goes into the text where the caret was (here the end), as well as the chips.
+      const drafted = `Half a thought \\(${browserName}\\) \`/\\S+/uploads/${a}/\\S+-notes\\.txt\``;
+      await expect(box).toHaveValue(new RegExp(`^${drafted}$`));
       await expect(chips.getByText('notes.txt', { exact: true })).toBeVisible();
 
       await page.reload();
-      await expect(box).toHaveValue(`Half a thought (${browserName})`, { timeout: 15_000 });
+      await expect(box).toHaveValue(new RegExp(`^${drafted}$`), { timeout: 15_000 });
       await expect(chips.getByText('notes.txt', { exact: true })).toBeVisible();
 
       await box.press('Enter');
       await expect
         .poll(async () => (await sentTo(a)).at(-1) ?? '', { timeout: 15_000 })
-        .toMatch(
-          new RegExp(
-            `^Half a thought \\(${browserName}\\)\\n\\nAttached: \`/\\S+/uploads/${a}/\\S+-notes\\.txt\`$`,
-          ),
-        );
+        // Already in the text, so no "Attached:" line of its own.
+        .toMatch(new RegExp(`^${drafted}$`));
       await expect(box).toHaveValue('');
       await expect(chips).toHaveCount(0);
       await page.reload();

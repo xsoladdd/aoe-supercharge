@@ -220,8 +220,13 @@ function parseUnnumbered(lines: string[], end: number): ParsedMenu | null {
   };
 }
 
-/** What kind of menu it is, from the tool call Claude is waiting on (if the transcript has one). */
+/**
+ * What kind of menu it is, from the tool call Claude is waiting on (if the transcript has one). A startup
+ * dialog (trust, MCP approval: the unnumbered menus) is about the folder, never a tool call: a resumed
+ * session can show one while its transcript still ends in an unanswered call.
+ */
 export function promptKind(pendingTool: string | null, menu: ParsedMenu): PromptKind {
+  if (!menu.numbered) return 'menu';
   if (pendingTool === 'ExitPlanMode') return 'plan';
   if (pendingTool === 'AskUserQuestion') return 'question';
   if (pendingTool) return 'permission';
