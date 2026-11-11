@@ -287,7 +287,15 @@ function UserBubble({ text, note }: { text: string; note?: string }) {
       {images.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap justify-end gap-2">
           {images.map((f) => (
-            <a key={f.path} href={f.url!} target="_blank" rel="noreferrer" title={f.name}>
+            // A lazy image has no size until it loads: keep the link a 24px target meanwhile.
+            <a
+              key={f.path}
+              href={f.url!}
+              target="_blank"
+              rel="noreferrer"
+              title={f.name}
+              className="block min-h-[max(1.5rem,24px)] min-w-[max(1.5rem,24px)]"
+            >
               <img
                 src={f.url!}
                 alt={f.name}
