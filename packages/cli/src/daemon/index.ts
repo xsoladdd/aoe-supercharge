@@ -128,6 +128,7 @@ async function runWorker(): Promise<void> {
     displayName: ctx.config.ui.displayName,
     officeAnimations: ctx.config.ui.officeAnimations,
     officeTheme: ctx.config.ui.officeTheme,
+    officeEnabled: ctx.config.office.enabled,
   };
 
   const deliver = deliverNotice(store, () => dashboardOrigin(ctx.config));

@@ -150,6 +150,8 @@ export async function startDemo(opts: {
     ['remoteControl.enabled', 'true'],
     // Test and demo browsers would otherwise chime through your speakers on every new Needs-you item.
     ['ui.sound', 'false'],
+    // The Office is off by default; the specs and the demo show it.
+    ['office.enabled', 'true'],
   ] as const)
     await sc(env, ['config', 'set', k, v], home);
   // The demo's clock shows the fake's weather in the windows (the fake stands in for Open-Meteo).

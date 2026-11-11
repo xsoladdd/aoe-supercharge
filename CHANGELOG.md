@@ -80,6 +80,12 @@
   actions, and a shell block in a worker's question gets **Run**.
 - New Claude Code 2.1.285 screen fixtures: `/chrome`, a running Monitor, background agents, and a grey
   suggestion and placeholder (with ANSI).
+- **The Office is off by default.** A new setting, **Show the Office** (`office.enabled`, Settings › Office),
+  hides its sidebar entry, `/office` and `/office/window` (both go to the overview), **Show in office** in
+  the session menu, and the **Show** link on runaway toasts. **If you use the Office, turn it back on after
+  upgrading:** Settings › Office › Show the Office, or `supercharge config set office.enabled true`. Its
+  clocks (the scheduler's time zone is `office.clocks.home`), cost tracking, runaway alerts and history keep
+  running while it is off.
 
 - **`aoe add` gets as long as you need.** `task new` used to kill `aoe add` after a fixed 120 seconds, and
   `git worktree add` alone can take longer on a large repository. The timeout is now `aoe.addTimeoutSeconds`

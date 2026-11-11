@@ -345,6 +345,8 @@ export interface Snapshot {
     officeAnimations: boolean;
     /** The office floor's theme id; the UI draws an unknown one as Headquarters. */
     officeTheme: string;
+    /** The Office view (sidebar entry and /office); off by default (office.enabled). */
+    officeEnabled: boolean;
   };
 }
 

@@ -6,7 +6,7 @@ An opinionated parent/child dashboard for Claude Code, built on [Agent of Empire
 - **One worker per task**, each in its own git worktree and AoE session.
 - **Fixed stages for every worker:** `planning → implementing → verifying → mr_raised → watching_mr → ready_for_review`, plus `blocked` and `done`.
 - **One dashboard** you leave open on a side monitor. It shows every project, control chat, worker, plan and merge request, and pins whatever **needs you** at the top.
-- **An office** (`/office`) where every worker stands where its status puts it: rooms for each project, a line at your door, a review lounge with a pool table, a cost bar under everyone, runaway warnings, and a replayable history.
+- **An office** (`/office`, off by default: turn on **Show the Office** in Settings › Office) where every worker stands where its status puts it: rooms for each project, a line at your door, a review lounge with a pool table, a cost bar under everyone, runaway warnings, and a replayable history.
 - **Notes and todos** for you and Claude: `/note`, `/todo` and `/gnote` in any Claude Code session, and a whiteboard in the office.
 - **Merge requests, or none.** GitLab MRs are watched through `glab`, GitHub pull requests through `gh`, and an MR opened without telling Supercharge is found by its branch. A project that merges branches without MRs reports a branch ready to merge instead.
 
@@ -351,6 +351,7 @@ latitude = 59.33
 longitude = 18.07
 
 [office]
+enabled = false                    # the Office view (sidebar and /office); its clocks and cost alerts run either way
 windows = "activity"               # or "weather": the real sky at home in the windows
 
 [projects.my-repo]                 # per-project overrides
@@ -399,7 +400,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - **Attachments** go with the message you are writing, as many as you like, and Send sends the text and all of them as one message. Paste, drop or pick any file (up to 20 MB each, zips included); a pasted or picked image opens to be marked up first, and **Attach** (or Enter) puts it in the box. **Attach a path…** in the paperclip menu takes a file or folder already on this computer (`/Users/you/project/docs`, `~/Downloads/logs.zip`), checked before it is attached; nothing is copied. A browser can't upload a dropped folder, so dropping one opens that instead. A pasted, dropped or picked file's path goes into the text where the caret was (a marked-up image's right after the message written with it), so you can say what it is for; an attachment whose path is not in the text rides as an ``Attached: `<path>` `` line. Claude opens either with its file tool.
   - The **context ring** opens the figures behind it: tokens used of the window, the model, the last request's input, output and cache, and when Claude Code compacts. They are Claude Code's own when its status line reports them (Supercharge's status line, `agent.statusLine`), and otherwise an estimate from the transcript.
   - What needs you stands out: a report's 🔴 NEEDS YOU, 🟡 WORKING and ✅ DONE sections, watch notices, and errors each sit on a shade of their colour.
-- **Office** (`/office`): every worker stands where its status puts it.
+- **Office** (`/office`, when **Show the Office** is on in Settings › Office, `office.enabled`; off by default): every worker stands where its status puts it.
   - Everyone who needs you stands in line at your door, in single file between brass posts and ropes, blockers first, then oldest first, with the reason over their heads.
   - Every project has a room of its own, behind low glass with its name over the doorway. Working workers sit at their own desk in their project's room; the control chat is the team lead at the head desk.
   - Workers with an MR out wait in the **review lounge**, round the pool table, holding a folder: green when it is ready for review, amber while the pipeline runs or review threads are open, red when the pipeline failed or the MR was closed. A badge under each shows the MR number, the pipeline and the open threads; click it to open the MR. An MR ready for review still shows in Needs you, but no longer queues at your door. On a project without merge requests, a worker whose branch is ready to merge waits there too, with a green folder, "Branch ready to merge", and its branch name instead of an MR badge.

@@ -684,6 +684,7 @@ export class ConfigWatcher {
       displayName: loaded.config.ui.displayName,
       officeAnimations: loaded.config.ui.officeAnimations,
       officeTheme: loaded.config.ui.officeTheme,
+      officeEnabled: loaded.config.office.enabled,
     });
     this.onApplied(loaded.config);
   }

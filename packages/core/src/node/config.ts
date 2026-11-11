@@ -318,6 +318,12 @@ export const ConfigSchema = z.strictObject({
     .prefault({}),
   office: z
     .strictObject({
+      enabled: z
+        .boolean()
+        .default(false)
+        .describe(
+          'Show the Office: the floor where every worker stands where its status puts it, in the sidebar and at /office. The office clocks, cost alerts and history keep running while it is off.',
+        ),
       history: z
         .strictObject({
           retentionDays: z

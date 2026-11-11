@@ -83,17 +83,18 @@ export function useRunawayToasts(snap: Snapshot | null, navigate: (to: string) =
       const name = w ? (w.role === 'lead' ? `${w.project}'s control chat` : w.name) : 'A worker';
       toast.warning(`${name} may be a runaway`, {
         description: c.runaway.map((r) => RUNAWAY_LABEL[r]).join(', '),
-        action: w
-          ? {
-              label: 'Show',
-              onClick: () =>
-                navigate(
-                  w.id
-                    ? `/office?worker=${encodeURIComponent(w.id)}&project=${encodeURIComponent(w.project)}`
-                    : '/office',
-                ),
-            }
-          : undefined,
+        action:
+          w && snap.ui.officeEnabled
+            ? {
+                label: 'Show',
+                onClick: () =>
+                  navigate(
+                    w.id
+                      ? `/office?worker=${encodeURIComponent(w.id)}&project=${encodeURIComponent(w.project)}`
+                      : '/office',
+                  ),
+              }
+            : undefined,
       });
     }
   }, [snap, navigate]);

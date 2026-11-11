@@ -240,22 +240,24 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                   <SidebarMenuBadge className="tabular text-st-yellow">{needs.length}</SidebarMenuBadge>
                 )}
               </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === '/office'}
-                  tooltip="Office"
-                  className="h-8 text-[0.9375rem]"
-                >
-                  <Link href="/office" aria-current={location === '/office' ? 'page' : undefined}>
-                    <BuildingOfficeIcon
-                      weight={location === '/office' ? 'fill' : 'regular'}
-                      className="size-4"
-                    />
-                    <span>Office</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {snap.ui.officeEnabled && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={location === '/office'}
+                    tooltip="Office"
+                    className="h-8 text-[0.9375rem]"
+                  >
+                    <Link href="/office" aria-current={location === '/office' ? 'page' : undefined}>
+                      <BuildingOfficeIcon
+                        weight={location === '/office' ? 'fill' : 'regular'}
+                        className="size-4"
+                      />
+                      <span>Office</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild

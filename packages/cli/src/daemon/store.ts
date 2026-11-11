@@ -61,6 +61,7 @@ export class Store {
     displayName: '',
     officeAnimations: true,
     officeTheme: 'headquarters',
+    officeEnabled: false,
   };
   sessionsLoaded = false;
   ledgerLoaded = false;

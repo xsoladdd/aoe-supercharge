@@ -232,6 +232,11 @@ export function App() {
   useOfficeWindowLinks(navigate);
   useRunawayToasts(isOfficeWindow ? null : snap, navigate);
   useAppContextMenu();
+  // The Office is off by default (office.enabled): its pages go to the overview.
+  const officeOff = snap ? !snap.ui.officeEnabled : false;
+  useEffect(() => {
+    if (officeOff && (isOffice || isOfficeWindow)) navigate('/', { replace: true });
+  }, [officeOff, isOffice, isOfficeWindow, navigate]);
   // Links from before the chat page (`?session=<id>`) still land on the chat.
   useEffect(() => {
     if (legacySession) navigate(`/chat/${encodeURIComponent(legacySession)}`, { replace: true });
@@ -240,7 +245,7 @@ export function App() {
   if (live.connection === 'signed_out') return <SignedOut />;
   if (!snap) return live.connection === 'error' ? <Unreachable error={live.error} /> : <LoadingShell />;
 
-  if (isOfficeWindow)
+  if (isOfficeWindow && !officeOff)
     return (
       <IconContext.Provider
         value={{ 'aria-hidden': true } as React.ComponentProps<typeof IconContext.Provider>['value']}
@@ -373,17 +378,19 @@ export function App() {
                       <OverviewPage snap={snap} />
                     </Route>
                     <Route path="/office">
-                      <Suspense
-                        fallback={
-                          <div className="space-y-4" aria-busy="true">
-                            <Skeleton className="h-7 w-40" />
-                            <Skeleton className="h-28 w-full" />
-                            <Skeleton className="h-64 w-full" />
-                          </div>
-                        }
-                      >
-                        <OfficePage snap={snap} />
-                      </Suspense>
+                      {officeOff ? null : (
+                        <Suspense
+                          fallback={
+                            <div className="space-y-4" aria-busy="true">
+                              <Skeleton className="h-7 w-40" />
+                              <Skeleton className="h-28 w-full" />
+                              <Skeleton className="h-64 w-full" />
+                            </div>
+                          }
+                        >
+                          <OfficePage snap={snap} />
+                        </Suspense>
+                      )}
                     </Route>
                     <Route path="/notes">
                       <NotesPage snap={snap} />

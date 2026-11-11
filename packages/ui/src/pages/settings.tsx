@@ -131,6 +131,7 @@ const LABEL: Record<string, string> = {
   'watch.stallMinutes': 'Stalled after idle (minutes)',
   'ui.theme': 'Theme',
   'ui.density': 'Density',
+  'office.enabled': 'Show the Office',
   'office.history.retentionDays': 'History kept (days)',
   'office.runaway.sessionTokens': 'Runaway: tokens per conversation',
   'office.runaway.usdPerHour': 'Runaway: estimated $ per hour',
