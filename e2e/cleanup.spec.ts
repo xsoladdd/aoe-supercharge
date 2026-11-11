@@ -100,7 +100,7 @@ test.describe('clean up', () => {
       .getByRole('link', { name: /Build page templates/ })
       .first()
       .click({ button: 'right' });
-    await expect(menu.getByRole('menuitem', { name: 'Delete…' })).toBeVisible();
+    await expect(menu.getByRole('menuitem', { name: /Move to trash…/ })).toBeVisible();
     await expect(menu.getByRole('menuitem', { name: /Clean up/ })).toHaveCount(0);
     await page.keyboard.press('Escape');
 

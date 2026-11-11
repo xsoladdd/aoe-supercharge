@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CONSENT_MENU, PERMISSION_MENU, trustMenu } from '../packages/fake-aoe/src/server.ts';
 import type { Locator, Page } from '@playwright/test';
+import { E2E_PORT } from '../playwright.config.ts';
 import { axe, expect, fake, test, world } from './fixtures.ts';
 
 const sentTo = async (id: string) =>
@@ -72,7 +73,16 @@ test.describe('auth', () => {
 });
 
 test.describe('overview', () => {
+  // The seeded unread reply is cleared by any test that opens the control chat (and every engine shares
+  // one world), so these two put it back themselves.
+  const unreadReply = async () =>
+    fake(`/__fake/sessions/${await sessionId('northwind-web control')}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'Idle', unread: true }),
+    });
+
   test('lists projects, Needs you and unmanaged AoE sessions', async ({ signedIn: page }) => {
+    await unreadReply();
     await expect(page.getByRole('link', { name: /northwind-web/ }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: /apollo-api/ }).first()).toBeVisible();
     const needs = page.locator('section[aria-labelledby="needs-you-heading"]');
@@ -88,37 +98,34 @@ test.describe('overview', () => {
     await axe(page, 'overview');
   });
 
-  test('"Control chat replied" can be dismissed until the control chat replies again', async ({
+  test('every Needs-you item can be dismissed; "Control chat replied" until the chat replies again', async ({
     signedIn: page,
   }) => {
+    await unreadReply();
     const needs = page.locator('section[aria-labelledby="needs-you-heading"]');
     const replied = needs.locator('li', { hasText: 'northwind-web control chat' }).filter({
       hasText: 'Control chat replied',
     });
     await expect(replied).toHaveCount(1);
-    // Only that kind can be dismissed.
-    await expect(needs.locator('[data-dismiss^="control_replied:"]')).toHaveCount(
-      await needs.locator('li', { hasText: 'Control chat replied' }).count(),
-    );
+    // Every item has its Dismiss button.
+    await expect(needs.locator('[data-dismiss]')).toHaveCount(await needs.locator('li').count());
     await replied.getByRole('button', { name: /^Dismiss: northwind-web control chat/ }).click();
     await expect(replied).toHaveCount(0);
     // It stays dismissed after a reload: the daemon keeps it.
     await page.reload();
     await expect(needs.getByText('Question', { exact: true })).toBeVisible();
     await expect(replied).toHaveCount(0);
-    // Only "Control chat replied" can be dismissed.
+    // An item that isn't there can't be dismissed.
     const res = await page.evaluate(async () => {
       const { token } = (await (await fetch('/api/csrf')).json()) as { token: string };
-      const items = (await (await fetch('/api/snapshot')).json()).needsYou as { id: string; kind: string }[];
-      const other = items.find((i) => i.kind !== 'control_replied')!;
       const r = await fetch('/api/needs-you/dismiss', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-csrf-token': token },
-        body: JSON.stringify({ id: other.id }),
+        body: JSON.stringify({ id: 'question:NW-9999' }),
       });
       return r.status;
     });
-    expect(res).toBe(400);
+    expect(res).toBe(404);
     // A newer reply brings it back.
     const control = await sessionId('northwind-web control');
     await fake(`/__fake/sessions/${control}`, {
@@ -284,8 +291,8 @@ test.describe('project', () => {
     await expect(page.getByText(/aoe session attach/)).toBeVisible();
     const details = page.getByRole('complementary', { name: 'Task details' });
     await expect(details.getByText('Started on')).toBeVisible();
-    // Started without --model in plan mode: it plans with Opus and builds with Sonnet.
-    await expect(details.getByText('Opus to plan, then Sonnet once the plan is approved')).toBeVisible();
+    // Started without --model: workers plan and build on Opus (agent.model).
+    await expect(details.getByText('Opus', { exact: true })).toBeVisible();
     await axe(page, 'task overview');
     await tabs.getByRole('link', { name: 'Plan' }).click();
     await expect(page).toHaveURL(/\/t\/NW-0001\/plan$/);
@@ -316,13 +323,16 @@ test.describe('project', () => {
     const options = card.getByRole('radiogroup');
     await expect(options.getByText('Yes, manually approve edits')).toBeVisible();
     await expect(options.getByText('Tell Claude what to change')).toBeVisible();
+    // Any option takes a note, sent after the answer.
+    await options.getByText('Yes, manually approve edits').click();
+    await expect(card.getByLabel(/Add a note/)).toBeVisible();
     await options.getByText('Tell Claude what to change').click();
     await expect(card.getByLabel(/What should Claude do instead/)).toBeVisible();
     await axe(page, 'plan approval');
-    // The chat shows the same card in place of the message box.
+    // The chat shows the same card above the message box, which stays usable (a message is queued).
     await page.getByRole('navigation', { name: 'Task' }).getByRole('link', { name: 'Chat' }).click();
     await expect(page.getByRole('heading', { name: 'Plan ready for your approval' })).toBeVisible();
-    await expect(page.getByLabel(/^Message /)).toHaveCount(0);
+    await expect(page.getByLabel(/^Message /)).toBeVisible();
   });
 
   test('sessions the control chat started through AoE are listed with its project', async ({
@@ -435,6 +445,9 @@ test.describe('project', () => {
     await expect(asks.getByRole('link', { name: 'Content entry for launch pages' })).toBeVisible();
     await expect(asks.getByRole('radiogroup').getByText("Use Friday's deck")).toBeVisible();
     await expect(asks.getByRole('radiogroup').getByText('Write my own answer')).toBeVisible();
+    // An option is an answer; a note can go with it.
+    await asks.getByRole('radiogroup').getByText("Use Friday's deck").click();
+    await expect(asks.getByLabel(/Add a note/)).toBeVisible();
     await axe(page, 'control chat with worker questions');
   });
 
@@ -943,14 +956,17 @@ test.describe('project', () => {
       expect(await sentTo(id)).toEqual(sentBefore);
 
       await page.getByLabel(/^Message /).press('Enter');
-      const esc = (t: string) => t.replace(/[()/.]/g, '\\$&');
+      const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+      // The files' paths sit in the text (the image's right after its message), so only the folder,
+      // which has no upload, rides as an "Attached:" line.
+      const upload = (name: string) => `\`/\\S+/uploads/${id}/\\S+-${esc(name)}\``;
       await expect
         .poll(async () => (await sentTo(id)).at(-1) ?? '', { timeout: 15_000 })
-        .toMatch(new RegExp(`^${esc(message)}\\n\\n(Attached: \`[^\`]+\`\\n?){3}$`));
-      const sent = (await sentTo(id)).at(-1)!;
-      expect(sent).toMatch(new RegExp(`^Attached: \`/\\S+/uploads/${id}/\\S+-screenshot\\.png\`$`, 'm'));
-      expect(sent).toMatch(new RegExp(`^Attached: \`/\\S+/uploads/${id}/\\S+-logs\\.zip\`$`, 'm'));
-      expect(sent).toContain(`Attached: \`${folder}\``);
+        .toMatch(
+          new RegExp(
+            `^${esc(message)} ${upload('screenshot.png')} ${upload('logs.zip')}\\n\\nAttached: \`${esc(folder)}\`$`,
+          ),
+        );
       const log = page.getByRole('log', { name: /^Conversation with/ });
       await expect(log.getByRole('img', { name: 'screenshot.png' }).first()).toBeVisible({ timeout: 15_000 });
       // The context meter reads the latest reply's token usage.
@@ -1017,7 +1033,7 @@ test.describe('project', () => {
     const control = await sessionId('northwind-web control');
     await page.goto(`/chat/${control}`);
     const panel = page.getByRole('complementary', { name: 'Project panel' });
-    // Plans, Comments, Watch and Shell (notes have their own page); a control chat opens on its shell.
+    // Plans, Comments, Watch and Shell; a control chat opens on its shell.
     await expect(panel.getByRole('tab')).toHaveText(['Plans', 'Comments', 'Watch', 'Shell']);
     await expect(panel.getByRole('tab', { name: 'Shell' })).toHaveAttribute('aria-selected', 'true');
     // The panel hides from inside, and the labelled Panel button in the header brings it back.
@@ -1169,7 +1185,9 @@ test.describe('project', () => {
     await dialog.getByLabel('Title').fill('Add request tracing');
     await dialog.getByLabel('Brief').fill('Trace every request id through the API.');
     await dialog.getByLabel('Model').click();
-    await page.getByRole('option', { name: 'Sonnet' }).click();
+    // Workers build on Opus or, when asked for, Fable: there is no Sonnet.
+    await expect(page.getByRole('option', { name: 'Sonnet' })).toHaveCount(0);
+    await page.getByRole('option', { name: 'Fable' }).click();
     await dialog.getByLabel('Effort').click();
     await page.getByRole('option', { name: 'Low' }).click();
     await dialog.getByRole('button', { name: 'Start task' }).click();
@@ -1266,7 +1284,7 @@ test.describe('right-click', () => {
     await expect(row(names[0]!).getByRole('img', { name: 'Locked' })).toBeVisible({ timeout: 15_000 });
     await row(names[0]!).click({ button: 'right' });
     await expect(menu.getByRole('menuitem', { name: /Archive/ })).toHaveAttribute('data-disabled', '');
-    await expect(menu.getByRole('menuitem', { name: /Delete/ })).toHaveAttribute('data-disabled', '');
+    await expect(menu.getByRole('menuitem', { name: /Move to trash/ })).toHaveAttribute('data-disabled', '');
     await menu.getByRole('menuitem', { name: 'Unlock' }).click();
     await expect(row(names[0]!).getByRole('img', { name: 'Locked' })).toHaveCount(0, { timeout: 15_000 });
     // Let the closing menu finish leaving, so the next one is the only menu on the page.
@@ -1290,15 +1308,18 @@ test.describe('right-click', () => {
     await expect(page.getByText('Unarchived')).toBeVisible();
     await expect(page.getByLabel(/^Message /)).toBeVisible({ timeout: 15_000 });
 
-    // Delete: to AoE's trash, after saying so.
+    // Each item says what it keeps and what it deletes.
     await page.goto('/');
     await archived.locator('summary').click();
     await row(names[0]!).click({ button: 'right' });
-    await menu.getByRole('menuitem', { name: 'Delete…' }).click();
+    await expect(menu.getByRole('menuitem', { name: /^Archive \(keep files\)/ })).toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: /Move to trash…/ })).toContainText('Deletes no files');
+    // Move to trash: to AoE's trash, after saying so.
+    await menu.getByRole('menuitem', { name: /Move to trash…/ }).click();
     const dialog = page.getByRole('alertdialog');
     await expect(dialog).toContainText('AoE’s trash');
     await dialog.getByRole('button', { name: 'Move to trash' }).click();
-    await expect(page.getByText('Deleted', { exact: true })).toBeVisible();
+    await expect(page.getByText('Moved to the trash', { exact: true })).toBeVisible();
     await expect(row(names[0]!)).toHaveCount(0, { timeout: 15_000 });
     const state = (await fake('/__fake/state')) as {
       sessions: { title: string; trashed_at?: string | null }[];
@@ -1333,7 +1354,7 @@ test.describe('settings', () => {
     await expect(
       page.getByText(/Number must be greater than or equal to 1024|Too small|>=1024/i),
     ).toBeVisible();
-    await port.fill('47391');
+    await port.fill(String(E2E_PORT));
     const mr = page.getByLabel('Merge requests (s)');
     await mr.fill(String(Number(await mr.inputValue()) + 1));
     await page.getByRole('button', { name: 'Save changes' }).click();

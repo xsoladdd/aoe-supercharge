@@ -111,7 +111,7 @@ describe('asksFromChat: a notice never counts as your reply', () => {
     });
   });
 
-  it('adds what a notice brings to the list, and keeps when it started', () => {
+  it('sets the list from a reply to a notice that lists something, and keeps when it started', () => {
     const chat = [
       msg('1', 'user', 'status?'),
       msg('2', 'assistant', NEEDS('Pick a db')),
@@ -121,10 +121,13 @@ describe('asksFromChat: a notice never counts as your reply', () => {
     expect(asksFromChat(chat)).toEqual({
       at: chat[1]!.at,
       items: [
-        { text: 'Pick a db', blocker: false, since: chat[1]!.at },
         { text: 'fix-1989-ci asks: deploy now? Blocked until you say', blocker: true, since: chat[3]!.at },
+        { text: 'Pick a db', blocker: false, since: chat[1]!.at },
       ],
     });
+    // What it no longer lists is gone: the list never piles up.
+    const later = [...chat, msg('5', 'notice', WATCH), msg('6', 'assistant', NEEDS('Pick a db'))];
+    expect(asksFromChat(later)?.items).toEqual([{ text: 'Pick a db', blocker: false, since: chat[1]!.at }]);
   });
 
   it('keeps when each item was first listed while the replies after it repeat it', () => {

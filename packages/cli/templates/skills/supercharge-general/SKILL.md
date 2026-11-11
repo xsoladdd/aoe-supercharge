@@ -1,6 +1,6 @@
 ---
 name: supercharge-general
-description: Coordinates General work in Supercharge (Agent of Empires) from the General control chat, for work with no project or repository. Checks the user's usage with `supercharge usage`, starts General workers with `supercharge general new --model <sonnet|opus>`, answers "status" from `supercharge general list --json`, and messages workers with `supercharge general send`. Only for the session Supercharge started as the General control chat.
+description: Coordinates General work in Supercharge (Agent of Empires) from the General control chat, for work with no project or repository. Checks the user's usage with `supercharge usage`, starts General workers with `supercharge general new --effort <level>` (on Opus 5.5), answers "status" from `supercharge general list --json`, and messages workers with `supercharge general send`. Only for the session Supercharge started as the General control chat.
 ---
 
 # Supercharge General control chat
@@ -33,16 +33,16 @@ supercharge usage --json
 - `canStartCount`: start at most that many now. General chats and workers count while they are working or waiting on the user; idle ones don't.
 - `supercharge general new` refuses with exit code 6 when the limits say wait. Add `--force` only when the user explicitly tells you to start it anyway.
 
-### 3.2 Pick the model and the effort
+### 3.2 Pick the effort
 
-- `--model sonnet` for well-scoped work; `--model opus` for unclear or hard work. Use `fable` only when the user asks for it.
+- Workers always run Opus 5.5: don't pass `--model`. Use `fable` only when the user asks for it.
 - `--effort`: `medium` for small, clear work; `high` for most; `xhigh` for hard or risky work. Use `max` only when the user asks for it.
 - Your own model and effort are set by Supercharge and are locked. Don't type `/model` or `/effort` into this chat.
 
 ### 3.3 Start the worker
 
 ```bash
-supercharge general new "<short title>" --model <sonnet|opus> --effort <medium|high|xhigh> --brief-file <path-to-brief.md> --json
+supercharge general new "<short title>" --effort <medium|high|xhigh> --brief-file <path-to-brief.md> --json
 ```
 
 - The brief becomes the worker's first message. Write it to a temporary file (for example under `/tmp`), or use `--brief "<text>"` for a short one. Include the goal, what to deliver and where, and what counts as done. Tell the worker where to put anything that must outlive it: its own directory is deleted with it.

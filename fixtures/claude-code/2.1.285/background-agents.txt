@@ -1,0 +1,11 @@
+────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────
+  Opus 5.5 · context 8% · 5h 2% · week 17%
+  ⏸ plan mode on (shift+tab to cycle) · ← for agents
+                               Update available! Run: brew upgrade claude-code
+
+  ⏺ main
+  ◯ Explore  Reading chat.tsx and send-button.tsx       1m 7s · ↓ 65.7k tokens
+  ◯ Explore  Tailing at-suggestions.txt fixture lines   1m 7s · ↓ 54.9k tokens
+  ◯ Explore  Reading worker-watch.ts shells and revive  1m 7s · ↓ 55.1k tokens

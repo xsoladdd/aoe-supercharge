@@ -1,14 +1,17 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ASK_MENU, PERMISSION_MENU, PLAN_MENU } from '../../fake-aoe/src/server.ts';
+import { ASK_MENU, CONSENT_MENU, PERMISSION_MENU, PLAN_MENU } from '../../fake-aoe/src/server.ts';
 import {
   computeNeedsYou,
+  inputBox,
+  paneText,
   parseTerminalMenu,
   prettyModel,
   splitAttachments,
   insertPath,
   removePath,
+  keepNewPaths,
   withAttachments,
   contextWindow,
   promptDetail,
@@ -34,6 +37,19 @@ describe('parseTerminalMenu: menus at the bottom of a Claude Code pane', () => {
       expect(menu).toMatchObject({ numbered: false, cursor: 1, multi: false, tabs: [] });
     },
   );
+
+  it('a startup dialog stays a menu even when the transcript still ends in an unanswered tool call', () => {
+    const menu = parseTerminalMenu(fixture('claude-2.1.285-trust-80.txt'))!;
+    expect(promptKind('Bash', menu)).toBe('menu');
+    expect(promptKind('ExitPlanMode', menu)).toBe('menu');
+    expect(promptKind(null, parseTerminalMenu(fixture('claude-2.1.285-mcp-approval.txt'))!)).toBe('menu');
+    // The numbered screen that can follow the trust dialog ends the same way.
+    const consent = parseTerminalMenu(pane(CONSENT_MENU))!;
+    expect(consent).toMatchObject({ numbered: true, startup: true });
+    expect(promptKind('Bash', consent)).toBe('menu');
+    // A tool prompt is not one.
+    expect(parseTerminalMenu(pane(PERMISSION_MENU))!.startup).toBe(false);
+  });
 
   it('reads the real MCP approval from a repo .mcp.json: its title is the question, the cursor is on the last row', () => {
     const menu = parseTerminalMenu(fixture('claude-2.1.285-mcp-approval.txt'))!;
@@ -190,6 +206,42 @@ describe('parseTerminalMenu: real Claude Code 2.1.308 screens (fixtures/claude-c
   });
 });
 
+describe("inputBox and paneText: what is typed in Claude Code's input box", () => {
+  const screen = (file: string) =>
+    readFileSync(join(import.meta.dirname, '../../../fixtures/claude-code', file), 'utf8');
+
+  it('reads the typed text between the rules, under @ and / suggestion lists', () => {
+    expect(inputBox(screen('2.1.308/at-suggestions.txt'))).toBe('ook at @');
+    expect(inputBox(screen('2.1.308/slash-suggestions.txt'))).toBe('/');
+    expect(inputBox(screen('2.1.285/monitor-running.txt'))).toBe('');
+    expect(inputBox(screen('2.1.285/background-agents.txt'))).toBe('');
+    expect(
+      inputBox('────────\n❯ Start on your task: your brief\n  is in your system prompt\n────────\n  footer'),
+    ).toBe('Start on your task: your brief is in your system prompt');
+  });
+
+  it.each([
+    '2.1.308/plan-approval.txt',
+    '2.1.308/bash-permission.txt',
+    '2.1.308/ask-question.txt',
+    '2.1.308/agents-permission.txt',
+    '2.1.285/chrome-menu.txt',
+  ])('is null while a menu covers the box: %s', (file) => {
+    expect(inputBox(screen(file))).toBeNull();
+  });
+
+  it('drops the grey suggestion or placeholder Claude Code shows in an empty box', () => {
+    const suggestion = screen('2.1.285/input-suggestion.ansi');
+    expect(paneText(suggestion)).not.toContain('run lighthouse');
+    expect(paneText(suggestion)).toContain('auto mode on');
+    expect(paneText(suggestion)).not.toContain('\x1b');
+    expect(inputBox(paneText(suggestion))).toBe('');
+    expect(inputBox(paneText(screen('2.1.285/input-placeholder.ansi')))).toBe('');
+    // What was typed stays; only the dim completion after it goes.
+    expect(paneText('\x1b[39m❯\u00a0yes do it\x1b[2m and the cache too\x1b[0m')).toBe('❯\u00a0yes do it');
+  });
+});
+
 describe('Needs you: waiting workers say what they are waiting on', () => {
   const base: SessionView = {
     id: 's1',
@@ -253,6 +305,31 @@ describe('prettyModel', () => {
 });
 
 describe('attachments ride in the message as paths', () => {
+  it('lists uploads written in the text as files too, leaving the text as it is', () => {
+    const shot = '/home/me/.local/state/supercharge/uploads/abc123/20261005T031500-1a2b-screenshot.png';
+    const msg = withAttachments(`The box is off ${'`'}${shot}${'`'} and ${'`'}/tmp/mine.png${'`'}`, [
+      shot,
+      '/tmp/x.txt',
+    ]);
+    const { text, files } = splitAttachments(msg);
+    expect(text).toBe(`The box is off ${'`'}${shot}${'`'} and ${'`'}/tmp/mine.png${'`'}`);
+    // The Attached: line first, then the upload in the text; a path you typed is not an upload.
+    expect(files.map((f) => [f.name, f.url, f.image])).toEqual([
+      ['x.txt', null, false],
+      ['screenshot.png', '/api/uploads/abc123/20261005T031500-1a2b-screenshot.png', true],
+    ]);
+  });
+
+  it('attaching a marked-up image keeps the paths that landed while the dialog was open, not ones taken out', () => {
+    const zip = '/u/1-logs.zip';
+    const old = '/u/0-old.txt';
+    const started = `Look ${'`'}${old}${'`'}`;
+    const current = `${started} ${'`'}${zip}${'`'}`;
+    // The dialog's text dropped the old path and was edited; the zip arrived meanwhile.
+    expect(keepNewPaths('Look here', started, current, [old, zip])).toBe(`Look here ${'`'}${zip}${'`'}`);
+    expect(keepNewPaths('Look', 'Look', 'Look', [zip])).toBe('Look');
+  });
+
   it('round-trips text and files, and maps uploads to dashboard URLs', () => {
     const msg = withAttachments('Look at the header', [
       '/home/me/.local/state/supercharge/uploads/abc123/20261005T031500-1a2b-screenshot.png',

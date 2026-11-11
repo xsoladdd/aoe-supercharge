@@ -1,7 +1,7 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { parseAoeVersion } from '@aoe-supercharge/core/node';
 import { CONTROL_SHELL_INDEX, normalizeAoeStatus } from '@aoe-supercharge/core/shared';
 import { run } from '../util/exec.ts';
@@ -65,20 +65,27 @@ export async function runLiveContract(
     return ok;
   };
 
-  const root = await mkdtemp(join(tmpdir(), 'sc-contract-'));
+  // AoE 1.22 puts its daemon socket under the config dir, and macOS's long $TMPDIR pushes that past
+  // the Unix socket path limit ("Daemon Unix socket path is too long"), so use the short /tmp there.
+  const root = await mkdtemp(join(process.platform === 'darwin' ? '/tmp' : tmpdir(), 'sc-contract-'));
   const home = join(root, 'home');
   const tmuxDir = join(root, 'tmux');
   const repo = join(root, 'repo');
   // Stand-in agent: AoE 1.17.2 only accepts known tools for -c, so we run `--tool claude` with
   // `--cmd-override` pointing here. It ignores the claude flags AoE appends and just reads input.
-  const fakeAgent = join(root, 'bin', 'fake-agent');
-  await mkdir(join(root, 'bin'), { recursive: true });
-  await writeFile(fakeAgent, '#!/bin/sh\nexec cat >/dev/null\n');
-  await chmod(fakeAgent, 0o755);
+  // AoE also refuses `--tool claude` when no `claude` is installed (CI runners have none), so a
+  // `claude` stub goes first on PATH; `--cmd-override` still decides what actually runs.
+  const bin = join(root, 'bin');
+  const fakeAgent = join(bin, 'fake-agent');
+  await mkdir(bin, { recursive: true });
+  for (const file of [fakeAgent, join(bin, 'claude')]) {
+    await writeFile(file, '#!/bin/sh\nexec cat >/dev/null\n');
+    await chmod(file, 0o755);
+  }
   await mkdir(home, { recursive: true });
   await mkdir(tmuxDir, { recursive: true });
   const env: NodeJS.ProcessEnv = {
-    PATH: process.env.PATH,
+    PATH: [bin, process.env.PATH].filter(Boolean).join(delimiter),
     HOME: home,
     TMUX_TMPDIR: tmuxDir,
     XDG_CONFIG_HOME: join(home, '.config'),
@@ -134,8 +141,14 @@ export async function runLiveContract(
         serveStarted,
         serveStarted ? `port ${port}` : (serve.stderr || serve.stdout).trim().slice(0, 300),
       )
-    )
+    ) {
+      // AoE points at its debug log, which lives in the sandbox deleted below: show its tail now.
+      const debug = await readFile(join(home, '.config', 'agent-of-empires', 'debug.log'), 'utf8').catch(
+        () => '',
+      );
+      for (const line of debug.trim().split('\n').slice(-40)) if (line) log(`     ${line}`);
       throw new Error('stop');
+    }
 
     const cli = new AoeCli(aoeBin, 'default', env);
     let origin: string | null = null;

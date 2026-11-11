@@ -4,9 +4,12 @@ import {
   derivePrefix,
   evaluateMr,
   formatTaskId,
+  needsYouPath,
+  needsYouShownOn,
   normalizeAoeStatus,
   relativeTime,
   slugify,
+  type NeedsYouItem,
   type SessionView,
   type TaskRecord,
 } from '@aoe-supercharge/core/shared';
@@ -162,27 +165,77 @@ describe('computeNeedsYou', () => {
     // No MR: the branch is what waits to be merged (SPEC §11.3).
     expect(items.find((i) => i.kind === 'mr_ready')?.detail).toMatch(/^Branch ready to merge: /);
   });
-  it('a dismissed "Control chat replied" stays away until the control chat replies again', () => {
+  it('a dismissed item stays away until something new happens on it', () => {
     const args = { now, aoeReachable: true, waitingDebounceSeconds: 20, projects: [], tasks: [] };
     // The control chat replied at 11:00 and you have not read it; a worker waits on you too.
     const sessions = [
       session({ id: 'ctrl', unread: true, statusSince: '2026-10-05T11:00:00Z' }),
       session({ id: 'w', parentId: 'ctrl', status: 'waiting', statusSince: '2026-10-05T11:30:00Z' }),
     ];
-    const kinds = (dismissedReplies?: Record<string, string>) =>
-      computeNeedsYou({ ...args, sessions, dismissedReplies }).map((i) => i.kind);
+    const kinds = (dismissed?: Record<string, string>) =>
+      computeNeedsYou({ ...args, sessions, dismissed }).map((i) => i.kind);
     expect(kinds()).toEqual(['control_replied', 'approval']);
     // Dismissed at 11:05: gone; nothing else changes.
-    expect(kinds({ ctrl: '2026-10-05T11:05:00Z' })).toEqual(['approval']);
+    expect(kinds({ 'control_replied:ctrl': '2026-10-05T11:05:00Z' })).toEqual(['approval']);
     // Dismissing another chat's reply does nothing here.
-    expect(kinds({ other: '2026-10-05T11:05:00Z' })).toEqual(['control_replied', 'approval']);
-    // A newer reply (idle again since 11:40) brings it back.
-    const newer = [{ ...sessions[0]!, statusSince: '2026-10-05T11:40:00Z' }, sessions[1]!];
+    expect(kinds({ 'control_replied:other': '2026-10-05T11:05:00Z' })).toEqual([
+      'control_replied',
+      'approval',
+    ]);
+    // Any kind: the worker's wait, dismissed at 11:35.
+    expect(kinds({ 'approval:w': '2026-10-05T11:35:00Z' })).toEqual(['control_replied']);
+    // A newer reply (idle again since 11:40), or a new wait, brings it back.
+    const newer = [
+      { ...sessions[0]!, statusSince: '2026-10-05T11:40:00Z' },
+      { ...sessions[1]!, statusSince: '2026-10-05T11:45:00Z' },
+    ];
     expect(
-      computeNeedsYou({ ...args, sessions: newer, dismissedReplies: { ctrl: '2026-10-05T11:05:00Z' } }).map(
-        (i) => i.kind,
-      ),
-    ).toEqual(['approval', 'control_replied']);
+      computeNeedsYou({
+        ...args,
+        sessions: newer,
+        dismissed: { 'control_replied:ctrl': '2026-10-05T11:05:00Z', 'approval:w': '2026-10-05T11:35:00Z' },
+      }).map((i) => i.kind),
+    ).toEqual(['control_replied', 'approval']);
+  });
+
+  it('leaves out archived workers, and a done worker’s session error', () => {
+    const args = { now, aoeReachable: true, waitingDebounceSeconds: 20, projects: [] };
+    const asking = task({
+      id: 'NW-0004',
+      stage: 'blocked',
+      blockedFrom: 'implementing',
+      openQuestion: { text: 'Which db?', askedAt: '2026-10-05T10:00:00Z', answeredAt: null },
+    });
+    const ready = task({ id: 'NW-0005', stage: 'ready_for_review' });
+    const live = [session({ id: 's-NW-0004' }), session({ id: 's-NW-0005' })];
+    const kinds = (sessions: SessionView[], tasks = [asking, ready]) =>
+      computeNeedsYou({ ...args, tasks, sessions }).map((i) => i.kind);
+    expect(kinds(live)).toEqual(['mr_ready', 'question']);
+    expect(kinds(live.map((s) => ({ ...s, archived: true })))).toEqual([]);
+    const failed = [session({ id: 's-NW-0006', status: 'error', lastError: 'delete failed' })];
+    expect(kinds(failed, [task({ id: 'NW-0006' })])).toEqual(['session_error']);
+    expect(kinds(failed, [task({ id: 'NW-0006', stage: 'done' })])).toEqual([]);
+  });
+
+  it('a closed MR keeps its time between polls, so a dismissal holds', () => {
+    const closed = (checkedAt: string) =>
+      task({
+        id: 'NW-0007',
+        stage: 'watching_mr',
+        mr: { iid: 7, state: 'closed', checkedAt } as TaskRecord['mr'],
+        history: [
+          { at: '2026-10-05T10:00:00Z', from: 'mr_raised', to: 'watching_mr', by: 'daemon', note: null },
+        ],
+      });
+    const args = { now, aoeReachable: true, waitingDebounceSeconds: 20, projects: [] };
+    const sessions = [session({ id: 's-NW-0007' })];
+    const dismissed = { 'mr_closed:NW-0007': '2026-10-05T11:00:00Z' };
+    expect(computeNeedsYou({ ...args, sessions, tasks: [closed('2026-10-05T11:30:00Z')] })[0]!.since).toBe(
+      '2026-10-05T10:00:00Z',
+    );
+    expect(
+      computeNeedsYou({ ...args, sessions, dismissed, tasks: [closed('2026-10-05T11:59:00Z')] }),
+    ).toEqual([]);
   });
   it("lists a control chat's NEEDS YOU items, blockers marked, with the same id for the same item", () => {
     const asks = {
@@ -342,15 +395,43 @@ describe('computeNeedsYou: what a control chat lists about its workers (relayed)
     ]);
   });
 
-  it('a worker that left before the item was listed is gone: its own ask; one that left after, cleared', () => {
+  it('clears an item about a worker that is done, archived or cleaned up, whenever it left', () => {
     const done = (at: string) =>
       aldric({
         stage: 'done',
         history: [{ at, from: 'ready_for_review', to: 'done', by: 'daemon', note: null }],
       });
     const text = 'Reuse what Aldric (AS-0018) built for the importer?';
-    expect(kinds(run([done('2026-10-05T10:00:00Z')], [], text))).toEqual(['control_needs']);
+    expect(run([done('2026-10-05T10:00:00Z')], [], text)).toEqual([]);
     expect(run([done('2026-10-05T11:50:00Z')], [], text)).toEqual([]);
+    expect(run([aldric()], [worker({ archived: true })], text)).toEqual([]);
+    // Cleaned up: AS-0018 is no longer in the ledger. Another project's id, or none, is still an ask.
+    const withPrefix = (texts: string[]) =>
+      computeNeedsYou({
+        now,
+        aoeReachable: true,
+        waitingDebounceSeconds: 20,
+        projects: [{ ...project, idPrefix: 'AS' }],
+        tasks: [],
+        sessions: [session({ id: 'ctrl', asks: asks(...texts) })],
+      }).map((i) => i.detail);
+    expect(withPrefix([text, 'Merge NW-0002 first?', 'Pick a db'])).toEqual([
+      'Merge NW-0002 first?',
+      'Pick a db',
+    ]);
+  });
+
+  it('a dismissed worker item still relays: the control chat does not take it over', () => {
+    const items = computeNeedsYou({
+      now,
+      aoeReachable: true,
+      waitingDebounceSeconds: 20,
+      projects: [project],
+      tasks: [asking],
+      sessions: [session({ id: 'ctrl', asks: asks('Aldric (AS-0018): which db?') }), worker()],
+      dismissed: { 'question:AS-0018': '2026-10-05T11:45:00Z' },
+    });
+    expect(kinds(items)).toEqual(['control_relayed']);
   });
 
   it('passes on what a crew session waits for, by its name or its AoE title', () => {
@@ -378,5 +459,42 @@ describe('computeNeedsYou: what a control chat lists about its workers (relayed)
       'control_relayed',
       'question',
     ]);
+  });
+});
+
+describe('which page a Needs-you item opens, and which pages show it (seen on visit)', () => {
+  const base: NeedsYouItem = {
+    id: 'question:AS-0002',
+    kind: 'question',
+    project: 'aoe',
+    taskId: 'AS-0002',
+    sessionId: 'sess-2',
+    title: 'Aldric (AS-0002)',
+    detail: 'Which one?',
+    since: '2026-11-11T10:00:00.000Z',
+  };
+  it('opens a task item on its task page, a control item on its chat, a failed run on the schedules', () => {
+    expect(needsYouPath(base)).toBe('/p/aoe/t/AS-0002');
+    expect(needsYouPath({ ...base, kind: 'control_waiting', taskId: null, sessionId: 'c 1' })).toBe(
+      '/chat/c%201',
+    );
+    expect(needsYouPath({ ...base, kind: 'schedule_failed' })).toBe('/schedules');
+    expect(needsYouPath({ ...base, project: null, taskId: null, sessionId: 'g1' })).toBe('/chat/g1');
+  });
+  it('is shown on its task page (any tab), its chat and its project page, not elsewhere', () => {
+    expect(needsYouShownOn(base, '/p/aoe/t/AS-0002')).toBe(true);
+    expect(needsYouShownOn(base, '/p/aoe/t/AS-0002/chat')).toBe(true);
+    expect(needsYouShownOn(base, '/chat/sess-2')).toBe(true);
+    expect(needsYouShownOn(base, '/p/aoe')).toBe(true);
+    expect(needsYouShownOn(base, '/p/aoe/settings')).toBe(false);
+    expect(needsYouShownOn(base, '/p/aoe/t/AS-0003')).toBe(false);
+    expect(needsYouShownOn(base, '/chat/sess-3')).toBe(false);
+    expect(needsYouShownOn(base, '/p/other')).toBe(false);
+    expect(needsYouShownOn(base, '/office')).toBe(false);
+  });
+  it('a control chat item is shown on that chat, and an encoded id still matches', () => {
+    const control = { ...base, kind: 'control_needs' as const, taskId: null, sessionId: 'c 1' };
+    expect(needsYouShownOn(control, '/chat/c%201')).toBe(true);
+    expect(needsYouShownOn(control, '/chat/c%201?view=terminal')).toBe(true);
   });
 });

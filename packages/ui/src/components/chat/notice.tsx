@@ -1,4 +1,5 @@
 import {
+  ChatsCircleIcon,
   CheckCircleIcon,
   CopyIcon,
   EyeIcon,
@@ -54,6 +55,12 @@ export const WATCH_KIND: Record<WatchKind, KindStyle> = {
     label: 'Stalled',
     color: 'text-st-orange',
     surface: 'border-attn-warn/35 bg-attn-warn/6',
+  },
+  threads: {
+    icon: ChatsCircleIcon,
+    label: 'New review threads',
+    color: 'text-st-yellow',
+    surface: 'border-attn-needs/35 bg-attn-needs/6',
   },
 };
 

@@ -1,6 +1,109 @@
 # Changelog
 
-## 1.9.0 (2026-11-04)
+## 1.9.0 (2026-11-12)
+
+- **A click on a notification opens what it is about.** While a dashboard tab is open with browser
+  notifications allowed (Settings, or the dashboard asks once on your first click), the tab shows each
+  notification itself and a click focuses it on the item's chat or task. The daemon sends none of its own
+  meanwhile, so you never get two. With no tab open the daemon keeps its own notification, through
+  terminal-notifier with a link when that happens to be installed, otherwise osascript.
+- **A red badge on the tab icon, and badges clear once you've looked.** The tab icon shows a red count of
+  the Needs-you items you haven't seen, like Slack. An item counts as seen once you have opened its chat,
+  task or project page, or the Needs-you list. It then drops out of the tab icon, the tab title and the
+  sidebar's badges until something new happens on it, and the list shows it greyed. This is kept per browser.
+
+- **Autonomous mode, per project.** Project settings has an Autonomous mode switch with an "until" time (the
+  next 08:00 by default), and the project page shows a banner with Turn off while it is on. Meanwhile new
+  workers start in `auto` permission mode (no plan menu), the worker watch is on, and the control chat is told
+  with an `[AUTONOMOUS] on` line: within its skill's limits it approves plans, answers questions, starts the
+  next queued item and gets red pipelines fixed, and logs each decision. No merges into dev or main, no
+  production, no unapproved dev writes, no removing workers, and owner decisions are parked. At the set time,
+  or on Off, the daemon asks the control chat for a summary of what was done, decided and parked, and records
+  `autonomous_ended`. Stored as `projects.<name>.autonomousSince`/`autonomousUntil`; `whoami --json` and
+  `status --project --json` show `autonomous`.
+- **`supercharge audit`.** Reads the audit log (`--project`, `--since`, `--json`), and `supercharge audit note
+  "<text>"` records a decision in it. Autonomous mode's summary is built from it.
+- **Workers run Opus 5.5; only the effort changes.** `agent.model` now defaults to `opus` instead of empty
+  (which started workers on `opusplan`, building on Sonnet). The new-task form offers Opus and Fable, no
+  Sonnet. The control and General skills pick only an `--effort`. General chats and General workers started
+  without `--model` also start on Opus now. Set `agent.model = ""` to get the old behaviour back.
+- **The control chat never removes workers.** Its skill says to check with `task cleanup --dry-run` and hand
+  you the command for the Run button. A `PreToolUse` hook in Supercharge's Claude settings file now stops a
+  control chat's own Bash tool from running `task cleanup` (without `--dry-run`), `aoe rm`/`aoe remove` or
+  `aoe session archive`/`empty-trash`. Run in chat and Run in terminal still work, and workers and General
+  chats are not affected. Control chats started before pick it up at their next restart. The daemon writes
+  the settings file when it starts.
+- **Control skill: after an interrupted `task new`, run `supercharge task list` before starting it again.**
+- **CI is green again.** These checks had been failing:
+  - **The live AoE contract had never passed on GitHub's runners**, which have no `claude`: AoE refuses
+    `--tool claude` without one, even with `--cmd-override`. The sandbox now puts a `claude` stub first on its
+    PATH.
+  - **AoE 1.22 keeps its daemon socket under the config dir.** macOS's long `$TMPDIR` made that path too
+    long for a Unix socket ("Daemon Unix socket path is too long"), so on macOS the sandbox now lives in
+    `/tmp`. When `aoe serve --daemon` fails, the contract prints the tail of AoE's `debug.log`, which used to
+    be deleted with the sandbox.
+  - **The axe target-size check**: the copy-link button after a merge request (and the run button after a
+    command in the chat) keep a 24px box at any interface size.
+  - **E2E specs**: they now expect a picked file's path in the text (as 1.7.0 made it), the name in a
+    General chat's breadcrumb, and an unread control reply they set up themselves.
+  - **CI runs on pushes to `dev` too** (and can be started by hand), so `dev` is checked before the
+    release PR.
+  - **The e2e axe check waits for fade-ins** (popovers, menus) before it measures contrast, so a slow
+    runner no longer catches their text half-transparent.
+  - **`E2E_PORT`** moves the Playwright dashboard port (and the fake AoE's, the next one up) from 47391, so
+    worktrees can run the e2e suite side by side.
+- **AoE 1.22.x is supported.** The live contract passes against AoE 1.22.3 (22/22, macOS), and the tested
+  range is now `>=1.17.2 <1.23.0`.
+- **The trust dialog shows as the question it is.** A session showing a startup dialog (trust, MCP approval,
+  the bypass-permissions warning) while its transcript still ends in an unanswered tool call was shown as
+  "Claude needs permission" for that call. A screen ending in "Enter to confirm · Esc to cancel", which
+  Claude Code's tool prompts never use, now shows as the dialog it is.
+- **Images show in the chat again.** Since 1.7.0 a picked, pasted or dropped file's path goes into the text,
+  and the chat only showed images from `Attached:` lines, so a sent screenshot appeared as a bare path. Upload
+  paths in the text now show as images (and files) too, and a held message taken back to edit gets its chips
+  back.
+- **Attaching a marked-up image keeps the other files' paths.** Picking an image and a file together, the
+  file's path landed in the box while the image was being marked up, and **Attach** then replaced the box
+  with the dialog's text. The path is kept now, and the image's own path goes right after its message.
+- **A message is never refused or lost.** In the dashboard, a send that can't go in now (a menu on screen,
+  AoE's typing lock, an interrupt already under way) is queued and shown as "Queued", instead of failing
+  with `menu_open`, `terminal_busy` or `interrupting`. While Claude works, Send and Enter now type the
+  message in (Claude Code reads it during the turn) instead of stopping Claude; **Interrupt and send** is in
+  the caret menu. A menu's card shows above the message box, which stays usable.
+- **`supercharge reply` refuses when Claude Code's input box is not on screen.** It used to print "✓ Sent"
+  while a menu it could not read (such as `/chrome`) held the input, and the message was lost. It also
+  refuses when AoE won't show the screen (it still sends when `aoe serve` is down). The dashboard queues
+  instead.
+- **The start prompt is sent once.** A worker's first message that is still in its input box ~2 s later gets
+  Enter pressed, not typed again; it is typed again only into an empty box after 20 s. Before, it could sit
+  typed but unsent, or be stacked 2–3 times. `SUPERCHARGE_KICKOFF_ENTER_MS` overrides the 2 s.
+- **No false watch notices.**
+  - No `kind=error` for an AoE `error` that lasts less than the waiting debounce, or on a session less than
+    a minute old (an empty first capture). The reboot revive leaves such sessions alone too.
+  - No `kind=permission` when AoE says waiting but no menu is on screen. The Needs-you item stays.
+  - A worker running a Monitor or background agents is waiting, not stalled.
+- **Watch logs leave out grey prompt suggestions.** The pane is captured with ANSI (`format=ansi`), and the
+  dim suggestion or placeholder on the `❯` line is dropped before it is saved.
+- **Answer cards keep your note.** Every option of a worker's question or a Claude Code menu takes a note.
+  It is sent with the answer, or after the menu closes. The cards say that options are answers, not
+  actions, and a shell block in a worker's question gets **Run**.
+- New Claude Code 2.1.285 screen fixtures: `/chrome`, a running Monitor, background agents, and a grey
+  suggestion and placeholder (with ANSI).
+- **The Office is off by default.** A new setting, **Show the Office** (`office.enabled`, Settings › Office),
+  hides its sidebar entry, `/office` and `/office/window` (both go to the overview), **Show in office** in
+  the session menu, and the **Show** link on runaway toasts. **If you use the Office, turn it back on after
+  upgrading:** Settings › Office › Show the Office, or `supercharge config set office.enabled true`. Its
+  clocks (the scheduler's time zone is `office.clocks.home`), cost tracking, runaway alerts and history keep
+  running while it is off.
+- **Notes and todos are removed**, along with everything that served them:
+  - **Gone:** the **Notes** page, the office whiteboards' writing and their card, `/api/notes`, the
+    `supercharge note`, `todo` and `notes` commands, the control skill's "Notes and todos" section, and the
+    unused `projects/<name>/notes.md` endpoint. The office keeps blank whiteboards.
+  - **Your notes stay on disk:** `~/.local/share/supercharge/notes/` is left as it is. Only
+    `supercharge uninstall --purge` deletes it, with the rest of the data folder.
+  - **The `/note`, `/todo` and `/gnote` skills are retired.** `supercharge start` (and `init` and
+    `uninstall`) removes the copies Supercharge installed in `~/.claude/skills`, and only those it can prove
+    unchanged (marker present, sha256 matching the file). An edited copy is kept, with a one-line warning.
 
 - **`aoe add` gets as long as you need.** `task new` used to kill `aoe add` after a fixed 120 seconds, and
   `git worktree add` alone can take longer on a large repository. The timeout is now `aoe.addTimeoutSeconds`
@@ -25,6 +128,25 @@
 - **`supercharge task new --permission-mode <plan|default|acceptEdits|auto>`.** Overrides
   `agent.workerPermissionMode` for that one task, so a small overnight task need not stall at plan approval.
   The mode is recorded in the `task_created` audit entry. The control-chat skill's `task new` section covers it.
+
+- **`supercharge status` leaves archived workers out of its counts.** Archiving a worker only stops its
+  pane, so the task kept its stage. Before this fix, `status` counted it under `implementing` or
+  `blocked`, listed its old question, and counted it in the overview's `blocked`. Now archived tasks are
+  left out of the per-stage `counts` and the `blocked` list. Each entry in `tasks[]` carries
+  `archived: true`, and unarchiving counts the task again. Archived workers never counted against the
+  worker cap, so that is unchanged.
+
+- **The control chat hears about new review threads.** When a task already `ready_for_review` got a new
+  unresolved thread, the MR watcher moved it back to `watching_mr`, but nothing reached the control chat.
+  Now the watch sends a `[WATCH] … kind=threads` notice, with the MR URL and the number of unresolved
+  threads, once each time the task steps back. The control skill lists it under NEEDS YOU.
+
+- **`supercharge task quiet <task-id> [--off]` stops stalled notices for one task.** Use it for a worker
+  you parked on purpose, for example one waiting on a reviewer. The watch then sends no `stalled`
+  notices for that task. Questions, permission prompts, errors, done and threads still come through.
+  It is stored on the task and shown as `quiet` in `status --project <p> --json`. `--off` turns stalled
+  notices back on.
+
 - **Sessions come back by themselves after a reboot.** AoE's own startup recovery only restarts sessions
   it has a conversation id for, so most panes stayed dead (status `error`) until you opened the AoE TUI.
   Once `aoe serve` answers, the daemon now asks AoE to restart each live session whose pane died, one at a
@@ -38,6 +160,54 @@
   loses recursive `fs.watch` events on Linux once a file has been rewritten twice. The integration test now
   sets `poll.reconcile` to 5 seconds, so a lost event costs seconds, not a minute. No product code changed.
   On Linux, use Node 24.22 or newer so the dashboard doesn't lag behind the ledger either.
+
+- **"Needs you" clears.** It showed 19 items with 4 workers, and only "Control chat replied" could be
+  dismissed. Now every item has a Dismiss button (×), and it stays away until something new happens on it
+  (a new question, a new wait, a newer reply). Archived workers give no items, a done worker's session
+  error is left out, and a control chat's item about a worker that is done, archived or cleaned up clears
+  by itself. A control chat's reply to a watch notice now sets its NEEDS YOU list instead of adding to it,
+  and the control skill lists again what still waits, so the list no longer piles up.
+
+- **A read-only or report task can close itself.** A worker whose task has nothing to merge runs
+  `supercharge stage done --nothing-to-merge`. It is refused while the branch has commits that aren't on the
+  base branch, the worktree has uncommitted or untracked files, or a merge request is open, and it is
+  audited as `task_closed`. `whoami --json` shows `task.outputDir`, the project's folder under uploads, where
+  such output belongs: cleanup leaves it alone. The worker skill says so.
+
+- **Reopen a done task.** Follow-up work on a done task made its worker vanish from the list, and only a
+  hidden `stage --force` from its worktree brought it back. Now there is `supercharge task reopen <task-id>`
+  (you or the control chat; a worker only its own task), **Reopen** in the right-click menu, and a button
+  on the task page. It goes back to implementing, comes out of AoE's archive if it was archived, and is
+  audited as `task_reopened`. After a reopen, `stage mr_raised` without `--mr` no longer reuses the old
+  merged pull request.
+
+- **Cleanup no longer mistakes a slow delete for a dead AoE.** Every AoE call had 10 seconds, and deleting a
+  large worktree takes minutes, so cleanup said "Cannot reach aoe serve" while AoE kept deleting, and the
+  half-deleted worktree then read as uncommitted work. The delete now gets `aoe.deleteTimeoutSeconds`
+  (default 600, on the Settings page). Running out means "AoE is still deleting": the task is marked
+  first, and the daemon (or the next `task cleanup`) finishes once the session is gone. While marked, a
+  worktree with only deleted files, or one git no longer reads, counts as deletion in progress.
+
+- **Cleanup covers more finished workers.** A task whose branch is gone is checked against the worktree's
+  HEAD, its merged pull request's head, or `origin/<branch>` instead of "check by hand". A task that never
+  reached done but whose session is archived can be cleaned up with the same checks (`--all-done` and
+  **Clean up all done** include them). Cleanup deletes the branch itself after AoE, since AoE's
+  `branch -d` refuses squash-merged branches. `task cleanup <id> --discard` drops a results commit that
+  never needed merging, and lists and audits every commit it drops.
+
+- **A stopped `task new` rolls back.** A `task new` killed half-way (Ctrl-C, a kill, a closed terminal) left
+  a used id, a task folder without `task.json`, a branch, a worktree and maybe a session. It now stops
+  `aoe add` and rolls the start back as a failed one (`task_failed` with `interrupted`), exiting 130 or
+  143. It prints the task id and branch before `aoe add` runs, so even a `kill -9` says what it was
+  starting. Run from a control chat with the daemon up, it no longer waits 30 seconds for the worker's
+  prompt: the daemon sends the first message. The New task dialog no longer says "up to two minutes".
+
+- **"Delete" and "Archive" say what they do.** The right-click menu now reads **Archive (keep files)**,
+  **Move to trash…** (was Delete…), **Clean up…** and **Reopen**, each with a line on what it keeps and what
+  it deletes. Deleting permanently is offered only for sessions that aren't tasks (General chats, crew), and
+  the daemon refuses it for a task: a task's files are deleted only by Clean up, after its checks. A
+  permanent delete AoE refuses is now an error instead of being taken as done. The README has a table of
+  all four.
 
 ## 1.8.0 (2026-10-27)
 

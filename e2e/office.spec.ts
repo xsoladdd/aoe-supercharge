@@ -68,6 +68,34 @@ async function hungry(title: string): Promise<string> {
 }
 
 test.describe('office', () => {
+  test('off (office.enabled false), the sidebar has no Office and /office goes to the overview', async ({
+    signedIn: page,
+  }) => {
+    const setEnabled = (enabled: boolean) =>
+      page.evaluate(async (enabled) => {
+        const { token } = (await (await fetch('/api/csrf')).json()) as { token: string };
+        const res = await fetch('/api/config', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', 'x-csrf-token': token },
+          body: JSON.stringify({ patch: { office: { enabled } } }),
+        });
+        return res.status;
+      }, enabled);
+    const entry = page.locator('[data-sidebar="menu-button"]', { hasText: /^Office$/ });
+    try {
+      await page.goto('/');
+      expect(await setEnabled(false)).toBe(200);
+      await expect(entry).toHaveCount(0, { timeout: 15_000 });
+      await page.goto('/office');
+      await expect(page).toHaveURL((u) => u.pathname === '/');
+      await page.goto('/office/window');
+      await expect(page).toHaveURL((u) => u.pathname === '/');
+    } finally {
+      expect(await setEnabled(true)).toBe(200);
+    }
+    await expect(entry).toHaveCount(1, { timeout: 15_000 });
+  });
+
   test('every open worker stands in exactly one place; at the door, blockers first, then oldest first', async ({
     signedIn: page,
   }) => {

@@ -23,7 +23,7 @@ import {
 } from '@aoe-supercharge/core/shared';
 import { CostLine, ESTIMATE_NOTE } from '@/components/office/cost';
 import { GoHome, RestoreButton } from '@/components/office/go-home';
-import { DismissReply, hrefFor } from '@/components/needs-you';
+import { DismissItem, hrefFor } from '@/components/needs-you';
 import { PromptCard, TaskAsks } from '@/components/answer';
 import { Avatar } from '@/components/office/avatar';
 import { Reason } from '@/components/office/roster';
@@ -307,7 +307,7 @@ export function WorkerCard({
               className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
             >
               <span className="min-w-0 flex-1">Replied {relativeTime(i.since, now)}, not yet read.</span>
-              <DismissReply item={i} />
+              <DismissItem item={i} />
             </div>
           ))}
         {w.zone === 'archived' && (

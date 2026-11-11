@@ -18,6 +18,8 @@ export interface AddSessionOptions {
   launch?: boolean;
   /** How long `aoe add` may run before it is killed (`aoe.addTimeoutSeconds`). */
   timeoutMs?: number;
+  /** Aborting kills `aoe add` (the caller was interrupted). */
+  signal?: AbortSignal;
 }
 
 /** Thin wrapper for the AoE CLI. Used for what REST lacks: parent links, `add -P`, version, serve control. */
@@ -28,8 +30,8 @@ export class AoeCli {
     private env: NodeJS.ProcessEnv = process.env,
   ) {}
 
-  private exec(args: string[], timeoutMs = 20_000, input?: string): Promise<RunResult> {
-    return run(this.binary, args, { env: this.env, timeoutMs, input });
+  private exec(args: string[], timeoutMs = 20_000, input?: string, signal?: AbortSignal): Promise<RunResult> {
+    return run(this.binary, args, { env: this.env, timeoutMs, input, signal });
   }
 
   async version(): Promise<string | null> {
@@ -95,7 +97,7 @@ export class AoeCli {
     if (o.baseBranch) args.push('--base-branch', o.baseBranch);
     if (o.extraArgs?.length) args.push('--extra-args', o.extraArgs.join(' '));
     if (o.launch) args.push('-l');
-    return this.exec(args, o.timeoutMs ?? 300_000);
+    return this.exec(args, o.timeoutMs ?? 300_000, undefined, o.signal);
   }
 
   async send(id: string, message: string): Promise<RunResult> {

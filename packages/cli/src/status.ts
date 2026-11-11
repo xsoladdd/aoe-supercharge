@@ -1,5 +1,6 @@
 import {
   STAGES,
+  type Autonomous,
   type ProjectRecord,
   type ProjectStatus,
   type SessionView,
@@ -16,11 +17,14 @@ export function buildProjectStatus(
   tasks: TaskRecord[],
   sessions: SessionView[] | null,
   remoteControl: boolean,
+  autonomous: Autonomous,
 ): ProjectStatus {
   const own = tasks.filter((t) => t.project === project.name);
   const byId = new Map((sessions ?? []).map((s) => [s.id, s]));
+  const archived = (t: TaskRecord) => !!byId.get(t.aoeSessionId)?.archived;
+  // Archived workers are parked: not counted or listed as blocked until unarchived.
   const counts = Object.fromEntries(STAGES.map((s) => [s, 0])) as Record<Stage, number>;
-  for (const t of own) counts[t.stage]++;
+  for (const t of own) if (!archived(t)) counts[t.stage]++;
   const control = project.controlSessionId ? byId.get(project.controlSessionId) : undefined;
   return {
     project: project.name,
@@ -29,9 +33,10 @@ export function buildProjectStatus(
       status: sessions === null ? 'unknown' : control ? control.status : 'missing',
       remoteControl,
     },
+    autonomous,
     counts,
     blocked: own
-      .filter((t) => t.stage === 'blocked' && t.openQuestion)
+      .filter((t) => t.stage === 'blocked' && t.openQuestion && !archived(t))
       .map((t) => ({
         taskId: t.id,
         name: t.name ?? null,
@@ -65,6 +70,8 @@ export function buildProjectStatus(
         mr: t.mr
           ? { url: t.mr.url, pipeline: t.mr.pipeline, unresolvedThreads: t.mr.unresolvedThreads }
           : null,
+        archived: archived(t),
+        quiet: !!t.quiet,
         updatedAt: t.updatedAt,
       };
     }),

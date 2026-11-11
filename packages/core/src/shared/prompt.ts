@@ -78,6 +78,11 @@ export interface ParsedMenu {
   multi: boolean;
   /** False for a menu drawn without numbers (the trust dialog): no digit picks a row, the arrows and Enter do. */
   numbered: boolean;
+  /**
+   * One of Claude Code's startup dialogs (trust, MCP approval, the bypass-permissions warning): they end in
+   * "Enter to confirm · Esc to cancel", which its tool prompts never use ("Esc to cancel · Tab to amend").
+   */
+  startup: boolean;
   /** The `n` of the highlighted option. */
   cursor: number;
 }
@@ -170,6 +175,7 @@ function parseNumbered(lines: string[], end: number): ParsedMenu | null {
     tabs,
     multi,
     numbered: true,
+    startup: CONFIRM_FOOTER.test(lines[end]!.trim()),
     cursor,
   };
 }
@@ -216,12 +222,18 @@ function parseUnnumbered(lines: string[], end: number): ParsedMenu | null {
     tabs: [],
     multi: false,
     numbered: false,
+    startup: true,
     cursor,
   };
 }
 
-/** What kind of menu it is, from the tool call Claude is waiting on (if the transcript has one). */
+/**
+ * What kind of menu it is, from the tool call Claude is waiting on (if the transcript has one). A startup
+ * dialog is about the session, never a tool call: a resumed session can show one while its transcript
+ * still ends in an unanswered call.
+ */
 export function promptKind(pendingTool: string | null, menu: ParsedMenu): PromptKind {
+  if (menu.startup) return 'menu';
   if (pendingTool === 'ExitPlanMode') return 'plan';
   if (pendingTool === 'AskUserQuestion') return 'question';
   if (pendingTool) return 'permission';
@@ -230,4 +242,44 @@ export function promptKind(pendingTool: string | null, menu: ParsedMenu): Prompt
     return 'question';
   if (/plan/i.test(menu.question) && /proceed/i.test(menu.question)) return 'plan';
   return 'menu';
+}
+
+const ANSI = /\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[ -/]*[@-~]/g;
+/** A dim run: Claude Code's grey suggestion or placeholder in its input line, up to the next reset. */
+const DIM = /\x1b\[2m.*?(?=\x1b\[(?:0|22)?m|$)/g;
+// The input box's top rule may carry a label (a session name): "──── my-session ─".
+const BOX_RULE = /^\s*─{8,}/;
+
+/**
+ * A pane captured with ANSI, as plain text without what the user never typed: the dim suggestion or
+ * placeholder on a `❯` input line ("run the tests too", `Try "fix lint errors"`).
+ */
+export function paneText(ansi: string): string {
+  return ansi
+    .split('\n')
+    .map((line) => {
+      const plain = (l: string) => l.replace(ANSI, '');
+      return /^\s*❯/.test(plain(line)) ? plain(line.replace(DIM, '')) : plain(line);
+    })
+    .join('\n');
+}
+
+/**
+ * What is typed in Claude Code's input box: the `❯` (or shell-mode `!`) line and its continuation
+ * lines between the last two `─` rules, '' when empty. Null when the box is not on screen, as when a
+ * menu or dialog (/chrome, a permission prompt) has taken its place.
+ */
+export function inputBox(pane: string): string | null {
+  const lines = pane.replace(/\r/g, '').split('\n');
+  let bottom = lines.length - 1;
+  while (bottom >= 0 && !BOX_RULE.test(lines[bottom]!)) bottom--;
+  let top = bottom - 1;
+  while (top >= 0 && !BOX_RULE.test(lines[top]!)) top--;
+  const body = lines.slice(top + 1, bottom);
+  if (top < 0 || !/^[❯!](?:\s|$)/.test(body[0] ?? '')) return null;
+  return body
+    .map((l) => l.trim())
+    .join(' ')
+    .replace(/^[❯!]\s*/, '')
+    .trim();
 }

@@ -1,4 +1,4 @@
-import { BroomIcon, CircleNotchIcon } from '@phosphor-icons/react';
+import { ArrowCounterClockwiseIcon, BroomIcon, CircleNotchIcon } from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useLocation } from 'wouter';
@@ -22,18 +22,24 @@ interface CleanupResult {
   branch: string;
   ok: boolean;
   removed?: boolean;
-  landedBy?: 'ancestor' | 'cherry' | 'merged_pr' | 'content';
+  /** AoE is still deleting the session; Supercharge finishes the clean-up once it is gone. */
+  pending?: boolean;
+  landedBy?: 'ancestor' | 'cherry' | 'merged_pr' | 'content' | 'discarded';
   reason?: string;
   hint?: string;
   detail?: string[];
+  /** What was left behind, and why (a branch that moved, a folder AoE left). */
+  kept?: string[];
 }
 
-const HOW: Record<NonNullable<CleanupResult['landedBy']>, string> = {
-  ancestor: 'Its commits are on origin/main.',
-  cherry: 'Its commits are on origin/main as equivalent patches (cherry-picked or rebased).',
-  merged_pr: 'Its pull request is merged and nothing in the worktree is past it.',
-  content: 'Merging it into origin/main would change nothing: its changes are already there (squash merge).',
-};
+const how = (landedBy: NonNullable<CleanupResult['landedBy']>, base: string) =>
+  ({
+    ancestor: `Its commits are on origin/${base}.`,
+    cherry: `Its commits are on origin/${base} as equivalent patches (cherry-picked or rebased).`,
+    merged_pr: 'Its pull request is merged and nothing in the worktree is past it.',
+    content: `Merging it into origin/${base} would change nothing: its changes are already there (squash merge).`,
+    discarded: 'Its commits that never landed are dropped.',
+  })[landedBy];
 
 const url = (task: Pick<TaskRecord, 'project' | 'id'>) =>
   `/api/tasks/${encodeURIComponent(task.project)}/${encodeURIComponent(task.id)}/cleanup`;
@@ -55,16 +61,16 @@ function Why({ r }: { r: CleanupResult }) {
 }
 
 /**
- * Clean up one finished worker: its AoE session, worktree and branch. The daemon checks that the work
- * is on origin/main first (and fetches); the dialog says what it found, and the button stays off when
- * it is not safe.
+ * Clean up one finished (done, or archived) worker: its AoE session, worktree and branch. The daemon
+ * checks that the work is on origin/<base> first (and fetches); the dialog says what it found, and the
+ * button stays off when it is not safe.
  */
 export function CleanupTaskDialog({
   task,
   open,
   onOpenChange,
 }: {
-  task: Pick<TaskRecord, 'project' | 'id' | 'name' | 'branch'>;
+  task: Pick<TaskRecord, 'project' | 'id' | 'name' | 'branch' | 'baseBranch'>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -90,12 +96,19 @@ export function CleanupTaskDialog({
     setBusy(true);
     try {
       const r = await sendJson<CleanupResult>('POST', url(task), { confirm: true });
+      if (r.pending) {
+        toast.info(`AoE is still deleting ${workerLabel(task as TaskRecord)}`, { description: r.hint });
+        onOpenChange(false);
+        return;
+      }
       if (!r.removed) {
         setCheck(r);
         return;
       }
       toast.success(`${workerLabel(task as TaskRecord)} cleaned up`, {
-        description: 'Session, worktree and branch removed. Recorded in the audit log.',
+        description: r.kept?.length
+          ? `Kept: ${r.kept.join('; ')}. Recorded in the audit log.`
+          : 'Session, worktree and branch removed. Recorded in the audit log.',
       });
       onOpenChange(false);
       navigate(`/p/${encodeURIComponent(task.project)}`);
@@ -112,8 +125,8 @@ export function CleanupTaskDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Clean up {workerLabel(task as TaskRecord)}?</AlertDialogTitle>
           <AlertDialogDescription>
-            Removes its AoE session, its worktree and the branch {task.branch}. It only goes ahead when the
-            work is on origin/main.
+            Deletes its AoE session, its worktree and the branch {task.branch} for good. It only goes ahead
+            when the work is on origin/{task.baseBranch} and the worktree has nothing uncommitted.
           </AlertDialogDescription>
         </AlertDialogHeader>
         {failed ? (
@@ -125,7 +138,9 @@ export function CleanupTaskDialog({
             <CircleNotchIcon className="animate-spin" /> Fetching origin and checking the work…
           </p>
         ) : check.ok ? (
-          <p className="text-[0.9375rem]">{check.landedBy ? HOW[check.landedBy] : 'The work has landed.'}</p>
+          <p className="text-[0.9375rem]">
+            {check.landedBy ? how(check.landedBy, task.baseBranch) : 'The work has landed.'}
+          </p>
         ) : (
           <Why r={check} />
         )}
@@ -160,7 +175,39 @@ export function CleanupTaskButton({ task }: { task: TaskRecord }) {
   );
 }
 
-/** Clean up every done worker of a project; the unsafe ones are skipped and listed with why. */
+/** Reopen a done task for follow-up work (back to Implementing, out of the archive). */
+export async function reopenTask(task: TaskRecord): Promise<boolean> {
+  try {
+    await sendJson('POST', `/api/tasks/${task.project}/${task.id}/reopen`, {});
+    toast.success(`${workerLabel(task)} is reopened`, { description: 'Back to Implementing.' });
+    return true;
+  } catch (e) {
+    toast.error('Could not reopen it', { description: e instanceof ApiError ? e.message : undefined });
+    return false;
+  }
+}
+
+export function ReopenTaskButton({ task }: { task: TaskRecord }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      disabled={busy}
+      title="Back to Implementing for follow-up work; keeps everything"
+      onClick={async () => {
+        setBusy(true);
+        await reopenTask(task);
+        setBusy(false);
+      }}
+    >
+      {busy ? <CircleNotchIcon className="animate-spin" /> : <ArrowCounterClockwiseIcon />}
+      Reopen
+    </Button>
+  );
+}
+
+/** Clean up every done or archived worker of a project; the unsafe ones are skipped and listed with why. */
 export function CleanupDoneButton({ project, count }: { project: string; count: number }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -175,8 +222,13 @@ export function CleanupDoneButton({ project, count }: { project: string; count: 
         { confirm: true },
       );
       const cleaned = results.filter((r) => r.removed).length;
-      const left = results.filter((r) => !r.removed);
+      const pending = results.filter((r) => r.pending).length;
+      const left = results.filter((r) => !r.removed && !r.pending);
       if (cleaned) toast.success(`${cleaned} worker${cleaned === 1 ? '' : 's'} cleaned up`);
+      if (pending)
+        toast.info(`AoE is still deleting ${pending} worker${pending === 1 ? '' : 's'}`, {
+          description: 'Supercharge finishes their clean-up once AoE is done.',
+        });
       if (left.length) setSkipped(left);
       else setOpen(false);
     } catch (e) {
@@ -202,10 +254,11 @@ export function CleanupDoneButton({ project, count }: { project: string; count: 
       <AlertDialog open={open} onOpenChange={setOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Clean up all {count} done tasks?</AlertDialogTitle>
+            <AlertDialogTitle>Clean up all {count} done or archived tasks?</AlertDialogTitle>
             <AlertDialogDescription>
-              Each one is checked on its own, after fetching origin. Those whose work is on origin/main lose
-              their session, worktree and branch; the others are left as they are, and listed here.
+              Each one is checked on its own, after fetching origin. Those whose work is on their base branch
+              on origin, with nothing uncommitted, lose their session, worktree and branch for good; the
+              others are left as they are, and listed here.
             </AlertDialogDescription>
           </AlertDialogHeader>
           {skipped && (

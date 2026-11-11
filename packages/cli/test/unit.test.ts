@@ -1,9 +1,19 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { defaultConfig, resolvePaths } from '@aoe-supercharge/core/node';
+import {
+  appendAudit,
+  autonomous,
+  defaultConfig,
+  Ledger,
+  readAudit,
+  resolvePaths,
+  watchEnabled,
+  type Paths,
+} from '@aoe-supercharge/core/node';
 import {
   parseTerminalMenu,
   type MrState,
@@ -20,6 +30,7 @@ import {
 import { attachCommand, findTmuxWindow, openInTerminal, osascriptArgs, terminalApp } from '../src/attach.ts';
 import { parseUpdateCheck, releaseAsset } from '../src/commands/aoe-upgrade.ts';
 import { claudeModelsCheck, hookConsentFix } from '../src/commands/doctor.ts';
+import { controlForbidden, guard } from '../src/guard.ts';
 import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '../src/statusline.ts';
 import { renderCaddyfile } from '../src/commands/proxy.ts';
 import { landedOn, markLanded, renamedTo } from '../src/daemon/branch-watcher.ts';
@@ -31,15 +42,17 @@ import { CostWatcher, OfficeWatcher, WeatherWatcher } from '../src/daemon/office
 import { at, project, session as view, T0, task as taskRecord } from '../../core/test/office-fixtures.ts';
 import { RunTerminals } from '../src/daemon/run-terminals.ts';
 import { Store } from '../src/daemon/store.ts';
+import { buildProjectStatus } from '../src/status.ts';
 import { countUnresolvedThreads, GitLabProvider, parseMrView } from '../src/mr/gitlab.ts';
-import { Notifier } from '../src/notify.ts';
+import { deliverNotice, Notifier, type Notice, type NotifyOptions } from '../src/notify.ts';
 import { renderLaunchdPlist, renderSystemdUnit } from '../src/service/index.ts';
-import { removeManagedBlock, upsertManagedBlock } from '../src/skills.ts';
+import { MARKER, removeManagedBlock, retireUserSkills, upsertManagedBlock } from '../src/skills.ts';
 import { parseRemote } from '../src/util/git.ts';
 import { run } from '../src/util/exec.ts';
 import { redact } from '../src/util/logger.ts';
 import { controlPick, modelArgs, setSessionModel, unarchiving, workerModel } from '../src/workflow.ts';
-import { AoeError } from '../src/aoe/client.ts';
+import { AoeClient, AoeError } from '../src/aoe/client.ts';
+import type { AoeCli } from '../src/aoe/cli.ts';
 import type { Ctx } from '../src/context.ts';
 
 const FIXTURES = join(import.meta.dirname, '../../../fixtures/aoe');
@@ -182,6 +195,42 @@ describe('MR watcher transitions (daemon actor)', () => {
     const t = w.advance(mrTask('implementing'), mr({ pipeline: 'failed' }));
     expect(t.stage).toBe('implementing');
     expect(t.mr?.pipeline).toBe('failed');
+  });
+});
+
+describe('status: archived workers', () => {
+  const tasks = [
+    taskRecord('AS-0001', 'alpha', 's1', {
+      stage: 'blocked',
+      openQuestion: { text: 'Which?', askedAt: at(-5), answeredAt: null },
+    }),
+    taskRecord('AS-0002', 'alpha', 's2', { stage: 'implementing', quiet: true }),
+  ];
+  const statusOf = (archived: boolean) =>
+    buildProjectStatus(
+      project('alpha', 'ctl'),
+      tasks,
+      [view('s1', 'stopped', { archived }), view('s2', 'stopped', { archived })],
+      false,
+      { on: false, since: null, until: null },
+    );
+
+  it('leaves archived tasks out of the counts and blocked, and says so per task', () => {
+    const st = statusOf(true);
+    expect(st.counts.blocked).toBe(0);
+    expect(st.counts.implementing).toBe(0);
+    expect(st.blocked).toEqual([]);
+    expect(st.tasks.map((t) => [t.id, t.archived, t.quiet])).toEqual([
+      ['AS-0001', true, false],
+      ['AS-0002', true, true],
+    ]);
+  });
+
+  it('counts them again once unarchived', () => {
+    const st = statusOf(false);
+    expect(st.counts.blocked).toBe(1);
+    expect(st.counts.implementing).toBe(1);
+    expect(st.blocked.map((b) => b.taskId)).toEqual(['AS-0001']);
   });
 });
 
@@ -633,21 +682,43 @@ describe('Notifier', () => {
   it('does not replay items that existed at startup, and honours toggles', async () => {
     const config = defaultConfig();
     config.notifications.aoeWaiting = false;
-    const send = vi.fn(async (_title: string, _body: string) => true);
+    const send = vi.fn(async (_n: Notice) => true);
     const n = new Notifier(() => config, send);
     n.arm([item('a', 'question')]);
     await n.onNeedsYou([item('a', 'question'), item('b', 'mr_ready'), item('c', 'approval')]);
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send.mock.calls[0]?.[0]).toBe('Ready for review');
+    // A click opens the page the item opens in the dashboard.
+    expect(send.mock.calls[0]?.[0]).toEqual({
+      id: 'b',
+      title: 'Ready for review',
+      body: 't: d',
+      href: '/p/p',
+    });
     await n.onNeedsYou([item('b', 'mr_ready')]);
     expect(send).toHaveBeenCalledTimes(1);
   });
   it("does not notify what a control chat passes on: the worker's own item already did", async () => {
-    const send = vi.fn(async (_title: string, _body: string) => true);
+    const send = vi.fn(async (_n: Notice) => true);
     const n = new Notifier(() => defaultConfig(), send);
     n.arm([]);
     await n.onNeedsYou([item('q', 'question'), item('r', 'control_relayed')]);
-    expect(send.mock.calls.map((c) => c[0])).toEqual(['Question from a worker']);
+    expect(send.mock.calls.map((c) => c[0].title)).toEqual(['Question from a worker']);
+  });
+  it('leaves notifications to a dashboard tab that shows them, and sends its own (with a link) without one', async () => {
+    const shown: unknown[] = [];
+    const tabs = { notifyClients: 1, notify: (n: unknown) => void shown.push(n) };
+    const send = vi.fn(async (_t: string, _b: string, _o?: NotifyOptions) => true);
+    const deliver = deliverNotice(tabs, () => 'http://127.0.0.1:4280', send);
+    const notice = { id: 'question:AS-1', title: 'Question', body: 'b', href: '/p/x/t/AS-1' };
+    await deliver(notice);
+    expect(shown).toEqual([notice]);
+    expect(send).not.toHaveBeenCalled();
+    tabs.notifyClients = 0;
+    await deliver(notice);
+    expect(send).toHaveBeenCalledWith('Question', 'b', {
+      open: 'http://127.0.0.1:4280/p/x/t/AS-1',
+      group: 'supercharge:question:AS-1',
+    });
   });
 });
 
@@ -663,6 +734,38 @@ describe('service files', () => {
   it('renders a systemd user unit', () => expect(renderSystemdUnit(spec)).toMatchSnapshot());
   it('renders the Caddyfile bound to loopback', () =>
     expect(renderCaddyfile('supercharge.localhost', 4280)).toMatch(/bind 127\.0\.0\.1 ::1/));
+});
+
+describe('retired skills (/note, /todo, /gnote)', () => {
+  it('removes our unmodified copies, keeps an edited one, and never mentions one that was never ours', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'sc-skills-'));
+    const paths = { claudeSkillsDir: dir } as Paths;
+    const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+    const put = async (name: string, text: string, marked: string | null) => {
+      await mkdir(join(dir, name), { recursive: true });
+      await writeFile(join(dir, name, 'SKILL.md'), text);
+      if (marked !== null)
+        await writeFile(join(dir, name, MARKER), JSON.stringify({ version: '1.8.0', sha256: sha(marked) }));
+    };
+    try {
+      await put('note', 'as shipped', 'as shipped');
+      await put('todo', 'edited by you', 'as shipped');
+      await put('gnote', 'your own', null);
+      const out = await retireUserSkills(paths);
+      expect(out.map((s) => [s.name, s.state])).toEqual([
+        ['note', 'retired'],
+        ['todo', 'user-modified'],
+      ]);
+      expect(existsSync(join(dir, 'note'))).toBe(false);
+      expect(await readFile(join(dir, 'todo', 'SKILL.md'), 'utf8')).toBe('edited by you');
+      expect(await readFile(join(dir, 'gnote', 'SKILL.md'), 'utf8')).toBe('your own');
+      // Nothing left to retire: a second run is quiet.
+      await rm(join(dir, 'todo'), { recursive: true });
+      expect(await retireUserSkills(paths)).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('CLAUDE.md managed block (--commit)', () => {
@@ -714,6 +817,9 @@ describe('model and effort for new sessions', () => {
   });
   it('adds --model / --effort only when set (session-only launch flags)', () => {
     const c = defaultConfig();
+    // Workers build on Opus unless told otherwise (retro item 24).
+    expect(modelArgs(c)).toEqual(['--model', 'opus']);
+    c.agent.model = '';
     expect(modelArgs(c)).toEqual([]);
     c.agent.model = 'opus';
     c.agent.effort = 'high';
@@ -783,6 +889,57 @@ describe('doctor: hook consent', () => {
     expect(hookConsentFix('1.21.0')).toMatch(/aoe hooks approve/);
     expect(hookConsentFix('1.19.0')).toMatch(/aoe hooks approve/);
     expect(hookConsentFix('1.18.0')).toMatch(/Run "aoe" once/);
+  });
+});
+
+describe('run: an aborted signal stops the child', () => {
+  it('kills it and says so; an already aborted signal never lets it run', async () => {
+    const ac = new AbortController();
+    const started = Date.now();
+    setTimeout(() => ac.abort(new Error('SIGTERM')), 100);
+    const r = await run('sleep', ['10'], { signal: ac.signal });
+    expect(r).toMatchObject({ code: null, aborted: true, timedOut: false });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(await run('sleep', ['10'], { signal: ac.signal })).toMatchObject({ aborted: true });
+    expect(await run('true', [])).not.toHaveProperty('aborted');
+  });
+});
+
+describe('AoeClient: a request that runs out of time', () => {
+  it('says it timed out (AoE may still be at it), unlike an unreachable server, and a delete gets longer', async () => {
+    const { createServer } = await import('node:http');
+    // Answers only the session list; anything else hangs.
+    const server = createServer((req, res) => {
+      if (req.url?.startsWith('/api/sessions?')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ sessions: [], workspace_ordering: [] }));
+      }
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    const cli = {
+      origin: async () => `http://127.0.0.1:${port}`,
+      token: async () => null,
+    } as unknown as AoeCli;
+    try {
+      const client = new AoeClient(cli);
+      const err = await client
+        .deleteSession('s1', { deleteWorktree: true, deleteBranch: true, timeoutMs: 200 })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AoeError);
+      expect(err).toMatchObject({ kind: 'unreachable', timedOut: true });
+      expect((err as Error).message).toMatch(/did not answer DELETE \/api\/sessions\/s1 within 0 s/);
+      // The same server still answers: a timeout does not forget where it is.
+      expect(await client.listSessions()).toEqual([]);
+      const gone = new AoeClient({
+        origin: async () => 'http://127.0.0.1:9',
+        token: async () => null,
+      } as unknown as AoeCli);
+      expect(await gone.listSessions().catch((e: unknown) => e)).toMatchObject({ timedOut: false });
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
   });
 });
 
@@ -1105,6 +1262,15 @@ describe('reviving sessions whose pane died (a reboot)', () => {
     expect(toRevive(sessions, ['dead'])).toEqual([]);
   });
 
+  it('leaves a session made in the last minute alone: it is starting, not dead', () => {
+    const now = Date.parse('2026-11-11T10:00:00Z');
+    const young = [
+      s('new', 'Error', { created_at: '2026-11-11T09:59:30Z' }),
+      s('old', 'Error', { created_at: '2026-11-11T09:00:00Z' }),
+    ];
+    expect(toRevive(young, [], now).map((x) => x.id)).toEqual(['old']);
+  });
+
   it('ensures each one once per boot, and again after the next boot', async () => {
     const home = await mkdtemp(join(tmpdir(), 'sc-revive-'));
     try {
@@ -1134,6 +1300,91 @@ describe('reviving sessions whose pane died (a reboot)', () => {
         ['session_revived', 'later'],
         ['session_revived', 'dead'],
       ]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('autonomous mode', () => {
+  it('is on from autonomousSince until autonomousUntil, and forces the watch on', () => {
+    const c = defaultConfig();
+    c.watch.enabled = false;
+    const now = Date.parse('2020-11-11T22:00:00Z');
+    expect(autonomous(c, 'alpha', now)).toEqual({ on: false, since: null, until: null });
+    c.projects.alpha = { autonomousSince: '2020-11-11T21:00:00Z', autonomousUntil: '2020-11-12T07:00:00Z' };
+    expect(autonomous(c, 'alpha', now).on).toBe(true);
+    expect(autonomous(c, 'alpha', Date.parse('2020-11-12T07:00:00Z')).on).toBe(false);
+    expect(autonomous(c, null, now).on).toBe(false);
+    expect(watchEnabled(c, 'alpha')).toBe(false); // it ended in 2020
+    c.projects.alpha.autonomousUntil = new Date(Date.now() + 60_000).toISOString();
+    expect(watchEnabled(c, 'alpha')).toBe(true);
+    c.projects.alpha.autonomousSince = '';
+    expect(autonomous(c, 'alpha', now)).toMatchObject({ on: false, since: null });
+  });
+
+  it('reads the audit log for one project from a time on', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'sc-audit-'));
+    try {
+      const paths = resolvePaths({ HOME: home }, home);
+      await appendAudit(paths, {
+        actor: 'control',
+        action: 'decision',
+        project: 'alpha',
+        text: 'Parked the copy',
+      });
+      await appendAudit(paths, {
+        actor: 'control',
+        action: 'decision',
+        project: 'beta',
+        text: 'Other project',
+      });
+      await writeFile(paths.auditFile, `${await readFile(paths.auditFile, 'utf8')}not json\n`);
+      expect((await readAudit(paths, { project: 'alpha' })).map((e) => e.text)).toEqual(['Parked the copy']);
+      expect(await readAudit(paths, { since: Date.now() + 60_000 })).toEqual([]);
+      const none = join(home, 'none');
+      expect(await readAudit(resolvePaths({ HOME: none }, none))).toEqual([]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the control chat guard (supercharge guard)', () => {
+  it('stops cleanup, aoe remove, archive and empty-trash, but lets a dry run through', () => {
+    for (const cmd of [
+      'supercharge task cleanup AS-0003',
+      'supercharge task cleanup --all-done',
+      'cd /x && supercharge task cleanup AS-1 && echo --dry-run',
+      'aoe remove 1a2b',
+      'aoe -p main rm 1a2b --delete-worktree',
+      '/opt/homebrew/bin/aoe remove x',
+      'aoe session archive 1a2b',
+      'bash -c "aoe session empty-trash"',
+    ])
+      expect(controlForbidden(cmd), cmd).not.toBeNull();
+    for (const cmd of [
+      'supercharge task cleanup AS-0003 --dry-run',
+      'supercharge task cleanup --dry-run --all-done',
+      'aoe session unarchive 1a2b',
+      'aoe list --json',
+      'git -C /Users/me/aoe-supercharge rm old.ts',
+      'supercharge status --project alpha --json',
+    ])
+      expect(controlForbidden(cmd), cmd).toBeNull();
+  });
+
+  it('acts only in a control chat', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'sc-guard-'));
+    try {
+      const paths = resolvePaths({ HOME: home }, home);
+      await new Ledger(paths).updateGeneral((g) => ({ ...g, controlSessionId: 'ctl' }));
+      const input = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'aoe remove w1' } });
+      expect(await guard(paths, input, 'ctl')).toMatch(/never runs `aoe remove` itself/);
+      expect(await guard(paths, input, 'worker')).toBeNull();
+      expect(await guard(paths, input, undefined)).toBeNull();
+      const dry = JSON.stringify({ tool_input: { command: 'supercharge task cleanup AS-1 --dry-run' } });
+      expect(await guard(paths, dry, 'ctl')).toBeNull();
     } finally {
       await rm(home, { recursive: true, force: true });
     }

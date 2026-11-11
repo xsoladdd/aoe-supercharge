@@ -1,6 +1,18 @@
 import { randomBytes } from 'node:crypto';
-import { appendAudit, readSchedules, writeSchedules } from '@aoe-supercharge/core/node';
-import { dueAt, type ScheduledPrompt, type ScheduleResult } from '@aoe-supercharge/core/shared';
+import {
+  appendAudit,
+  autonomous,
+  patchConfig,
+  readSchedules,
+  writeSchedules,
+} from '@aoe-supercharge/core/node';
+import {
+  dueAt,
+  type Autonomous,
+  type ScheduledPrompt,
+  type ScheduleResult,
+  type SessionView,
+} from '@aoe-supercharge/core/shared';
 import type { Ctx } from '../context.ts';
 import { sessionAction } from '../workflow.ts';
 import type { HeldMessages } from './held.ts';
@@ -13,6 +25,20 @@ export type ScheduleInput = Pick<
   ScheduledPrompt,
   'name' | 'sessionId' | 'prompt' | 'time' | 'days' | 'enabled'
 >;
+
+/** A time as the user reads it, in their home time zone. */
+const local = (iso: string, tz: string) =>
+  `${new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso))} (${tz})`;
+
+/** Typed into a project's control chat when its autonomous mode is on (control skill §5.2). */
+export function autonomousOnNotice(project: string, a: Autonomous, tz: string): string {
+  return `[AUTONOMOUS] on project="${project}" since=${a.since} until=${a.until}: autonomous mode is on until ${local(a.until!, tz)}. Act on your own within the limits in section 5.2 of the supercharge-control skill until an [AUTONOMOUS] off line; check \`supercharge whoami --json\` before you do.`;
+}
+
+/** Typed into the control chat once its autonomous mode ends: the user's morning summary. */
+export function autonomousOffPrompt(project: string, a: Autonomous, tz: string): string {
+  return `[AUTONOMOUS] off project="${project}" since=${a.since} until=${a.until}: autonomous mode has ended (${local(a.since!, tz)} to ${local(a.until!, tz)}). Stop acting on your own. Write the user's summary of that time now: what was done, what you decided, and what you parked. Read \`supercharge audit --project ${project} --since ${a.since}\` and \`supercharge status --project ${project} --json\`. Put everything parked, and anything else that needs the user, under 🔴 NEEDS YOU.`;
+}
 
 export interface SchedulerDeps {
   /** Brings an archived or stopped chat back before its prompt is held for it. */
@@ -35,6 +61,10 @@ export class Scheduler {
   private chain: Promise<unknown> = Promise.resolve();
   private wake: NonNullable<SchedulerDeps['wake']>;
   private now: () => Date;
+  /** The `until` each project's control chat was last told about. */
+  private announced = new Map<string, string>();
+  /** Autonomous runs whose end was handled, until the cleared config is read back. */
+  private ended = new Set<string>();
 
   constructor(
     private ctx: Ctx,
@@ -157,7 +187,51 @@ export class Scheduler {
       if (job(id).enabled && dueAt(job(id), tz).getTime() <= this.now().getTime())
         await this.fire(job(id), false);
     }
+    await this.autonomy();
     this.publish();
+  }
+
+  /**
+   * Autonomous mode (`projects.<name>.autonomousSince`/`Until`): tells the control chat once it is on, and at
+   * its end (the time came, or you turned it off) asks it for your summary, then clears it. A restart with
+   * it on tells the chat again; one after the end never asks twice, as it was cleared.
+   */
+  private async autonomy() {
+    const tz = this.ctx.config.office.clocks.home;
+    for (const p of this.store.projects) {
+      const a = autonomous(this.ctx.config, p.name, this.now().getTime());
+      const run = `${p.name} ${a.since}`;
+      if (!a.since || !a.until || this.ended.has(run)) continue;
+      const session = this.store.sessions.find((s) => s.id === p.controlSessionId);
+      if (a.on) {
+        if (!session || this.announced.get(p.name) === a.until) continue;
+        await this.wakeAndHold(session, autonomousOnNotice(p.name, a, tz));
+        this.announced.set(p.name, a.until);
+        continue;
+      }
+      this.ended.add(run);
+      this.announced.delete(p.name);
+      let failed: string | null = session ? null : 'The control chat is gone from AoE.';
+      if (session)
+        await this.wakeAndHold(session, autonomousOffPrompt(p.name, a, tz)).catch((err: unknown) => {
+          failed = (err as Error).message;
+        });
+      await patchConfig(this.ctx.paths, { projects: { [p.name]: { autonomousSince: '' } } });
+      await appendAudit(this.ctx.paths, {
+        actor: 'daemon',
+        action: 'autonomous_ended',
+        project: p.name,
+        sessionId: session?.id ?? null,
+        details: { since: a.since, until: a.until, ...(failed ? { failed } : {}) },
+      });
+    }
+  }
+
+  /** Brings an archived or stopped chat back, then puts `prompt` on its held line. */
+  private async wakeAndHold(session: SessionView, prompt: string) {
+    if (session.archived) await this.wake(session.id, 'unarchive');
+    else if (session.status === 'stopped') await this.wake(session.id, 'start');
+    return this.held.hold(session.id, prompt);
   }
 
   /** A queued run is sent once its held message is gone, failed if typing it failed. */
@@ -184,9 +258,7 @@ export class Scheduler {
     else if (!session) r = result('failed', 'The chat is gone from AoE.');
     else
       try {
-        if (session.archived) await this.wake(session.id, 'unarchive');
-        else if (session.status === 'stopped') await this.wake(session.id, 'start');
-        r = result('queued', null, (await this.held.hold(session.id, job.prompt)).id);
+        r = result('queued', null, (await this.wakeAndHold(session, job.prompt)).id);
       } catch (err) {
         r = result('failed', (err as Error).message);
       }

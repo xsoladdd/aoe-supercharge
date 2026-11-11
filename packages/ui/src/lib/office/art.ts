@@ -43,15 +43,13 @@ export interface StaticOffice {
   windows: number[];
   /** The layer between the panes and the curtains that `drawSky` draws on. */
   sky: Graphics;
-  /** The room whiteboards' writing layers, by board id; the scene writes on them (`BoardSpot`). */
-  roomBoards: Map<string, Container>;
   /** The theme's small moving bits (flames, flickers), drawn at rest; the scene moves them now and then. */
   motion: Motion[];
 }
 
 /**
- * Where a whiteboard hangs, for the scene to write on: `at(u, h)` is the point `u` tiles along the
- * board (left to right on screen) and `h` px up; `slope` is the way the writing runs on screen.
+ * Where a whiteboard hangs: `at(u, h)` is the point `u` tiles along the board (left to right on screen)
+ * and `h` px up; `slope` is the way it runs on screen.
  */
 export interface BoardSpot {
   id: string;
@@ -338,8 +336,8 @@ export const BOARD_H = { bottom: 20, top: 76 } as const;
 export const ROOM_BOARD_H = { bottom: 18, top: 66 } as const;
 
 /**
- * A whiteboard (SPEC §14.6): an aluminium frame and a marker tray. The scene writes the notes on it.
- * The one by your door and the ones in the rooms are the same board, laid out by `spot`.
+ * A whiteboard: an aluminium frame and a marker tray, left blank. The one by your door and the ones in
+ * the rooms are the same board, laid out by `spot`.
  */
 function whiteboard(g: Graphics, p: Palette, spot: BoardSpot) {
   const { bottom, top, length: len, at } = spot;
@@ -1066,7 +1064,6 @@ export function buildStatic(
   const pieces: Container[] = [];
   const awaySigns = new Map<string, Graphics>();
   const teamIndex = new Map(layout.teams.map((t, i) => [t.project, i]));
-  const roomBoards = new Map<string, Container>();
   /** A new drawing, drawn by `draw`. */
   const drawn = (draw: (g: Graphics) => void) => {
     const g = new Graphics();
@@ -1081,9 +1078,7 @@ export function buildStatic(
     whiteboard(frame, p, spot);
     const foot = iso(t.board.x + 0.2, (t.board.y0 + t.board.y1) / 2);
     frame.ellipse(foot.x, foot.y, 28, 6).fill({ color: p.shadow, alpha: 0.14 });
-    const writing = new Container();
-    roomBoards.set(spot.id, writing);
-    pieces.push(piece(depth(t.board.x + 0.15, (t.board.y0 + t.board.y1) / 2), frame, writing));
+    pieces.push(piece(depth(t.board.x + 0.15, (t.board.y0 + t.board.y1) / 2), frame));
     for (const d of t.desks) {
       pieces.push(
         piece(
@@ -1279,5 +1274,5 @@ export function buildStatic(
       ),
     );
 
-  return { floor, walls, pieces, door, awaySigns, windows: windowsOf(layout), sky, roomBoards, motion };
+  return { floor, walls, pieces, door, awaySigns, windows: windowsOf(layout), sky, motion };
 }

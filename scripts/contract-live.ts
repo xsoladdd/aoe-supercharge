@@ -1,7 +1,7 @@
 /**
  * Live AoE contract test (SPEC §10.3), runnable on its own and in CI:
  *   tsx scripts/contract-live.ts [--aoe-bin <path>] [--record <dir>]
- * Runs AoE in a sandbox (temporary HOME, separate tmux socket, `sh` instead of Claude). It never
+ * Runs AoE in a sandbox (temporary HOME, separate tmux socket, a stand-in script instead of Claude). It never
  * touches the real ~/.agent-of-empires. Exits non-zero when any check fails.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';

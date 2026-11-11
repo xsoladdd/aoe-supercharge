@@ -1,11 +1,11 @@
 import {
   computeNeedsYou,
   EMPTY_GENERAL,
+  type BrowserNotice,
   type GeneralRecord,
   type Health,
   type HeldMessage,
   type NeedsYouItem,
-  type NoteRecord,
   type OfficeState,
   type MrState,
   type SessionCost,
@@ -44,7 +44,6 @@ export class Store {
   general: GeneralRecord = EMPTY_GENERAL;
   tasks: TaskRecord[] = [];
   needsYou: NeedsYouItem[] = [];
-  notes: NoteRecord[] = [];
   usage: UsageReport | null = null;
   office: OfficeState = { marks: {} };
   costs: Record<string, SessionCost> = {};
@@ -60,6 +59,7 @@ export class Store {
     displayName: '',
     officeAnimations: true,
     officeTheme: 'headquarters',
+    officeEnabled: false,
   };
   sessionsLoaded = false;
   ledgerLoaded = false;
@@ -83,7 +83,6 @@ export class Store {
       general: this.general,
       tasks: this.tasks,
       needsYou: this.needsYou,
-      notes: this.notes,
       usage: this.usage,
       office: this.office,
       costs: this.costs,
@@ -157,14 +156,6 @@ export class Store {
     this.general = general;
     this.emit({ type: 'general', data: general });
     this.recomputeNeedsYou();
-  }
-
-  /** Every note; the dashboard gets the ones not archived. */
-  setNotes(all: NoteRecord[]) {
-    const open = all.filter((n) => !n.archivedAt);
-    if (same(open, this.notes)) return;
-    this.notes = open;
-    this.emit({ type: 'notes', data: open });
   }
 
   setHealth(health: Health) {
@@ -261,17 +252,28 @@ export class Store {
     this.emit({ type: 'snapshot', data: this.snapshot() });
   }
 
-  /** "Control chat replied" items you dismissed (by session id, when). */
-  dismissedReplies: Record<string, string> = {};
+  /**
+   * Dashboard tabs on the event stream that show desktop notifications themselves (they asked with
+   * `?notify=1`, having the browser's permission): while one is open, the daemon sends none of its own.
+   */
+  notifyClients = 0;
 
-  setDismissedReplies(d: Record<string, string>) {
-    this.dismissedReplies = d;
+  /** A desktop notification for those tabs to show. */
+  notify(notice: Omit<BrowserNotice, 'at'>) {
+    this.emit({ type: 'notify', data: { ...notice, at: new Date().toISOString() } });
+  }
+
+  /** Needs-you items you dismissed (by item id, when). */
+  dismissed: Record<string, string> = {};
+
+  setDismissed(d: Record<string, string>) {
+    this.dismissed = d;
     this.recomputeNeedsYou();
   }
 
   recomputeNeedsYou() {
     const next = computeNeedsYou({
-      dismissedReplies: this.dismissedReplies,
+      dismissed: this.dismissed,
       tasks: this.tasks,
       sessions: this.sessions,
       projects: this.projects,

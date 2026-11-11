@@ -1,7 +1,7 @@
 /**
  * Worker watch: a line typed into a project's control chat when one of its workers needs attention
- * (a question, done, a permission prompt, an error, or idle too long). The daemon writes these, and so
- * did `control-watch.sh` before it, in the same shape:
+ * (a question, done, a permission prompt, an error, new review threads, or idle too long). The daemon
+ * writes these, and so did `control-watch.sh` before it, in the same shape:
  *
  *   [WATCH] worker="fix-1989-ci" status=error kind=error log=/path/to/capture.txt
  *
@@ -14,7 +14,7 @@ import { workerName } from './names.ts';
 import type { Stage } from './stages.ts';
 import type { NeedsYouItem, ProjectRecord, SessionView, TaskRecord } from './types.ts';
 
-export const WATCH_KINDS = ['question', 'done', 'permission', 'error', 'stalled'] as const;
+export const WATCH_KINDS = ['question', 'done', 'permission', 'error', 'stalled', 'threads'] as const;
 export type WatchKind = (typeof WATCH_KINDS)[number];
 
 export interface WatchNotice {
@@ -218,9 +218,10 @@ export interface WatchEvent {
 const WORKING_STAGES: readonly Stage[] = ['planning', 'implementing', 'verifying'];
 
 /**
- * How many background shells or tasks a Claude Code pane's footer says are running ("auto mode on · 2
- * shells · ← for agents"), 0 when none. Only the footer under the last prompt line counts: the turn
- * summary above it ("2 shells still running") goes stale.
+ * How much a Claude Code pane says still runs in the background, 0 when nothing: shells, tasks and
+ * monitors in the footer ("auto mode on · 2 shells · 1 monitor · ← for agents"), plus each running
+ * background agent listed under it ("◯ Explore  Reading…"). Only what is under the last prompt line
+ * counts: the turn summary above it ("2 shells still running") goes stale.
  */
 export function backgroundShells(pane: string): number {
   const lines = pane.replace(/\r/g, '').split('\n');
@@ -230,17 +231,22 @@ export function backgroundShells(pane: string): number {
       from = i + 1;
       break;
     }
+  let n = 0;
   for (const line of lines.slice(from)) {
-    const m = /\b(\d+) (?:shells?|background tasks?)\b(?! still)/i.exec(line);
-    if (m) return Number(m[1]);
+    for (const m of line.matchAll(
+      /\b(\d+) (?:shells?|monitors?|background (?:tasks?|agents?))\b(?! still)/gi,
+    ))
+      n += Number(m[1]);
+    if (/^\s*◯ \S/.test(line)) n++;
   }
-  return 0;
+  return n;
 }
 
 /** Whether a worker has been idle long enough, by AoE's clock, to be called stalled (given no marker). */
 function stallIdleMs(w: WatchWorker, now: Date, stallMinutes: number, busyAt?: string): number | null {
   const s = w.session;
-  if (s?.status !== 'idle' || (w.task && !WORKING_STAGES.includes(w.task.stage))) return null;
+  if (s?.status !== 'idle' || (w.task && (w.task.quiet || !WORKING_STAGES.includes(w.task.stage))))
+    return null;
   const since = s.statusSince ? Date.parse(s.statusSince) : NaN;
   // Background shells running count as work: the idle clock starts when they were last seen.
   const from = Math.max(since, busyAt ? Date.parse(busyAt) : NaN);
@@ -333,9 +339,9 @@ export function watchEvents(input: WatchEventsInput): WatchEvent[] {
               : { ...base, key: `ask:${sid}`, hold: `waiting:${sid}`, kind: 'question', detail: i.detail },
           );
           break;
+        // `approval` is AoE's waiting with no menu on screen: nothing to tell yet.
         case 'permission':
         case 'plan_approval':
-        case 'approval':
           events.push({
             ...base,
             key: `${i.kind}:${sid}`,
@@ -365,6 +371,21 @@ export function watchEvents(input: WatchEventsInput): WatchEvent[] {
           break;
       }
     }
+    // Back from ready_for_review because a reviewer opened threads: told once per step back.
+    const last = w.task?.history.at(-1);
+    if (
+      w.task?.stage === 'watching_mr' &&
+      w.task.mr?.unresolvedThreads &&
+      last?.from === 'ready_for_review' &&
+      last.to === 'watching_mr'
+    )
+      events.push({
+        ...base,
+        key: `threads:${w.task.id}:${last.at}`,
+        hold: null,
+        kind: 'threads',
+        detail: `${w.task.mr.unresolvedThreads} unresolved thread(s) on ${w.task.mr.url}`,
+      });
     const marker = w.task ? null : input.markers[w.sessionId];
     if (marker)
       events.push({
@@ -457,8 +478,18 @@ export interface WatchLogEntry {
 }
 
 /** A project's watch at a glance: the dashboard's Watch tab and status line. */
+/** A project's autonomous mode (`projects.<name>.autonomousSince`/`autonomousUntil`). */
+export interface Autonomous {
+  on: boolean;
+  /** Set while it is on, and until its end has been summarised. */
+  since: string | null;
+  /** When it ends, or last ended. */
+  until: string | null;
+}
+
 export interface WatchSummary {
   enabled: boolean;
+  autonomous: Autonomous;
   stallMinutes: number;
   /** Workers watched right now. */
   watching: number;

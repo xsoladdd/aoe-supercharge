@@ -5,7 +5,7 @@ import type { RunawayLimits, SessionCost } from './office-cost.ts';
 import type { IdleLimits } from './office-idle.ts';
 import type { Weather, WindowsMode } from './office-ambience.ts';
 import type { UsageReport } from './usage.ts';
-import type { WatchSummary } from './watch.ts';
+import type { Autonomous, WatchSummary } from './watch.ts';
 import type { HeldMessage } from './held.ts';
 import type { ScheduleView } from './schedule.ts';
 
@@ -111,6 +111,15 @@ export interface TaskRecord {
   kickoffSeenAt?: string | null;
   /** How many times the first message was sent; above KICKOFF_MAX_TRIES once Supercharge gave up. */
   kickoffTries?: number;
+  /** Parked on purpose (`supercharge task quiet`): the watch sends no stalled notices for it. */
+  quiet?: boolean;
+  /**
+   * Set by `task cleanup` once its checks passed, just before it asks AoE to delete the session: the
+   * head it found landed (or chose to drop, `discarded`). While set, a worktree AoE half deleted reads as
+   * "deletion in progress", not as uncommitted work, and the daemon finishes the clean-up once the
+   * session is gone. Null or absent otherwise.
+   */
+  cleanup?: { startedAt: string; head: string; landedBy: string; discarded?: string[] } | null;
   createdAt: string;
   updatedAt: string;
   history: HistoryEntry[];
@@ -143,28 +152,6 @@ export interface GeneralRecord {
   controlSessionId: string | null;
   /** General chats and workers by AoE session id, to their names. Kept after a session is gone, so a name is never given twice. */
   sessions: Record<string, string>;
-}
-
-/**
- * A note or a todo on the whiteboard (SPEC §14.6): for one project, or for everything (`project: null`,
- * a global note). Archived ones are kept, out of sight.
- */
-export interface NoteRecord {
-  /** Short, to type in `supercharge todo done <id>`: four letters and digits. */
-  id: string;
-  project: string | null;
-  kind: 'note' | 'todo';
-  text: string;
-  /** A todo you ticked. */
-  done: boolean;
-  doneAt: string | null;
-  archivedAt: string | null;
-  /** Who wrote it: Claude (from a session, through the /note skills) or you. */
-  by: 'claude' | 'you';
-  /** The AoE session Claude wrote it from, when there was one. */
-  sessionId: string | null;
-  createdAt: string;
-  updatedAt: string;
 }
 
 /** Dashboard-level session status, normalised from AoE's PascalCase enum. */
@@ -304,8 +291,6 @@ export interface Snapshot {
   general: GeneralRecord;
   tasks: TaskRecord[];
   needsYou: NeedsYouItem[];
-  /** Notes and todos that are not archived, oldest first. */
-  notes: NoteRecord[];
   /** Your 5-hour and weekly usage and whether another worker may start (null until the daemon has read it). */
   usage: UsageReport | null;
   office: OfficeState;
@@ -336,7 +321,24 @@ export interface Snapshot {
     officeAnimations: boolean;
     /** The office floor's theme id; the UI draws an unknown one as Headquarters. */
     officeTheme: string;
+    /** The Office view (sidebar entry and /office); off by default (office.enabled). */
+    officeEnabled: boolean;
   };
+}
+
+/**
+ * A desktop notification for a dashboard tab to show instead of the daemon's own, so a click opens
+ * `href` (the item's page). `at` lets a tab skip one replayed after a reconnect.
+ */
+export interface BrowserNotice {
+  /** The Needs-you item's id; a newer notice for it replaces the one still on screen. */
+  id: string;
+  title: string;
+  body: string;
+  href: string;
+  at: string;
+  /** Settings' "Send a test": shown even on the page it opens. */
+  test?: boolean;
 }
 
 export type SnapshotEvent =
@@ -346,7 +348,6 @@ export type SnapshotEvent =
   | { type: 'projects'; data: ProjectRecord[] }
   | { type: 'general'; data: GeneralRecord }
   | { type: 'needs_you'; data: NeedsYouItem[] }
-  | { type: 'notes'; data: NoteRecord[] }
   | { type: 'usage'; data: UsageReport }
   | { type: 'office'; data: OfficeState }
   | { type: 'costs'; data: Record<string, SessionCost> }
@@ -354,11 +355,13 @@ export type SnapshotEvent =
   | { type: 'watch'; data: Record<string, WatchSummary> }
   | { type: 'held'; data: Record<string, HeldMessage[]> }
   | { type: 'schedules'; data: ScheduleView[] }
-  | { type: 'health'; data: Health };
+  | { type: 'health'; data: Health }
+  | { type: 'notify'; data: BrowserNotice };
 
 export interface ProjectStatus {
   project: string;
   control: { sessionId: string | null; status: LiveStatus | 'missing'; remoteControl: boolean };
+  autonomous: Autonomous;
   counts: Record<Stage, number>;
   blocked: { taskId: string; name: string | null; title: string; question: string; since: string }[];
   readyForReview: {
@@ -379,6 +382,10 @@ export interface ProjectStatus {
     branch: string;
     aoeStatus: LiveStatus | 'missing';
     mr: { url: string; pipeline: PipelineStatus | null; unresolvedThreads: number } | null;
+    /** Archived in AoE: left out of `counts` and `blocked` until unarchived. */
+    archived: boolean;
+    /** No stalled notices for it (`supercharge task quiet`). */
+    quiet: boolean;
     updatedAt: string;
   }[];
   generatedAt: string;

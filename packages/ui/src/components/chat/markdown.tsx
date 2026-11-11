@@ -190,7 +190,7 @@ export const ChatMarkdown = memo(function ChatMarkdown({
               onClick={() => onRun!(command, anchor)}
               aria-label={`Run ${command}`}
               title="Run this command"
-              className="ml-0.5 inline-grid size-6 cursor-pointer place-items-center rounded-md align-middle text-st-green transition-colors hover:bg-raised"
+              className="-my-1 ml-0.5 inline-grid size-[max(1.5rem,24px)] cursor-pointer place-items-center rounded-md align-middle text-st-green transition-colors hover:bg-raised"
             >
               <PlayIcon weight="fill" className="size-3.5" />
             </button>

@@ -80,6 +80,34 @@ describe('Scheduler: prompts sent to a chat at a set time', () => {
   });
   afterEach(() => rm(home, { recursive: true, force: true }));
 
+  it('tells the control chat when autonomous mode is on, and asks for the summary once it ends', async () => {
+    ctx.config.projects.alpha = {
+      autonomousSince: '2026-06-10T11:00:00.000Z',
+      autonomousUntil: '2026-06-11T06:00:00.000Z',
+    };
+    sessions(session('ctl', 'idle', { archived: true }));
+    const s = make();
+    await s.tick();
+    await s.tick();
+    expect(sent()).toEqual([
+      expect.stringMatching(
+        /^ctl:\[AUTONOMOUS\] on project="alpha" .*until Thu 11 Jun, 08:00 \(Europe\/Stockholm\)/,
+      ),
+    ]);
+    expect(woken).toEqual(['unarchive:ctl']);
+    at('2026-06-11T06:00:00Z');
+    await s.tick();
+    await s.tick();
+    expect(sent()).toHaveLength(2);
+    expect(sent()[1]).toMatch(
+      /^ctl:\[AUTONOMOUS\] off project="alpha" .*supercharge audit --project alpha --since 2026-06-10T11:00:00.000Z/,
+    );
+    expect(await readFile(ctx.paths.configFile, 'utf8')).toMatch(/autonomousSince = ""/);
+    expect(await readFile(ctx.paths.auditFile, 'utf8')).toMatch(
+      /"action":"autonomous_ended".*"until":"2026-06-11T06:00:00.000Z"/,
+    );
+  });
+
   it('holds the prompt for its chat at the set time, not before', async () => {
     const s = make();
     const j = await s.add(job());
