@@ -1066,9 +1066,11 @@ describe('daemon: security, live state and the MR watcher', () => {
       menu: trustMenu(),
       trust: { cursor: 1, next: CONSENT_MENU },
     });
+    // This trust menu, not the permission menu the previous test left until the next poll sees the patch.
     const snap = await until(async () => {
       const s = await snapshot();
-      return s.sessions.find((x) => x.id === id)?.prompt ? s : null;
+      const v = s.sessions.find((x) => x.id === id);
+      return v?.prompt && v.rawStatus === 'Idle' ? s : null;
     });
     const view = snap.sessions.find((x) => x.id === id)!;
     expect(view).toMatchObject({ rawStatus: 'Idle', status: 'waiting' });
