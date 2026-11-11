@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.9.0 (2026-11-12)
 
 - **A click on a notification opens what it is about.** While a dashboard tab is open with browser
   notifications allowed (Settings, or the dashboard asks once on your first click), the tab shows each
