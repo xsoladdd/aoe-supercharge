@@ -48,6 +48,8 @@
     General chat's breadcrumb, and an unread control reply they set up themselves.
   - **CI runs on pushes to `dev` too** (and can be started by hand), so `dev` is checked before the
     release PR.
+  - **The e2e axe check waits for fade-ins** (popovers, menus) before it measures contrast, so a slow
+    runner no longer catches their text half-transparent.
   - **`E2E_PORT`** moves the Playwright dashboard port (and the fake AoE's, the next one up) from 47391, so
     worktrees can run the e2e suite side by side.
 - **AoE 1.22.x is supported.** The live contract passes against AoE 1.22.3 (22/22, macOS), and the tested
