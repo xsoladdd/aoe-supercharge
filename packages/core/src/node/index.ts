@@ -4,7 +4,6 @@ export * from './config.ts';
 export * from './compat.ts';
 export * from './token.ts';
 export * from './ledger.ts';
-export * from './notes.ts';
 export * from './usage.ts';
 export * from './office.ts';
 export * from './needs-you.ts';

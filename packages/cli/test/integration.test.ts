@@ -7,13 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket } from 'ws';
-import type {
-  ChatResponse,
-  NoteRecord,
-  RunTerminal,
-  Snapshot,
-  TaskRecord,
-} from '@aoe-supercharge/core/shared';
+import type { ChatResponse, RunTerminal, Snapshot, TaskRecord } from '@aoe-supercharge/core/shared';
 import type { HistoryRange } from '@aoe-supercharge/core/node';
 import { KICKOFF_MESSAGE } from '../src/workflow.ts';
 import {
@@ -46,13 +40,20 @@ interface Res {
 
 function sc(
   args: string[],
-  opts: { cwd?: string; extraEnv?: NodeJS.ProcessEnv; input?: string } = {},
+  opts: {
+    cwd?: string;
+    extraEnv?: NodeJS.ProcessEnv;
+    input?: string;
+    /** The running CLI, e.g. to stop it half-way. */
+    onSpawn?: (child: ChildProcess) => void;
+  } = {},
 ): Promise<Res> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       cwd: opts.cwd ?? repo,
       env: { ...env, ...opts.extraEnv },
     });
+    opts.onSpawn?.(child);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
@@ -112,7 +113,7 @@ beforeAll(async () => {
   );
   git('remote', 'add', 'origin', 'git@gitlab.example.com:acme/northwind.git');
   port = await freePort();
-  // Not from the session running these tests: CLAUDECODE would make every note Claude's.
+  // Not from the session running these tests (which may itself run in AoE and Claude Code).
   const {
     AOE_INSTANCE_ID: _a,
     SUPERCHARGE_SERVICE: _b,
@@ -173,10 +174,13 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(fake.state.sessions.find((s) => s.id === controlId)?.title).toBe('northwind control');
     // Control chats run on Opus (agent.controlModel); workers get the model the control chat picks.
     expect(fake.state.sessions.find((s) => s.id === controlId)?.extra_args).toContain('--model opus');
-    for (const s of ['supercharge-control', 'supercharge-worker', 'note', 'todo', 'gnote']) {
+    for (const s of ['supercharge-control', 'supercharge-worker']) {
       expect(existsSync(join(home, '.claude/skills', s, 'SKILL.md'))).toBe(true);
       expect(existsSync(join(home, '.claude/skills', s, '.supercharge-managed'))).toBe(true);
     }
+    // The notes skills are retired (SPEC §14.6).
+    for (const s of ['note', 'todo', 'gnote'])
+      expect(existsSync(join(home, '.claude/skills', s))).toBe(false);
     expect(execFileSync('git', ['status', '--porcelain'], { cwd: repo }).toString()).toBe('');
     const again = await sc(['init', '--json']);
     expect(JSON.parse(again.stdout).controlCreated).toBe(false);
@@ -270,6 +274,40 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect((await readTask('NO-0001')).stage).not.toBe('done');
   });
 
+  it('rolls back a task new that is stopped half-way (SIGTERM), and said what it was starting', async () => {
+    let started = '';
+    const run = sc(['task', 'new', 'Stopped halfway', '--force'], {
+      extraEnv: { FAKE_AOE_ADD_SLEEP_MS: '30000' },
+      onSpawn: (child) =>
+        child.stderr!.on('data', (d: Buffer) => {
+          const m = /Starting (NO-\d+) on (\S+) \(from main\)/.exec(d.toString());
+          if (!m || started) return;
+          started = m[1]!;
+          // Once aoe add has made the worktree (it then sleeps), stop the CLI.
+          void until(async () => existsSync(join(`${repo}-worktrees`, m[2]!.replace('/', '-'))), 30_000).then(
+            () => child.kill('SIGTERM'),
+          );
+        }),
+    });
+    const r = await run;
+    expect(started).toMatch(/^NO-\d+$/);
+    expect(r.code, r.stderr).toBe(143);
+    expect(r.stderr).toMatch(new RegExp(`Interrupted \\(SIGTERM\\) while starting ${started}`));
+    expect(r.stderr).toMatch(/Nothing was left behind/);
+    const branch = `sc/${started.toLowerCase()}-stopped-halfway`;
+    expect(execFileSync('git', ['branch', '--list', branch], { cwd: repo }).toString()).toBe('');
+    expect(existsSync(join(`${repo}-worktrees`, branch.replace('/', '-')))).toBe(false);
+    expect(existsSync(join(home, '.local/share/supercharge/projects/northwind/tasks', started))).toBe(false);
+    const audit = (await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { action: string; taskId?: string; details?: object });
+    expect(audit.filter((a) => a.action === 'task_failed').at(-1)).toMatchObject({
+      taskId: started,
+      details: { interrupted: 'SIGTERM', kept: [] },
+    });
+  }, 60_000);
+
   it('whoami identifies the worker and rejects a foreign session id', async () => {
     const ok = await sc(['whoami', '--json'], {
       cwd: worker.worktree,
@@ -330,6 +368,19 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect((await asWorker(['stage', 'verifying'])).code).toBe(0);
     t = await readTask('NO-0001');
     expect(t.openQuestion?.answeredAt).not.toBeNull();
+  });
+
+  it('task quiet marks a task quiet (and --off undoes it); status --json shows it', async () => {
+    const quiet = async () =>
+      JSON.parse((await sc(['status', '--project', 'northwind', '--json'])).stdout).tasks.find(
+        (t: { id: string }) => t.id === 'NO-0001',
+      ).quiet;
+    expect((await sc(['task', 'quiet', 'no-0001', '-p', 'northwind'])).code).toBe(0);
+    expect((await readTask('NO-0001')).quiet).toBe(true);
+    expect(await quiet()).toBe(true);
+    expect((await sc(['task', 'quiet', 'NO-0001', '-p', 'northwind', '--off'])).code).toBe(0);
+    expect(await quiet()).toBe(false);
+    expect((await sc(['task', 'quiet', 'NO-0099', '-p', 'northwind'])).code).toBe(2);
   });
 
   it('reply is explicit and audited', async () => {
@@ -437,6 +488,10 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(settings.autoCompactWindow).toBe(500_000);
     expect(settings.statusLine).toMatchObject({ type: 'command', padding: 0 });
     expect(settings.statusLine.command).toMatch(/supercharge\.mjs' statusline$/);
+    // The control chat's guard: a PreToolUse hook that starts node only for a cleanup or an aoe command.
+    expect(settings.hooks.PreToolUse).toEqual([
+      { matcher: 'Bash', hooks: [{ type: 'command', command: expect.stringMatching(/' guard;; esac$/) }] },
+    ]);
     expect((await readTask(out.id)).model).toBe('opusplan');
     expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
   });
@@ -462,6 +517,27 @@ describe('workflow through the real CLI against fake AoE', () => {
     for (const t of [out, JSON.parse(next.stdout)])
       expect((await sc(['stage', 'done'], { cwd: t.worktree })).code).toBe(0);
   });
+
+  it('starts new workers in auto mode while the project is autonomous, and status says so', async () => {
+    // No plan menu to wait on overnight.
+    const until = new Date(Date.now() + 3_600_000).toISOString();
+    const set = (k: string, v: string) => sc(['config', 'set', `projects.northwind.${k}`, v]);
+    expect((await set('autonomousSince', new Date().toISOString())).code).toBe(0);
+    try {
+      expect((await set('autonomousUntil', until)).code).toBe(0);
+      const auto = await sc(['task', 'new', 'While away', '--force', '--json']);
+      expect(auto.code, auto.stderr).toBe(0);
+      const t = JSON.parse(auto.stdout);
+      const args = fake.state.sessions.find((s) => s.id === t.aoeSessionId)?.extra_args ?? '';
+      expect(args).toContain('--permission-mode auto');
+      const st = JSON.parse((await sc(['status', '--project', 'northwind', '--json'])).stdout);
+      expect(st.autonomous).toEqual({ on: true, since: expect.any(String), until });
+      expect((await sc(['stage', 'done'], { cwd: t.worktree })).code).toBe(0);
+    } finally {
+      // Left on, it would hold notices for the control chat in the daemon tests below.
+      await set('autonomousSince', '');
+    }
+  }, 60_000);
 
   it('holds new workers while the 5-hour window is nearly used, unless forced', async () => {
     expect((await sc(['statusline'], { input: statusInput(90) })).code).toBe(0);
@@ -495,6 +571,27 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
   });
 
+  it('task new presses Enter on a first message typed but not sent, and never types it twice', async () => {
+    const r = await sc(['task', 'new', 'Unsent kickoff', '--force', '--json'], {
+      extraEnv: {
+        FAKE_AOE_UNSUBMITTED_SENDS: '1',
+        SUPERCHARGE_KICKOFF_ENTER_MS: '200',
+        SUPERCHARGE_KICKOFF_CONFIRM_MS: '5000',
+      },
+    });
+    expect(r.code, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as TaskRecord & { worktree: string };
+    // Its Enter was lost, so it sat in the input box: Enter alone sent it.
+    expect(fake.state.sent.filter((m) => m.id === out.aoeSessionId).map((m) => m.message)).toEqual([
+      KICKOFF_MESSAGE,
+    ]);
+    expect(fake.state.keys.filter((k) => k.id === out.aoeSessionId).map((k) => k.hex)).toEqual(['0d']);
+    const t = await readTask(out.id);
+    expect(t.kickoffSeenAt).toBeTruthy();
+    expect(t.kickoffTries).toBe(2);
+    expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+  });
+
   it('task new says so when the worker is not ready and no daemon will send its first message', async () => {
     const r = await sc(['task', 'new', 'Nobody to send it', '--force', '--json'], {
       extraEnv: { FAKE_AOE_START_MENU: 'trust', SUPERCHARGE_KICKOFF_WAIT_MS: '0' },
@@ -508,6 +605,78 @@ describe('workflow through the real CLI against fake AoE', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'Idle', menu: null }),
     });
+    expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+  });
+
+  it('a read-only task closes itself with --nothing-to-merge, and task reopen brings it back', async () => {
+    const out = JSON.parse((await sc(['task', 'new', 'Read-only gap list', '--force', '--json'])).stdout) as {
+      id: string;
+      worktree: string;
+      aoeSessionId: string;
+    };
+    const as = (args: string[]) =>
+      sc(args, { cwd: out.worktree, extraEnv: { AOE_INSTANCE_ID: out.aoeSessionId } });
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: out.worktree, env, stdio: 'pipe' });
+
+    const plain = await as(['stage', 'done']);
+    expect(plain.code).toBe(3);
+    expect(plain.stderr).toMatch(/--nothing-to-merge/);
+    // Output that would only live in the worktree: refused, and told where it belongs.
+    await writeFile(join(out.worktree, 'gap-list.md'), '# Gaps\n');
+    const dirty = await as(['stage', 'done', '--nothing-to-merge']);
+    expect(dirty.code).toBe(3);
+    expect(dirty.stderr).toMatch(/gap-list\.md/);
+    expect(dirty.stderr).toMatch(/uploads\/northwind/);
+    await rm(join(out.worktree, 'gap-list.md'));
+    // A commit is something to merge.
+    git('commit', '-q', '--allow-empty', '-m', 'results');
+    const ahead = await as(['stage', 'done', '--nothing-to-merge']);
+    expect(ahead.code).toBe(3);
+    expect(ahead.stderr).toMatch(/something to merge/);
+    git('reset', '-q', '--hard', 'HEAD~1');
+    expect(JSON.parse((await as(['whoami', '--json'])).stdout).task.outputDir).toBe(
+      join(home, '.local/state/supercharge/uploads/northwind'),
+    );
+
+    const closed = await as(['stage', 'done', '--nothing-to-merge']);
+    expect(closed.code, closed.stderr).toBe(0);
+    expect((await readTask(out.id)).stage).toBe('done');
+    expect((await readTask(out.id)).history.at(-1)).toMatchObject({
+      to: 'done',
+      by: 'worker',
+      note: 'Nothing to merge',
+    });
+
+    // Follow-up work: the worker reopens its own task (and only its own).
+    expect((await as(['task', 'reopen', 'NO-0001'])).code).toBe(2);
+    const reopened = await as(['task', 'reopen', out.id.toLowerCase()]);
+    expect(reopened.code, reopened.stderr).toBe(0);
+    expect((await readTask(out.id)).history.at(-1)).toMatchObject({
+      from: 'done',
+      to: 'implementing',
+      by: 'worker',
+    });
+    expect((await sc(['task', 'reopen', out.id, '-p', 'northwind'])).code).toBe(3);
+
+    // Done and archived: reopening from outside brings its session back from the archive.
+    expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+    await fetch(`${fake.url}/__fake/sessions/${out.aoeSessionId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ archived_at: new Date().toISOString(), status: 'Stopped' }),
+    });
+    const back = await sc(['task', 'reopen', out.id, '-p', 'northwind', '--note', 'Follow-up on the gaps']);
+    expect(back.code, back.stderr).toBe(0);
+    expect(fake.state.sessions.find((s) => s.id === out.aoeSessionId)?.archived_at).toBeNull();
+    expect((await readTask(out.id)).history.at(-1)).toMatchObject({
+      by: 'user',
+      note: 'Follow-up on the gaps',
+    });
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(
+      new RegExp(`"actor":"worker","action":"task_closed","project":"northwind","taskId":"${out.id}"`),
+    );
+    expect(audit).toMatch(new RegExp(`"action":"task_reopened".*"taskId":"${out.id}".*"unarchived":true`));
     expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
   });
 });
@@ -655,6 +824,26 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(text).toMatch(/^data: \{"seq":/m);
   });
 
+  it('a tab on the stream with ?notify=1 gets the notifications, and the daemon sends none itself', async () => {
+    const ctrl = new AbortController();
+    const res = await fetch(`${base()}/api/events?notify=1`, {
+      headers: { authorization: `Bearer ${bearer}` },
+      signal: ctrl.signal,
+    });
+    const reader = res.body!.getReader();
+    let text = '';
+    while (!text.includes('\n\n')) text += new TextDecoder().decode((await reader.read()).value);
+    const test = await fetch(`${base()}/api/notifications/test`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${bearer}` },
+    });
+    expect(await test.json()).toEqual({ ok: true });
+    while (!/^event: notify$/m.test(text)) text += new TextDecoder().decode((await reader.read()).value);
+    ctrl.abort();
+    const data = text.split(/^event: notify$/m)[1]!.match(/^data: (.*)$/m)![1]!;
+    expect(JSON.parse(data)).toMatchObject({ id: 'test', title: 'Supercharge', href: '/', test: true });
+  });
+
   it('the MR watcher moves the task to ready_for_review and it shows in Needs you', async () => {
     await writeFile(
       join(glabDir, 'mr-7.json'),
@@ -730,7 +919,39 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(snap.needsYou.find((n) => n.kind === 'approval')?.taskId).toBe('NO-0001');
   });
 
-  it('reads a waiting menu, refuses stray messages, and answers it by number (audited)', async () => {
+  it('any Needs-you item can be dismissed, and a new wait brings it back', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const items = async () =>
+      ((await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot).needsYou;
+    const dismiss = (id: string) =>
+      fetch(`${base()}/api/needs-you/dismiss`, {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+    const item = (await items()).find((n) => n.kind === 'approval')!;
+    expect((await dismiss(item.id)).status).toBe(200);
+    await until(async () => !(await items()).some((n) => n.id === item.id));
+    expect((await dismiss('approval:nobody')).status).toBe(404);
+    const stored = JSON.parse(await readFile(join(home, '.local/share/supercharge/needs-you.json'), 'utf8'));
+    expect(stored.items[item.id]).toBeTruthy();
+    // It works, then waits again: something new, so it is back.
+    const status = (s: string) =>
+      fetch(`${fake.url}/__fake/sessions/${item.sessionId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status: s }),
+      });
+    await status('Running');
+    await until(async () => {
+      const s = (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+      return s.sessions.find((x) => x.id === item.sessionId)?.status === 'working';
+    });
+    await status('Waiting');
+    await until(async () => (await items()).some((n) => n.id === item.id));
+  });
+
+  it('reads a waiting menu, holds stray messages, and answers it by number (audited)', async () => {
     const auth = { authorization: `Bearer ${bearer}` };
     const post = (path: string, body: unknown) =>
       fetch(`${base()}${path}`, {
@@ -754,10 +975,17 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(prompt).toMatchObject({ question: 'Do you want to proceed?', answerable: true });
     expect(prompt.options).toHaveLength(3);
 
-    // A typed message would land on the menu and pick its highlighted option, so it is refused.
+    // A typed message would land on the menu and pick its highlighted option: the dashboard holds it.
+    const sentAtMenu = fake.state.sent.length;
     const stray = await post(`/api/sessions/${id}/send`, { message: 'hello' });
-    expect(stray.status).toBe(409);
-    expect(((await stray.json()) as { error: string }).error).toBe('menu_open');
+    expect(stray.status, await stray.clone().text()).toBe(200);
+    const strayHeld = (await stray.json()) as { held: { id: string; message: string } };
+    expect(strayHeld.held.message).toBe('hello');
+    expect(fake.state.sent.length).toBe(sentAtMenu);
+    await fetch(`${base()}/api/sessions/${id}/held/${strayHeld.held.id}`, {
+      method: 'DELETE',
+      headers: auth,
+    });
     const command = await post(`/api/sessions/${id}/run`, { command: 'ls' });
     expect(command.status).toBe(409);
     expect(((await command.json()) as { error: string }).error).toBe('menu_open');
@@ -785,6 +1013,25 @@ describe('daemon: security, live state and the MR watcher', () => {
     ]);
     const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
     expect(audit).toMatch(/"action":"prompt_answered".*3\. No, and tell Claude what to do differently/);
+    await until(async () => !(await snapshot()).sessions.find((x) => x.id === id)?.prompt);
+
+    // Any option can carry a note: "Yes" is pressed, then the note follows as a message.
+    await fetch(`${fake.url}/__fake/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Waiting', menu: PERMISSION_MENU }),
+    });
+    const again = await until(
+      async () => (await snapshot()).sessions.find((x) => x.id === id)?.prompt ?? null,
+    );
+    const sentYes = fake.state.sent.length;
+    const yes = await post(`/api/sessions/${id}/answer`, {
+      key: again.key,
+      option: 1,
+      text: 'And log the run.',
+    });
+    expect(yes.status, await yes.clone().text()).toBe(200);
+    expect(fake.state.sent.slice(sentYes).map((m) => m.message)).toEqual(['And log the run.']);
     await until(async () => !(await snapshot()).sessions.find((x) => x.id === id)?.prompt);
     await fetch(`${fake.url}/__fake/sessions/${id}`, {
       method: 'PATCH',
@@ -819,9 +1066,11 @@ describe('daemon: security, live state and the MR watcher', () => {
       menu: trustMenu(),
       trust: { cursor: 1, next: CONSENT_MENU },
     });
+    // This trust menu, not the permission menu the previous test left until the next poll sees the patch.
     const snap = await until(async () => {
       const s = await snapshot();
-      return s.sessions.find((x) => x.id === id)?.prompt ? s : null;
+      const v = s.sessions.find((x) => x.id === id);
+      return v?.prompt && v.rawStatus === 'Idle' ? s : null;
     });
     const view = snap.sessions.find((x) => x.id === id)!;
     expect(view).toMatchObject({ rawStatus: 'Idle', status: 'waiting' });
@@ -832,7 +1081,12 @@ describe('daemon: security, live state and the MR watcher', () => {
     });
     expect(view.prompt!.options.map((o) => o.label)).toEqual(['No, exit', 'Yes, I trust this folder']);
     expect(snap.needsYou.some((n) => n.sessionId === id)).toBe(true);
-    expect((await post(`/api/sessions/${id}/send`, { message: 'hi' })).status).toBe(409);
+    // Held, not typed into the dialog (AoE's Enter would pick its option).
+    const hi = (await (await post(`/api/sessions/${id}/send`, { message: 'hi' })).json()) as {
+      held: { id: string };
+    };
+    expect(hi.held).toBeTruthy();
+    await fetch(`${base()}/api/sessions/${id}/held/${hi.held.id}`, { method: 'DELETE', headers: auth });
 
     // "Yes": the cursor goes down one row and Enter confirms it, with nothing sent over REST.
     expect((await post(`/api/sessions/${id}/answer`, { key: view.prompt!.key, option: 2 })).status).toBe(200);
@@ -1302,21 +1556,6 @@ describe('daemon: security, live state and the MR watcher', () => {
     });
   });
 
-  it('project notes are saved next to the ledger', async () => {
-    const auth = { authorization: `Bearer ${bearer}` };
-    const url = `${base()}/api/projects/northwind/notes`;
-    expect(((await (await fetch(url, { headers: auth })).json()) as { text: string }).text).toBe('');
-    const put = await fetch(url, {
-      method: 'PUT',
-      headers: { ...auth, 'content-type': 'application/json' },
-      body: JSON.stringify({ text: '# Ideas\n- compare NO-0001 with the deck' }),
-    });
-    expect(put.status).toBe(200);
-    expect(await readFile(join(home, '.local/share/supercharge/projects/northwind/notes.md'), 'utf8')).toBe(
-      '# Ideas\n- compare NO-0001 with the deck',
-    );
-  });
-
   it('adopts an AoE parent and its children as tasks (ledger only), skipping other repositories', async () => {
     const auth = { authorization: `Bearer ${bearer}` };
     const json = { ...auth, 'content-type': 'application/json' };
@@ -1460,6 +1699,13 @@ describe('daemon: security, live state and the MR watcher', () => {
     const control = (await snapshot()).projects.find((p) => p.name === 'northwind')!.controlSessionId!;
     expect((await act('delete', [control])).results[0]).toMatchObject({ ok: false });
     expect(fake.state.sessions.find((s) => s.id === control)?.trashed_at ?? null).toBeNull();
+
+    // A task's files go for good only through Clean up and its checks, never from here.
+    const forGood = (await act('delete', [id], { permanent: true, deleteWorktree: true })).results[0]!;
+    expect(forGood).toMatchObject({ ok: false });
+    expect(forGood.error).toMatch(/only by Clean up/);
+    expect(fake.state.sessions.some((s) => s.id === id)).toBe(true);
+    expect(existsSync(made.worktree)).toBe(true);
 
     expect((await act('delete', [id])).results[0]!.ok).toBe(true);
     expect(fake.state.sessions.find((s) => s.id === id)?.trashed_at).toBeTruthy();
@@ -1910,71 +2156,6 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect((await api(`/api/sessions/${control}/shell/restart`, { method: 'POST' })).status).toBe(200);
     expect(fake.state.killedTerminals.at(-1)).toMatchObject({ id: control, index: 31 });
     expect(fake.state.shells[`${control}#31`]).toBeTruthy();
-  });
-
-  it('keeps notes and todos: Claude adds them from a session; the dashboard ticks and archives them', async () => {
-    // As Claude does through /note: from the project's folder, the text on stdin.
-    const n = await sc(['note', 'add', '-', '--json'], {
-      input: 'Staging is read-only until Friday\n',
-      extraEnv: { CLAUDECODE: '1' },
-    });
-    expect(n.code, n.stderr).toBe(0);
-    const note = JSON.parse(n.stdout);
-    expect(note).toMatchObject({ project: 'northwind', kind: 'note', by: 'claude' });
-    expect(note.text).toBe('Staging is read-only until Friday');
-    const todo = JSON.parse(
-      (await sc(['todo', 'add', 'Ask', 'Jonas', 'about', 'the', 'export', '--json'])).stdout,
-    );
-    expect(todo).toMatchObject({ project: 'northwind', kind: 'todo', done: false, by: 'you' });
-    const global = JSON.parse(
-      (await sc(['note', 'add', '--global', 'Renew the token', '--json'], { cwd: home })).stdout,
-    );
-    expect(global.project).toBeNull();
-    // Outside a project, without --global: refused, with the way out.
-    const outside = await sc(['note', 'add', 'Lost'], { cwd: home });
-    expect(outside.code).toBe(2);
-    expect(outside.stderr).toMatch(/--global/);
-    expect((await sc(['todo', 'done', note.id])).stderr).toMatch(/is a note, not a todo/);
-    // Readable as a board: the project's todos and notes, then the global ones.
-    expect((await sc(['notes'])).stdout).toBe(
-      [
-        'northwind',
-        '  To do',
-        `    [ ] ${todo.id}  Ask Jonas about the export`,
-        '  Notes',
-        `    -   ${note.id}  Staging is read-only until Friday`,
-        '',
-        'Global',
-        '  Notes',
-        `    -   ${global.id}  Renew the token`,
-        '',
-      ].join('\n'),
-    );
-
-    // The dashboard has them live, ticks the todo and archives the note.
-    const auth = { authorization: `Bearer ${bearer}`, 'content-type': 'application/json' };
-    const snapshot = async () =>
-      (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
-    await until(async () => (await snapshot()).notes.length === 3);
-    const patch = (id: string, body: unknown) =>
-      fetch(`${base()}/api/notes/${id}`, { method: 'PATCH', headers: auth, body: JSON.stringify(body) });
-    const ticked = (await (await patch(todo.id, { done: true })).json()) as { note: NoteRecord };
-    expect(ticked.note).toMatchObject({ done: true });
-    expect(ticked.note.doneAt).toBeTruthy();
-    expect((await patch(note.id, { archived: true })).status).toBe(200);
-    expect((await patch('zzzz', { done: true })).status).toBe(404);
-    expect((await snapshot()).notes.map((x) => x.id).sort()).toEqual([global.id, todo.id].sort());
-    const archived = (await (await fetch(`${base()}/api/notes?archived=1`, { headers: auth })).json()) as {
-      notes: NoteRecord[];
-    };
-    expect(archived.notes.map((x) => x.id)).toEqual([note.id]);
-    expect((await sc(['notes'])).stdout).toContain(`[x] ${todo.id}`);
-    const added = await fetch(`${base()}/api/notes`, {
-      method: 'POST',
-      headers: auth,
-      body: JSON.stringify({ kind: 'todo', text: 'From the board', project: 'nope' }),
-    });
-    expect(added.status).toBe(404);
   });
 
   it('a new worker on the trust dialog gets its first message from the daemon once the menu is answered', async () => {

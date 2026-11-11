@@ -19,6 +19,7 @@ import {
   generalSessionIds,
   deskChanges,
   normalizeAoeStatus,
+  STARTING_MS,
   pickWorkerName,
   usageReport,
   type AoeState,
@@ -28,6 +29,7 @@ import {
   type SessionView,
 } from '@aoe-supercharge/core/shared';
 import { AoeError } from '../aoe/client.ts';
+import { finishCleanup } from '../cleanup.ts';
 import type { AoeCliListEntry, AoeSession } from '../aoe/schemas.ts';
 import { SHIPPED_COMPAT, type Ctx } from '../context.ts';
 import type { PromptReader } from '../prompt.ts';
@@ -42,12 +44,17 @@ const nowIso = () => new Date().toISOString();
 
 /**
  * Sessions to bring back: AoE says `error` when a pane died with the tmux server (a reboot). A session
- * you stopped says `stopped` and stays so; archived and trashed ones have no pane on purpose.
+ * you stopped says `stopped` and stays so; archived and trashed ones have no pane on purpose. One made
+ * in the last minute is still starting (its first capture can read as an error), not dead.
  */
-export function toRevive(sessions: AoeSession[], done: string[]): AoeSession[] {
+export function toRevive(sessions: AoeSession[], done: string[], now = Date.now()): AoeSession[] {
   return sessions.filter(
     (s) =>
-      normalizeAoeStatus(s.status) === 'error' && !s.archived_at && !s.trashed_at && !done.includes(s.id),
+      normalizeAoeStatus(s.status) === 'error' &&
+      !s.archived_at &&
+      !s.trashed_at &&
+      !done.includes(s.id) &&
+      !(now - Date.parse(s.created_at ?? '') < STARTING_MS),
   );
 }
 
@@ -337,6 +344,15 @@ export class AoeWatcher {
         if (a.polls < 3 || Date.now() - a.since < 30_000) continue;
       }
       this.absent.delete(id);
+      // A clean-up whose delete ran out of time: AoE has finished it, so finish Supercharge's part.
+      if (reason === 'deleted' && t.cleanup) {
+        const done = await finishCleanup(this.ctx, t, 'daemon').catch((err: Error) => {
+          this.ctx.logger.warn('could not finish a clean-up', { task: t.id, err: err.message });
+          return null;
+        });
+        if (done) this.ctx.logger.info('clean-up finished after AoE deleted the session', { task: t.id });
+        continue;
+      }
       if (!(await this.ctx.ledger.removeTask(t.project, t.id))) continue;
       this.ctx.logger.info('worker removed with its session', { task: t.id, reason });
       await appendAudit(this.ctx.paths, {
@@ -551,58 +567,6 @@ export class LedgerWatcher {
   }
 }
 
-/** Notes and todos (SPEC §14.6): the CLI writes them, so they arrive like the ledger's changes. */
-export class NotesWatcher {
-  private watcher: FSWatcher | null = null;
-  private timer: NodeJS.Timeout | null = null;
-  private debounce: NodeJS.Timeout | null = null;
-
-  constructor(
-    private ctx: Ctx,
-    private store: Store,
-  ) {}
-
-  async start() {
-    await mkdir(this.ctx.paths.notesDir, { recursive: true });
-    await this.reload();
-    try {
-      this.watcher = watch(this.ctx.paths.notesDir, (_e, file) => {
-        if (file && !String(file).endsWith('.json')) return;
-        if (this.debounce) clearTimeout(this.debounce);
-        this.debounce = setTimeout(() => void this.reload(), 80);
-      });
-      this.watcher.on('error', (err) => this.ctx.logger.warn('notes watch error', { err: err.message }));
-    } catch (err) {
-      this.ctx.logger.warn('fs.watch unavailable for notes; relying on periodic rescans', {
-        err: (err as Error).message,
-      });
-    }
-    this.schedule();
-  }
-
-  private schedule() {
-    this.timer = setTimeout(async () => {
-      await this.reload();
-      this.schedule();
-    }, this.ctx.config.poll.reconcile * 1000);
-    this.timer.unref();
-  }
-
-  async reload(): Promise<void> {
-    try {
-      this.store.setNotes(await this.ctx.notes.all());
-    } catch (err) {
-      this.ctx.logger.error('notes reload failed', { err });
-    }
-  }
-
-  stop() {
-    this.watcher?.close();
-    if (this.timer) clearTimeout(this.timer);
-    if (this.debounce) clearTimeout(this.debounce);
-  }
-}
-
 /** Hot-reloads config.toml; changes to server/aoe/agent are flagged "restart required" (SPEC §5). */
 export class ConfigWatcher {
   private watcher: FSWatcher | null = null;
@@ -668,6 +632,7 @@ export class ConfigWatcher {
       displayName: loaded.config.ui.displayName,
       officeAnimations: loaded.config.ui.officeAnimations,
       officeTheme: loaded.config.ui.officeTheme,
+      officeEnabled: loaded.config.office.enabled,
     });
     this.onApplied(loaded.config);
   }

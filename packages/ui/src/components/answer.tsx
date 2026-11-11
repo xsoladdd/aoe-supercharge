@@ -30,9 +30,12 @@ import { chatHref } from '@/lib/nav';
 import { useNow } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
-// Markdown and highlighting load only when a plan is shown.
+// Markdown and highlighting load only when a plan (or a question with a code block) is shown.
 const ChatMarkdown = lazy(() =>
   import('@/components/chat/markdown').then((m) => ({ default: m.ChatMarkdown })),
+);
+const RunCommand = lazy(() =>
+  import('@/components/chat/run-command').then((m) => ({ default: m.RunCommand })),
 );
 
 const KIND: Record<SessionPrompt['kind'], { icon: Icon; title: string }> = {
@@ -477,7 +480,7 @@ export function PromptCard({
       await sendJson('POST', `/api/sessions/${encodeURIComponent(session.id)}/answer`, {
         key: prompt.key,
         option: option.n,
-        text: option.feedback ? text : undefined,
+        text: text.trim() || undefined,
       });
       toast.success('Answer sent', { description: `${option.n}. ${option.label}` });
       onAnswered?.();
@@ -597,10 +600,10 @@ export function PromptCard({
               hint: o.hint,
             }))}
           />
-          {option?.feedback && (
+          {option && (
             <div className="space-y-1.5">
               <label htmlFor={`feedback-${id}`} className="text-sm font-medium">
-                What should Claude do instead?{' '}
+                {option.feedback ? 'What should Claude do instead?' : 'Add a note'}{' '}
                 <span className="font-normal text-muted-foreground">(optional)</span>
               </label>
               <textarea
@@ -611,7 +614,9 @@ export function PromptCard({
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 className="block w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-[0.9375rem] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 focus-visible:outline-none"
-                placeholder="Tell Claude what to change…"
+                placeholder={
+                  option.feedback ? 'Tell Claude what to change…' : 'Sent to Claude after your answer…'
+                }
               />
             </div>
           )}
@@ -622,7 +627,8 @@ export function PromptCard({
           )}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-muted-foreground">
-              Sent as the option’s number, like typing it in the terminal. Recorded in the audit log.
+              Sent as the option’s number, like typing it in the terminal, then your note as a message.
+              Recorded in the audit log.
             </p>
             <div className="flex items-center gap-2">
               {terminal}
@@ -645,11 +651,14 @@ export function PromptCard({
 /** A question a worker asked with `supercharge ask`: pick a suggested answer or write one. */
 export function QuestionCard({
   task,
+  session,
   context,
   className,
   onAnswered,
 }: {
   task: TaskRecord;
+  /** The worker's session: a shell block in the question gets Run. */
+  session?: SessionView | null;
   context?: React.ReactNode;
   className?: string;
   onAnswered?: () => void;
@@ -663,7 +672,13 @@ export function QuestionCard({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const id = useId();
-  const message = choice === OWN ? text.trim() : (choice ?? '');
+  const [run, setRun] = useState<{ command: string; anchor?: string; open: boolean }>({
+    command: '',
+    open: false,
+  });
+  const note = text.trim();
+  // An option is an answer, sent as text with the note under it; it runs nothing.
+  const message = choice === OWN ? note : choice ? (note ? `${choice}\n\n${note}` : choice) : '';
 
   const send = async () => {
     if (!message) {
@@ -697,7 +712,26 @@ export function QuestionCard({
       context={context ?? `${ago(q.askedAt, now)}, the worker is blocked until you answer`}
       className={className}
     >
-      <p className="text-[0.9375rem] font-medium break-words whitespace-pre-wrap">{q.text}</p>
+      {session && q.text.includes('```') ? (
+        <Suspense fallback={<p className="text-[0.9375rem] font-medium whitespace-pre-wrap">{q.text}</p>}>
+          <ChatMarkdown
+            text={q.text}
+            className="text-[0.9375rem]"
+            anchorKey={`ask-${task.id}`}
+            onRun={(command, anchor) => setRun({ command, anchor, open: true })}
+          />
+          <RunCommand
+            session={session}
+            command={run.command}
+            anchor={run.anchor}
+            open={run.open}
+            onOpenChange={(open) => setRun((r) => ({ ...r, open }))}
+            onRan={() => toast.success(`Command sent to ${workerName(task)}`)}
+          />
+        </Suspense>
+      ) : (
+        <p className="text-[0.9375rem] font-medium break-words whitespace-pre-wrap">{q.text}</p>
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -720,10 +754,16 @@ export function QuestionCard({
             ]}
           />
         )}
-        {choice === OWN && (
+        {choice !== null && (
           <div className="space-y-1.5">
             <label htmlFor={`own-${id}`} className={cn('text-sm font-medium', !options.length && 'sr-only')}>
-              Your answer
+              {choice === OWN ? (
+                'Your answer'
+              ) : (
+                <>
+                  Add a note <span className="font-normal text-muted-foreground">(optional)</span>
+                </>
+              )}
             </label>
             <textarea
               id={`own-${id}`}
@@ -735,7 +775,7 @@ export function QuestionCard({
                 setText(e.target.value);
                 if (error) setError(null);
               }}
-              placeholder="Your answer…"
+              placeholder={choice === OWN ? 'Your answer…' : 'Sent with your answer…'}
               className="block w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-[0.9375rem] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/25 focus-visible:outline-none"
             />
           </div>
@@ -747,7 +787,7 @@ export function QuestionCard({
         )}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
-            Sent into the worker’s session as a prompt. Audited.
+            Your answer and note go to the worker as one message; picking an option runs nothing. Audited.
           </p>
           <Button type="submit" variant="gradient" disabled={sending}>
             {sending ? <CircleNotchIcon className="animate-spin" /> : <PaperPlaneRightIcon weight="fill" />}
@@ -792,6 +832,7 @@ export function TaskAsks({
       {open && (
         <QuestionCard
           task={task}
+          session={session}
           onAnswered={onAnswered}
           // The card's title already names the task id.
           context={

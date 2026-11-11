@@ -22,15 +22,16 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { sendJson } from '@/lib/api';
 import { HeaderSlotContext } from '@/lib/header-slot';
+import { useBrowserNotices } from '@/lib/notifications';
 import { useNeedsYouNudge } from '@/lib/nudge';
 import { OFFICE_WINDOW, useOfficeWindowLinks, useOfficeWindowLocation } from '@/lib/office-window';
 import { useRunawayToasts } from '@/lib/office';
+import { useSeenOnVisit } from '@/lib/seen';
 import { SelectionProvider, useAppContextMenu } from '@/lib/selection';
 import { useSearchParam } from '@/lib/nav';
 import { startLive, useLive, type Connection } from '@/lib/live';
 import { setThemePref, useResolvedTheme, useSyncScaleFrom, useSyncThemeFrom } from '@/lib/theme';
 import { cn } from '@/lib/utils';
-import { NotesPage } from '@/pages/notes';
 import { OverviewPage } from '@/pages/overview';
 import { ProjectPage } from '@/pages/project';
 import { SchedulesPage } from '@/pages/schedules';
@@ -50,7 +51,6 @@ function crumbsFor(location: string, snap: Snapshot): Crumb[] {
   const parts = location.split('/').filter(Boolean).map(decodeURIComponent);
   if (parts[0] === 'settings') return [{ label: 'Settings' }];
   if (parts[0] === 'office') return [{ label: 'Office' }];
-  if (parts[0] === 'notes') return [{ label: 'Notes' }];
   if (parts[0] === 'schedules') return [{ label: 'Schedules' }];
   if (parts[0] === 'p' && parts[1]) {
     const c: Crumb[] = [{ label: parts[1], href: `/p/${parts[1]}` }];
@@ -223,9 +223,18 @@ export function App() {
   useSyncScaleFrom(snap?.ui.scale);
   // The dashboard window nudges; an office window beside it would only say it twice.
   useNeedsYouNudge(isOfficeWindow ? undefined : snap?.needsYou, snap?.ui.sound ?? true);
+  useBrowserNotices(!isOfficeWindow, navigate);
+  // Chats and task pages show their own asks, and the office queues them at your door.
+  const listShown = !isChat && !taskParams && !isOffice;
+  useSeenOnVisit(isOfficeWindow ? undefined : snap?.needsYou, location, listShown);
   useOfficeWindowLinks(navigate);
   useRunawayToasts(isOfficeWindow ? null : snap, navigate);
   useAppContextMenu();
+  // The Office is off by default (office.enabled): its pages go to the overview.
+  const officeOff = snap ? !snap.ui.officeEnabled : false;
+  useEffect(() => {
+    if (officeOff && (isOffice || isOfficeWindow)) navigate('/', { replace: true });
+  }, [officeOff, isOffice, isOfficeWindow, navigate]);
   // Links from before the chat page (`?session=<id>`) still land on the chat.
   useEffect(() => {
     if (legacySession) navigate(`/chat/${encodeURIComponent(legacySession)}`, { replace: true });
@@ -234,7 +243,7 @@ export function App() {
   if (live.connection === 'signed_out') return <SignedOut />;
   if (!snap) return live.connection === 'error' ? <Unreachable error={live.error} /> : <LoadingShell />;
 
-  if (isOfficeWindow)
+  if (isOfficeWindow && !officeOff)
     return (
       <IconContext.Provider
         value={{ 'aria-hidden': true } as React.ComponentProps<typeof IconContext.Provider>['value']}
@@ -334,8 +343,7 @@ export function App() {
                 </header>
 
                 <HealthBanners health={snap.health} connection={live.connection} />
-                {/* Chats and task pages show their own asks, and the office queues them at your door. */}
-                {!isChat && !taskParams && !isOffice && <NeedsYouStrip items={snap.needsYou} />}
+                {listShown && <NeedsYouStrip items={snap.needsYou} />}
 
                 <main
                   id="main"
@@ -368,20 +376,19 @@ export function App() {
                       <OverviewPage snap={snap} />
                     </Route>
                     <Route path="/office">
-                      <Suspense
-                        fallback={
-                          <div className="space-y-4" aria-busy="true">
-                            <Skeleton className="h-7 w-40" />
-                            <Skeleton className="h-28 w-full" />
-                            <Skeleton className="h-64 w-full" />
-                          </div>
-                        }
-                      >
-                        <OfficePage snap={snap} />
-                      </Suspense>
-                    </Route>
-                    <Route path="/notes">
-                      <NotesPage snap={snap} />
+                      {officeOff ? null : (
+                        <Suspense
+                          fallback={
+                            <div className="space-y-4" aria-busy="true">
+                              <Skeleton className="h-7 w-40" />
+                              <Skeleton className="h-28 w-full" />
+                              <Skeleton className="h-64 w-full" />
+                            </div>
+                          }
+                        >
+                          <OfficePage snap={snap} />
+                        </Suspense>
+                      )}
                     </Route>
                     <Route path="/schedules">
                       <SchedulesPage snap={snap} />

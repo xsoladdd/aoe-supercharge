@@ -51,6 +51,15 @@ export async function saveUpload(
   return { path, file, url: `/api/uploads/${sessionId}/${file}` };
 }
 
+/**
+ * Where a worker keeps output that has to outlive it (a report, a read-only task's findings): the
+ * project's folder under uploads. Cleanup removes only a session's own folder, and the dashboard links
+ * and serves files here like any upload.
+ */
+export function outputDir(paths: Pick<Paths, 'uploadsDir'>, project: string): string {
+  return join(paths.uploadsDir, SESSION_ID.test(project) ? project : 'reports');
+}
+
 export async function readUpload(
   paths: Pick<Paths, 'uploadsDir'>,
   sessionId: string,

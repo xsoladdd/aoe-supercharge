@@ -6,13 +6,12 @@ An opinionated parent/child dashboard for Claude Code, built on [Agent of Empire
 - **One worker per task**, each in its own git worktree and AoE session.
 - **Fixed stages for every worker:** `planning → implementing → verifying → mr_raised → watching_mr → ready_for_review`, plus `blocked` and `done`.
 - **One dashboard** you leave open on a side monitor. It shows every project, control chat, worker, plan and merge request, and pins whatever **needs you** at the top.
-- **An office** (`/office`) where every worker stands where its status puts it: rooms for each project, a line at your door, a review lounge with a pool table, a cost bar under everyone, runaway warnings, and a replayable history.
-- **Notes and todos** for you and Claude: `/note`, `/todo` and `/gnote` in any Claude Code session, and a whiteboard in the office.
+- **An office** (`/office`, off by default: turn on **Show the Office** in Settings › Office) where every worker stands where its status puts it: rooms for each project, a line at your door, a review lounge with a pool table, a cost bar under everyone, runaway warnings, and a replayable history.
 - **Merge requests, or none.** GitLab MRs are watched through `glab`, GitHub pull requests through `gh`, and an MR opened without telling Supercharge is found by its branch. A project that merges branches without MRs reports a branch ready to merge instead.
 
 It runs as a small local daemon (Node 24, about 70 MB idle) bound to `127.0.0.1`. Merge requests are watched by a script, never by an LLM loop.
 
-> Status: v1.8.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 to 1.21.x (tested on 1.17.2, 1.18.0 and 1.21.0; see [AoE versions](#aoe-versions)); prompt screens checked against Claude Code 2.1.308.
+> Status: v1.9.0 (see [CHANGELOG.md](CHANGELOG.md)), built against AoE 1.17.2 to 1.22.x (tested on 1.17.2, 1.18.0, 1.21.0 and 1.22.3; see [AoE versions](#aoe-versions)); prompt screens checked against Claude Code 2.1.308.
 > The design rationale lives in [SPEC.md](SPEC.md).
 
 ---
@@ -31,10 +30,10 @@ macOS and Linux only. On Windows, use WSL2 (AoE requires it). You need [Node.js 
 
 **Supercharge is not on npm or Homebrew yet**, and there is no tap, so `npm install -g aoe-supercharge`, `brew install` and the one-line `curl … | bash` do not work today. Install the packed release from GitHub, or from a checkout.
 
-**From a GitHub release.** Every release on the [Releases page](https://github.com/xsoladdd/aoe-supercharge/releases) has the packed CLI attached; CI builds it with `npm pack` when a `Release X.Y.Z` commit lands on `main` and makes the release and its `vX.Y.Z` tag (see [Releasing](CLAUDE.md#releasing)). For 1.8.0:
+**From a GitHub release.** Every release on the [Releases page](https://github.com/xsoladdd/aoe-supercharge/releases) has the packed CLI attached; CI builds it with `npm pack` when a `Release X.Y.Z` commit lands on `main` and makes the release and its `vX.Y.Z` tag (see [Releasing](CLAUDE.md#releasing)). For 1.9.0:
 
 ```bash
-npm install -g https://github.com/xsoladdd/aoe-supercharge/releases/download/v1.8.0/aoe-supercharge-1.8.0.tgz
+npm install -g https://github.com/xsoladdd/aoe-supercharge/releases/download/v1.9.0/aoe-supercharge-1.9.0.tgz
 ```
 
 This checks no dependencies: install them first (see [Dependencies](#dependencies)), then run `supercharge doctor`.
@@ -123,10 +122,11 @@ Then talk to the control chat (in AoE, or from your phone; see [Phone access](#p
   - a ledger entry.
 - **A start that fails leaves nothing behind.** `aoe add` creates the worktree, which can take minutes on a large repository; it gets `aoe.addTimeoutSeconds` (default 300). If it runs out of time or fails, `task new` removes what that start made and nothing else: the ledger entry, the AoE session if one was registered, and the branch and worktree, but only when the start created the branch and it has no commits. The error says what to do next (raise the timeout, or check `aoe list`, then run it again), and the audit log records `task_failed` with the reason. The task id is not reused; the `task_failed` entry explains the gap.
 - The control chat runs `task new` itself; you can run it by hand too, or press **New task** on a project's page in the dashboard (title, brief, model and effort; it runs the same code and is audited as you). It is the only place the dashboard starts a worker, and only when you submit the form. If your usage says to wait, nothing is started: the form shows why and offers **Start anyway**.
-- **Model and effort.** A control chat starts on Opus at `xhigh` effort (`agent.controlModel`, `agent.controlEffort`) and is locked to them: its Model picker in the composer is shown, with a lock, and cannot be changed, so nothing is typed into the chat that Claude Code would save as your default. The `opus` alias is Opus 5.5 on the current Claude Code and follows the next Opus; pin a full model id in Settings to stop that. Workers get a `--model` and an `--effort` per task from the control chat (the table is in its skill); `agent.model` and `agent.effort` are only the fallbacks. Both apply to that one session.
-- **Permission mode.** Workers start in `agent.workerPermissionMode` (`plan` by default), so they wait for you to approve their plan. `supercharge task new --permission-mode <plan|default|acceptEdits|auto>` overrides it for that one task, for example `auto` for a small, well-scoped task that should run overnight. The mode is recorded in the `task_created` audit entry. Existing control chats keep the arguments they were started with; new ones get `xhigh`.
+- **Model and effort.** A control chat starts on Opus at `xhigh` effort (`agent.controlModel`, `agent.controlEffort`) and is locked to them: its Model picker in the composer is shown, with a lock, and cannot be changed, so nothing is typed into the chat that Claude Code would save as your default. The `opus` alias is Opus 5.5 on the current Claude Code and follows the next Opus; pin a full model id in Settings to stop that. Workers run Opus 5.5 too (`agent.model`, `opus` by default), and the control chat picks only an `--effort` per task (the table is in its skill); `agent.effort` is the fallback. General chats and workers start on Opus as well. `--model` still takes another model when you pass one. Both apply to that one session.
+- **Permission mode.** Workers start in `agent.workerPermissionMode` (`plan` by default), so they wait for you to approve their plan. `supercharge task new --permission-mode <plan|default|acceptEdits|auto>` overrides it for that one task, for example `auto` for a small, well-scoped task that should run overnight. While the project's [autonomous mode](#autonomous-mode) is on, new workers start in `auto` instead. The mode is recorded in the `task_created` audit entry. Existing control chats keep the arguments they were started with; new ones get `xhigh`.
 - **Startup prompts show up in the dashboard.** Claude Code's "Do you trust this folder?" and its MCP approval fire no hook, so AoE says Idle while they wait. Supercharge reads the screen of a new session (and of an idle one once per idle spell) and shows them as an answer card in the chat, with a Needs-you item. Answering presses just the keys, so a second dialog is never answered for you. Dialogs drawn without numbers are answered with the arrow keys and Enter.
-- **A new worker starts on its own.** Claude Code does nothing until it gets a first message, so `task new` sends a short kickoff once the session is at its prompt with no menu open. If that can't happen, the daemon sends it later; if it is lost, it is sent again (up to 3 times), but never to a worker someone already wrote to. Every send is audited as `prompt_sent`.
+- **A new worker starts on its own.** Claude Code does nothing until it gets a first message, so `task new` sends a short kickoff once the session is at its prompt with no menu open. If that can't happen, the daemon sends it later. If it is still in the input box about 2 seconds later (its Enter lost), Enter is pressed; if after 20 seconds the box is empty and the conversation has no message, it is typed again. It is never typed twice into the box, and never sent to a worker someone already wrote to (up to 3 tries in all). Every send is audited as `prompt_sent`. Run from a control chat while the daemon is up, `task new` tries once and returns instead of waiting up to 30 seconds: the daemon sends it.
+- **A stopped `task new` cleans up too.** It prints the task id and branch before `aoe add` starts. Stopped half-way (Ctrl-C, a kill, a closed terminal), it stops `aoe add` and rolls the start back as a failed one (`task_failed` with `interrupted`), and exits 130 (Ctrl-C) or 143 (a kill). Stopped after the task was saved, it keeps the task and leaves the first message to the daemon. A `kill -9` can't be caught.
 
 ### General chats (no project)
 
@@ -142,27 +142,32 @@ no project, each in a fresh AoE scratch folder (`aoe add --scratch`) that AoE de
   no tasks, stages, plans or merge requests here.
 - General chats and workers count toward the worker cap while they work or wait on you; an idle one does
   not.
-- Moving one to the trash keeps its folder until AoE empties the trash. **Delete permanently** deletes the
-  folder and everything in it.
+- **Move to trash…** keeps its folder until AoE empties the trash. **Delete permanently**, in the same
+  dialog, deletes the folder and everything in it (see [Archive, trash, delete, clean up](#archive-trash-delete-clean-up)).
 - A new scratch folder may open on Claude Code's folder-trust dialog; answer it in the chat.
 
 ### Cleaning up finished workers
 
-A done worker is still a live AoE session with a worktree and a branch. `supercharge task cleanup <task-id>` (or the **Clean up** button on a done task, in its right-click menu, and **Clean up all done** on the project page) removes them, and it checks first so unmerged work is never lost. It fetches `origin` and refuses unless one of these is true:
+A done worker is still a live AoE session with a worktree and a branch. `supercharge task cleanup <task-id>` (or the **Clean up** button on a done task, in its right-click menu, and **Clean up all done** on the project page) removes them, and it checks first so unmerged work is never lost. A task that never reached done but whose session you archived (a worker that stopped early) can be cleaned up the same way, with the same checks; an active one can't. It fetches `origin` and refuses unless one of these is true:
 
 - the task's branch is an ancestor of `origin/<base>` (fast-forward or merge commit);
 - every commit has an equivalent patch there (cherry-picked or rebased; `git cherry`);
 - the MR watcher recorded its pull request as merged and the worktree holds nothing past that pull request's head (squash merges);
 - merging the branch into `origin/<base>` would change nothing, because its changes are all there already (squash merges without a recorded pull request). This is also tried for each pushed branch that contains it, so a task that reached `dev` counts once `dev` is squash-merged into `main`. It needs git 2.38 or later; a conflict or any difference, such as a change `main` reverted later, is not landed.
 
-It also refuses when the worktree has uncommitted or untracked files, when the session is locked, or when the task is not done. The message says why, lists up to five files or commits, and says what to do. Otherwise it removes the AoE session with its worktree and branch (what `aoe rm --purge --delete-worktree --delete-branch` does, without `--force`), moves the task to `removed/` and writes `task_cleaned_up` to the audit log. `--all-done` checks each done task of the project on its own and skips the ones that are not safe. `--dry-run` only checks. It never touches a session outside the project.
+When the task's branch is gone, the commit it ended on is taken from the worktree (if it is still there), the head it was reported ready at, its merged pull request's head (fetched by its pull or merge-request ref if needed), or `origin/<branch>`; only when none of them is known does it say "check by hand".
+
+It also refuses when the worktree has uncommitted or untracked files, when the session is locked, or when the task is neither done nor archived. The message says why, lists up to five files or commits, and says what to do. Otherwise it removes the AoE session with its worktree and branch (what `aoe rm --purge --delete-worktree --delete-branch` does, without `--force`), then deletes the branch itself if it is still there at the commit it checked (AoE's `branch -d` refuses a squash-merged one), moves the task to `removed/` and writes `task_cleaned_up` to the audit log. `--all-done` checks each done or archived task of the project on its own and skips the ones that are not safe. `--dry-run` only checks. It never touches a session outside the project.
+
+- **A slow delete is not a failure.** Deleting a large worktree can take minutes. AoE gets `aoe.deleteTimeoutSeconds` (default 600) to answer. If it runs out, cleanup says AoE is still deleting, not that it can't reach AoE: the task was marked before the delete, and once AoE no longer lists the session the daemon (or the next `task cleanup`) finishes Supercharge's part. While that mark is there, a worktree AoE half deleted (only deleted files, or a folder git no longer reads) counts as "deletion in progress", not as uncommitted work, and the delete is sent again; a changed or new file is still refused.
+- **`--discard`** (one task, from the CLI only) is for a results or report commit that never needed merging: instead of refusing, it lists every commit that never landed and drops them, and the audit log records each one (`git branch rescue <sha>` brings one back until git's garbage collection). A dirty worktree is refused all the same.
+
+**The control chat never removes a worker itself.** It may run `--dry-run` to check, then gives you the command in a `bash` block for the **Run** button. A guard backs that up: every session Supercharge starts gets a `PreToolUse` hook (in `~/.local/state/supercharge/claude-settings.json`) that stops a control chat's own Bash tool from running `task cleanup` without `--dry-run`, `aoe rm`/`aoe remove`, or `aoe session archive`/`empty-trash`. Your **Run in chat** (Claude Code's `!` shell mode, which runs no hooks) and **Run in terminal** still run them, and workers and General chats are not stopped. Claude Code reads that file when a session starts, so a control chat started before this version gets the guard at its next restart. It is a guard against mistakes, not a security boundary (see [Security](#security)).
 
 **Instructions reach the agents without touching your repository.** Two user-level skills are installed in `~/.claude/skills/` (`supercharge-control` and `supercharge-worker`), and each session gets its role and brief through `--append-system-prompt-file`.
 
 - Because the skills are visible to every Claude session on the machine, each one first runs `supercharge whoami` and steps aside unless the session is managed by Supercharge.
 - `supercharge init --commit` instead commits the skills and a marked `CLAUDE.md` block into the repository, for teams.
-
-**Notes and todos, for you and Claude.** Three more user-level skills, `/note`, `/todo` and `/gnote`, work in any Claude Code session. `/note` and `/todo` file under the project of the folder you're in (or of the control chat that started the session); `/gnote` is global. `/todo done <id>` ticks one off. Control chats read their project's open todos and tick them off when the work is done. Only you archive.
 
 **Stage reporting (workers call these; the branch is the key).**
 
@@ -174,11 +179,39 @@ supercharge stage implementing
 supercharge stage verifying --note "tests green"
 supercharge ask "Is the Friday copy deck final?"   # blocks the task with an open question
 supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_requests/41
+supercharge stage done --nothing-to-merge          # a read-only or report task closes itself
+supercharge task reopen AS-0007                     # follow-up work on a done task
 ```
 
 - Invalid moves are rejected with exit code 3 and a list of what's allowed from the current stage.
 - `watching_mr` and `ready_for_review` are set only by the MR watcher. The one exception is a project with `mr = "none"`: a worker with no MR runs `supercharge stage ready_for_review` itself once its branch is pushed (see [Merge requests](#merge-requests)).
 - Inside a worker, `AOE_INSTANCE_ID` is cross-checked against the task's session, so an agent in the wrong worktree is refused.
+- **Nothing to merge.** Only you, the control chat and the daemon move a task to done, with one exception: a worker whose task has nothing to merge (a read-only, research or report task) closes it with `supercharge stage done --nothing-to-merge`. It is refused while the branch has commits that aren't on the base branch, the worktree has uncommitted or untracked files (cleanup would delete them), or a merge request is open, and it writes `task_closed` to the audit log. Output that has to stay goes to `task.outputDir` from `supercharge whoami --json`, the project's folder under `~/.local/state/supercharge/uploads/`, which cleanup leaves alone and the dashboard links to.
+- **Reopen.** Follow-up work on a done task: `supercharge task reopen <task-id>` (you or the control chat; a worker only its own task), **Reopen** in its right-click menu, or the button on its page. It goes back to implementing, so it shows with the working workers again instead of vanishing, and comes out of AoE's archive if it was archived. Audited as `task_reopened`.
+
+### Archive, trash, delete, clean up
+
+A session's right-click menu names each action by what it does to your files, with one line under it on what it keeps and what it deletes:
+
+| Action | What happens | Kept | Deleted | Undo |
+| --- | --- | --- | --- | --- |
+| **Archive (keep files)** | AoE stops the session (its tmux panes) and lists it under Archived. A task keeps its stage. | Worktree, branch, chat, task | Nothing | **Unarchive** (its conversation resumes) |
+| **Move to trash…** | After a confirm, the session goes to AoE's trash, and a task leaves Supercharge (its plan and history move to `removed/`). | Worktree, branch, chat, until AoE empties the trash (30 days by default) | Nothing | **Restore** in AoE; the task comes back |
+| **Delete permanently** (in the trash dialog) | For sessions that aren't tasks only (General chats, sessions a control chat started): AoE deletes the session for good, with its worktree and branch if you tick them. A General chat's scratch folder goes too. Not offered for a task, and the daemon refuses it for one. | Whatever you don't tick | The session, and the worktree or branch you ticked | None |
+| **Clean up…** (done or archived tasks) | Checks that the task's work landed on `origin/<base>` and nothing is uncommitted (see [Cleaning up](#cleaning-up-finished-workers)), then deletes the session, worktree and branch for good, and moves the task to `removed/`. | The task's plan and history (`removed/`) | Session, worktree, branch | None (refused when anything would be lost) |
+
+**Reopen** (done tasks) is in the same menu: back to implementing, keeping everything. A locked session can't be archived, trashed or deleted; a project's control chat is deleted only with its project, from its settings.
+
+### Autonomous mode
+
+For when you are away. **Project settings → Autonomous mode** switches it on until a set time (the next 08:00 by default), and the project page shows a banner with **Turn off** while it is on. It is stored as `projects.<name>.autonomousSince` and `autonomousUntil`, and `supercharge whoami --json` and `status --project <p> --json` show it as `autonomous: {on, since, until}`.
+
+- New workers start in `auto` permission mode, so there is no plan menu to wait on. They post their plan and wait; the control chat approves it with `supercharge reply` (audited), and they save it with `supercharge plan` as usual. Workers started before keep their mode.
+- The control chat is told with an `[AUTONOMOUS] on` line. It answers worker questions within your standing rules, approves plans that stay inside their brief, starts the next item from a queue you named (your board, or a list in its chat) once a merge request is up, and gets red pipelines and review threads fixed. It logs each decision with `supercharge audit note`. The worker watch is on for the project meanwhile.
+- Hard limits stay: no merges into `dev` or `main`, no production access, no writes to `dev` you haven't approved, no removing workers, and owner decisions (copy, money, GDPR, values) are parked under Needs you, never guessed. Apart from the removal guard above, these are rules in its skill, not enforced by Supercharge; enforce "no production" with deny rules in the repository's own `.claude/settings.json`.
+- When the time comes, or you turn it off, the daemon (within 20 seconds) types an `[AUTONOMOUS] off` line asking the control chat for your summary: what was done, what it decided and what it parked, from `supercharge audit --project <p> --since <since>` and `supercharge status`. The summary is its reply in its chat, and what is parked shows in Needs you. The end is recorded as `autonomous_ended`.
+- The control chat's own permission prompts still wait for you. Put it in auto mode (Shift+Tab in its terminal) before you leave.
+- There is no task queue in Supercharge: with no queue named, the control chat starts nothing new.
 
 ### Scheduled prompts
 
@@ -199,7 +232,7 @@ supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_req
 | Command | What it does |
 |---|---|
 | `supercharge start` / `stop` / `restart` | Install, refresh, stop or restart the user service |
-| `supercharge status [--project <p>] [--json]` | Overview; `--project` gives the control-chat status JSON |
+| `supercharge status [--project <p>] [--json]` | Overview; `--project` gives the control-chat status JSON. Archived workers are left out of the counts and the blocked list |
 | `supercharge logs [-f] [-n N] [--raw]` | Daemon logs (rotated, tokens redacted) |
 | `supercharge open [--print]` | One-time sign-in link, opened in your browser |
 | `supercharge config get [key]` / `set <key> <value>` / `edit` / `path` | Read and change `config.toml` (comments preserved, validated) |
@@ -210,18 +243,19 @@ supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_req
 | `supercharge init [--name <p>] [--commit]` | Register the current repository |
 | `supercharge task new "<title>" [--brief …] [--brief-file …] [--base …] [--model …] [--effort …] [--permission-mode …]` | Create a task |
 | `supercharge task list [--project <p>] [--json]` | List tasks |
-| `supercharge task cleanup <task-id> \| --all-done [--dry-run] [--json]` | Remove a finished worker's session, worktree and branch. Refuses unless its work is on `origin/<base>` (its base branch) or in its merged pull request (see [Cleaning up](#cleaning-up-finished-workers)) |
-| `supercharge whoami [--json]` | `control`, `worker`, `general-control`, `general` or `none` for this session |
-| `supercharge stage <stage> [--note …] [--mr <url>]` | Report a stage change |
+| `supercharge task reopen <task-id> [--note …]` | Follow-up work on a done task: back to implementing (and out of the archive) |
+| `supercharge task quiet <task-id> [--off]` | No stalled notices for a worker you parked on purpose (questions and the rest still come); `--off` undoes it |
+| `supercharge task cleanup <task-id> \| --all-done [--dry-run] [--discard] [--json]` | Remove a finished (done or archived) worker's session, worktree and branch. Refuses unless its work is on `origin/<base>` (its base branch) or in its merged pull request (see [Cleaning up](#cleaning-up-finished-workers)); `--discard` drops a task's unlanded commits instead, listed and audited |
+| `supercharge whoami [--json]` | `control`, `worker`, `general-control`, `general` or `none` for this session, and the project's autonomous mode |
+| `supercharge audit [--project <p>] [--since <time>] [--json]` | The audit log, oldest first |
+| `supercharge audit note "<text>"` | Record a decision in the audit log (the control chat, in autonomous mode) |
+| `supercharge stage <stage> [--note …] [--mr <url>]` | Report a stage change; `done --nothing-to-merge` closes a task with nothing to merge |
 | `supercharge ask "<question>"` | Block on a question |
 | `supercharge plan <file \| ->` `[--draft]` | Save the approved plan |
 | `supercharge reply <task-id> "<message>" [--yes]` | Send a prompt to a worker (asks for confirmation; audited) |
 | `supercharge general new "<title>" [--brief …] [--brief-file …] [--model …] [--effort …] [--force] [--json]` | Start a General worker (from the General control chat) or a General chat; needs the daemon |
 | `supercharge general list [--json]` | The General chats and workers |
 | `supercharge general send <name> "<message>" [--yes]` | Send a message to a General chat or worker (audited) |
-| `supercharge note add <text \| ->` / `todo add <text \| ->` `[--project <p> \| --global]` | Add a note or a todo to this project (or global) |
-| `supercharge todo done <id>` / `todo reopen <id>` / `note archive <id>` | Tick, untick or archive one |
-| `supercharge notes [--project <p> \| --global \| --all] [--archived] [--json]` | The board as text: todos `[ ]`/`[x]` with ids, then notes |
 
 Exit codes:
 
@@ -248,12 +282,13 @@ hostname = "supercharge.localhost"
 profile = "main"
 autoStart = true                   # start `aoe serve --daemon` when needed
 addTimeoutSeconds = 300            # how long `aoe add` (it makes the worktree) may take
+deleteTimeoutSeconds = 600         # how long AoE may take to delete a session for good (cleanup)
 
 [agent]
 workerPermissionMode = "plan"      # plan | default | acceptEdits | auto
 controlModel = "opus"              # new control chats; "" = your Claude Code default
 controlEffort = "xhigh"            # new control chats: low | medium | high | xhigh | max
-model = ""                         # workers started without --model
+model = "opus"                     # workers started without --model
 effort = "default"                 # workers started without --effort
 extraArgs = []
 
@@ -310,12 +345,14 @@ latitude = 59.33
 longitude = 18.07
 
 [office]
+enabled = false                    # the Office view (sidebar and /office); its clocks and cost alerts run either way
 windows = "activity"               # or "weather": the real sky at home in the windows
 
 [projects.my-repo]                 # per-project overrides
 baseBranch = "develop"
 gitlabHost = "gitlab.example.com"
 # mr = "none"                      # this project merges branches without merge requests
+# autonomousSince / autonomousUntil  # autonomous mode; set from the project's settings page
 ```
 
 Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **Restart** button. Everything else reloads live.
@@ -324,7 +361,18 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
 
 `http://supercharge.localhost:4280`. Dark by default, with a light mode. It's built to be read from across a desk.
 
-- **Needs you** (pinned): blocked questions, approvals or input waiting in AoE, control chats waiting on you or that have replied (a reply is marked read as soon as you have its chat open and visible; the chat's side panel also has a Dismiss button), session errors, MRs ready for review, MRs closed, scheduled prompts that failed. Oldest first, each one click from its context.
+- **Needs you** (pinned): blocked questions, approvals or input waiting in AoE, control chats waiting on you or that have replied (a reply is marked read as soon as you have its chat open and visible), session errors, MRs ready for review, MRs closed, scheduled prompts that failed. Oldest first, each one click from its context. Every item has a Dismiss button (×): it stays away until something new happens on it (a new question, a new wait, a newer reply). Items clear by themselves once their task is done or cleaned up; archived workers give none, and a control chat's item about a worker that is done, archived or cleaned up clears too.
+  - **Seen on visit:** an item counts as seen once you have opened the chat, task or project page it belongs to, or any page with the Needs-you list, while the dashboard is in front of you. Seen items drop out of the sidebar's badges, the count in the tab title and the red badge on the tab icon until something new happens on them. The list still shows them, greyed. This is kept per browser.
+  - **Desktop notifications** (one per new item; the per-type switches are under Settings):
+
+    | | What you get | A click |
+    |---|---|---|
+    | A dashboard tab is open with browser notifications allowed | The tab shows a browser notification, and the daemon sends none of its own. None for the page you are on. | Focuses the tab and opens the item |
+    | No such tab, macOS, `terminal-notifier` installed | The daemon's notification through terminal-notifier (optional, never required: `brew install terminal-notifier`) | Opens the item in your browser |
+    | No such tab, macOS | The daemon's notification through osascript | Opens nothing useful |
+    | No such tab, Linux | notify-send | — |
+
+    Allow browser notifications with **Allow browser notifications** in Settings; the dashboard also asks once on your first click. On macOS, the browser itself must be allowed under System Settings → Notifications.
 - **Sidebar:** projects, then each control chat, then its workers. Every row shows a status icon and stage. Then **General** (chats with no project, and the General control chat; see [General chats](#general-chats-no-project)). Your other AoE sessions are grouped under their parent too.
 - **Project page:** a **New task** button that starts a worker from a form, the control chat's live status and a rollup of its workers, then a worker list showing:
   - stage stepper,
@@ -338,14 +386,15 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - `aoe session attach` command and Open in AoE,
   - an explicit, confirmed **Reply**.
 - **Chat** (`/chat/<session>`, and a task's Chat tab): the conversation, read from Claude Code's transcript, and a box to write in.
-   - While Claude is working, **Send holds** your message in Supercharge instead of typing it into the turn. It shows in the chat as held, with **Edit** (it goes back into the box) and **Cancel**, and the daemon types it in once Claude is done: one per turn, in order. Held messages, with their images and files, survive a reload and a closed tab.
-  - The caret beside Send has **Send now** (Claude reads it during this turn, as Claude Code does) and **Interrupt and send** (Escape stops Claude, then it goes in). A menu on screen is never typed over; answer it on the card that replaces the composer. Every message is audited when it is typed in.
+   - A message is always accepted. While Claude is working, **Send** (and Enter) types it in now, and Claude reads it during the turn, as Claude Code does. The caret beside Send has **Send when Claude is done** and **Interrupt and send** (Escape stops Claude, then it goes in).
+  - A message that can't go in now is **queued** in Supercharge, never refused: while a menu is on screen (its card shows above the box, which stays usable), while AoE won't hand over the typing lock, while an interrupt is under way, or behind other queued messages. It shows in the chat as queued, with **Edit** (it goes back into the box) and **Cancel**, and the daemon types it in once the session is free: one per turn, in order. Queued messages, with their images and files, survive a reload and a closed tab. A menu is never typed over. Every message is audited when it is typed in.
+  - An answer card's options are answers, not actions: picking one runs nothing. Any option can carry a note, sent with it (a worker's question) or after it (a Claude Code menu). A shell block in a worker's question gets **Run**.
   - **Terminal** (top right, next to Chat) is the session's own terminal, live: what Claude Code shows, in colour, and every key you press goes straight in (arrows, Enter, Escape, Tab, Ctrl-C, paste), as if you were attached. Keys typed there skip the checks a sent message gets: they are not audited one by one (each time the terminal opens is, as `terminal_opened`) and nothing stops them while a menu is open. If the session is open in AoE's web view, that has the keyboard until you press **Take over**. While you are attached to the session in a terminal (`aoe session attach`), the dashboard shows it at your terminal's size and never resizes it.
   - **Attach terminal** (in the ⋯ menu at the top right of a chat) opens a new tab in iTerm2, or Terminal when iTerm2 is not installed, running `aoe session attach -p <profile> <session>`. The first time, macOS asks whether Supercharge may control iTerm2 (or Terminal); allow it. The daemon runs as a launchd service, so the question names the program it runs as rather than Supercharge. If you said no, turn it back on in System Settings → Privacy & Security → Automation. On Linux, or when it can't open a tab, it copies the command instead and says why.
-  - **Attachments** go with the message you are writing, as many as you like, and Send sends the text and all of them as one message. Paste, drop or pick any file (up to 20 MB each, zips included); a pasted or picked image opens to be marked up first, and **Attach** (or Enter) puts it in the box. **Attach a path…** in the paperclip menu takes a file or folder already on this computer (`/Users/you/project/docs`, `~/Downloads/logs.zip`), checked before it is attached; nothing is copied. A browser can't upload a dropped folder, so dropping one opens that instead. Each attachment rides in the message as an ``Attached: `<path>` `` line that Claude opens with its file tool.
+  - **Attachments** go with the message you are writing, as many as you like, and Send sends the text and all of them as one message. Paste, drop or pick any file (up to 20 MB each, zips included); a pasted or picked image opens to be marked up first, and **Attach** (or Enter) puts it in the box. **Attach a path…** in the paperclip menu takes a file or folder already on this computer (`/Users/you/project/docs`, `~/Downloads/logs.zip`), checked before it is attached; nothing is copied. A browser can't upload a dropped folder, so dropping one opens that instead. A pasted, dropped or picked file's path goes into the text where the caret was (a marked-up image's right after the message written with it), so you can say what it is for; an attachment whose path is not in the text rides as an ``Attached: `<path>` `` line. Claude opens either with its file tool.
   - The **context ring** opens the figures behind it: tokens used of the window, the model, the last request's input, output and cache, and when Claude Code compacts. They are Claude Code's own when its status line reports them (Supercharge's status line, `agent.statusLine`), and otherwise an estimate from the transcript.
   - What needs you stands out: a report's 🔴 NEEDS YOU, 🟡 WORKING and ✅ DONE sections, watch notices, and errors each sit on a shade of their colour.
-- **Office** (`/office`): every worker stands where its status puts it.
+- **Office** (`/office`, when **Show the Office** is on in Settings › Office, `office.enabled`; off by default): every worker stands where its status puts it.
   - Everyone who needs you stands in line at your door, in single file between brass posts and ropes, blockers first, then oldest first, with the reason over their heads.
   - Every project has a room of its own, behind low glass with its name over the doorway. Working workers sit at their own desk in their project's room; the control chat is the team lead at the head desk.
   - Workers with an MR out wait in the **review lounge**, round the pool table, holding a folder: green when it is ready for review, amber while the pipeline runs or review threads are open, red when the pipeline failed or the MR was closed. A badge under each shows the MR number, the pipeline and the open threads; click it to open the MR. An MR ready for review still shows in Needs you, but no longer queues at your door. On a project without merge requests, a worker whose branch is ready to merge waits there too, with a green folder, "Branch ready to merge", and its branch name instead of an MR badge.
@@ -367,7 +416,6 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - Keys on the floor: arrows or WASD to move, + and - to zoom, 0 for the whole office, F to follow, Escape to close the card.
   - **List** in the top bar shows the same people as a plain list. Without WebGL or a canvas, the page shows the list with a note.
   - Put your name on the door under Settings, Appearance. **Show in office** in any worker's right-click menu jumps to them.
-  - The **whiteboard** by your door has your todos and notes. Click it to zoom in and open it: tick, archive or add one.
   - **New window** opens the office on its own, to keep on another screen.
   - The daemon keeps an **office history**: who went where and when, one file per day, for 30 days (`office.history.retentionDays`).
 - **Chat** (each session, `/chat/<id>`): Claude's replies, with **Run** on every shell block and on inline `` `! command` ``. Run asks first, says where the command runs, and offers:
@@ -376,8 +424,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - **Run in a new terminal:** a terminal of its own, right under the command. You see the output, scroll back and answer its prompts; it stays, across reloads, until you close it. Each is one of AoE's extra paired terminals for the session, in the session's folder.
 
   Enter runs the highlighted choice (the one you used last; Run in chat at first) and Escape cancels. A command that can lose work for good (`aoe rm --purge`, `--delete-worktree`, `--delete-branch`, `aoe session empty-trash`, `rm -rf`, `git reset --hard`, `git push --force`, `git branch -D`, `git clean -f` and a few more) gets a red warning saying what it deletes, and Enter cancels it. Every run is audited (`command_run`).
-- **Control chat side panel:** what needs you, then **Plans**, **Comments**, **Watch** and **Shell**. It opens on Shell, the control chat's own shell in its folder: **Clear** clears the screen (Ctrl-L; the scrollback stays), **Restart** closes the shell and starts a fresh one. Notes have their own page.
-- **Notes** (`/notes`, under Office): every project's todos and notes, then the global ones. Add one, tick a todo, **Archive** it (or all the ticked ones at once); **Archived** lists them, to restore.
+- **Control chat side panel:** what needs you, then **Plans**, **Comments**, **Watch** and **Shell**. It opens on Shell, the control chat's own shell in its folder: **Clear** clears the screen (Ctrl-L; the scrollback stays), **Restart** closes the shell and starts a fresh one.
 - **Schedules** (`/schedules`): prompts sent to a chat at a set time each day (see [Scheduled prompts](#scheduled-prompts)). Add, edit, delete, turn one off, or **Run now**.
 - **Settings:** every config key, validated, with restart handling.
 
@@ -403,9 +450,9 @@ For tasks in `mr_raised`, `watching_mr` or `ready_for_review`, the daemon checks
 
 The rules:
 
-- **Ready:** the MR is open, its pipeline passed, and zero threads are unresolved. The task moves to `ready_for_review` and you get a desktop notification (osascript or notify-send; toggleable).
+- **Ready:** the MR is open, its pipeline passed, and zero threads are unresolved. The task moves to `ready_for_review` and you get a desktop notification (from the dashboard tab, or osascript or notify-send; toggleable).
 - **Merged:** the task moves to `done`.
-- **Ready, then a new thread or pipeline appears:** the task goes back to `watching_mr`.
+- **Ready, then a new thread or pipeline appears:** the task goes back to `watching_mr`. A new thread also sends the control chat a `kind=threads` watch notice with the MR and its unresolved count.
 
 Self-hosted GitLab works: add the host to `mr.gitlab.hosts` and log in with `glab auth login --hostname <host>`. GitHub Enterprise works the same way with `mr.github.hosts` and `gh auth login --hostname <host>`.
 
@@ -421,6 +468,7 @@ Self-hosted GitLab works: add the host to `mr.gitlab.hosts` and log in with `gla
   - Every cookie-authenticated write needs a CSRF token plus a matching `Origin`.
 - **AoE token:** read server-side only (`aoe url --token-only`) and never sent to the browser. Logs redact anything token-shaped.
 - **Prompts to agents** (`reply`) always require confirmation and are appended to `~/.local/state/supercharge/audit.jsonl`.
+- **Sessions can reach the daemon too.** Every Claude session runs as you, so it can read `auth.token` and call the daemon's API. The control chat's guard and autonomous mode's limits keep an honest agent on track; they don't stop one that sets out to get around them.
 - **Attach terminal** runs `osascript` on your Mac. The browser sends only a session id, which must be one of yours; the daemon builds the command and passes it to the script as an argument, never inside it. Each one is audited (`session_attach`).
 
 ## AoE versions
@@ -445,13 +493,13 @@ To go back to a tested AoE, reinstall that release: `curl -fsSL …/scripts/inst
 
 ```
 ~/.config/supercharge/            config.toml, auth.token (0600)
-~/.local/share/supercharge/       projects/<p>/project.json, tasks/<id>/{task.json, plan.md, session-prompt.md}, notes/{<p>,_global}.json, office/office.json,
+~/.local/share/supercharge/       projects/<p>/project.json, tasks/<id>/{task.json, plan.md, session-prompt.md}, office/office.json,
                                   schedules.json (scheduled prompts)
                                   general/{general.json, control-prompt.md, session-prompt.md}
 ~/.local/state/supercharge/       logs/daemon.log (rotated), audit.jsonl, daemon.json, compat.local.json, history/YYYY-MM-DD.jsonl,
                                   held.json (held messages), context/<conversation>.json (Claude Code's context figures, 7 days),
                                   terminals.json (terminals opened by Run)
-~/.claude/skills/supercharge-*    user-level skills, and note, todo, gnote (marker-owned; your own edits are never overwritten)
+~/.claude/skills/supercharge-*    user-level skills (marker-owned; your own edits are never overwritten)
 ~/Library/LaunchAgents/com.github.xsoladdd.aoe-supercharge.plist     (macOS)
 ~/.config/systemd/user/aoe-supercharge.service                       (Linux)
 ```

@@ -41,6 +41,7 @@ import {
   type Snapshot,
   mrLabel,
   splitAttachments,
+  keepNewPaths,
   withAttachments,
   type MrState,
 } from '@aoe-supercharge/core/shared';
@@ -286,7 +287,15 @@ function UserBubble({ text, note }: { text: string; note?: string }) {
       {images.length > 0 && (
         <div className="flex max-w-[85%] flex-wrap justify-end gap-2">
           {images.map((f) => (
-            <a key={f.path} href={f.url!} target="_blank" rel="noreferrer" title={f.name}>
+            // A lazy image has no size until it loads: keep the link a 24px target meanwhile.
+            <a
+              key={f.path}
+              href={f.url!}
+              target="_blank"
+              rel="noreferrer"
+              title={f.name}
+              className="block min-h-[max(1.5rem,24px)] min-w-[max(1.5rem,24px)]"
+            >
               <img
                 src={f.url!}
                 alt={f.name}
@@ -580,6 +589,11 @@ function ChatComposer({
   const [draft] = useDraft(sessionId);
   const uploading = useUploads(sessionId);
   const [editing, setEditing] = useState<{ file: File; caret: Caret }[]>([]);
+  // The box as the mark-up dialog found it: files that land while it is open are kept on Attach.
+  const editStart = useRef('');
+  useEffect(() => {
+    editStart.current = value;
+  }, [editing[0]?.file]);
   const [dragging, setDragging] = useState(false);
   const [askPath, setAskPath] = useState(false);
   const picker = useRef<HTMLInputElement>(null);
@@ -635,8 +649,11 @@ function ChatComposer({
     }
   };
 
-  /** Send the box and every attachment as one message. Enter and Send interrupt while Claude works. */
-  const deliver = async (text: string, mode: SendMode = working ? 'interrupt' : 'hold') => {
+  /**
+   * Send the box and every attachment as one message. While Claude works, Enter and Send type it in now
+   * (Claude Code reads it during the turn); otherwise it is queued while a menu or others wait.
+   */
+  const deliver = async (text: string, mode: SendMode = working ? 'now' : 'hold') => {
     if (sending) return false;
     setSending(true);
     setError(null);
@@ -816,8 +833,18 @@ function ChatComposer({
         initialText={value}
         onClose={() => setEditing((q) => q.slice(1))}
         onAttach={(png, text) => {
-          uploads.add(sessionId, png, 'screenshot.png', editing[0]?.caret);
-          onChange(text);
+          const caret = editing[0]?.caret;
+          // The image's path goes right after the message written with it, then any files that landed.
+          if (caret) caret.at = text.length;
+          uploads.add(sessionId, png, 'screenshot.png', caret);
+          onChange(
+            keepNewPaths(
+              text,
+              editStart.current,
+              value,
+              draft.files.map((f) => f.path),
+            ),
+          );
           setEditing((q) => q.slice(1));
         }}
       />
@@ -1003,7 +1030,7 @@ function StartFresh({
   };
   const kept =
     role.kind === 'control'
-      ? 'Your tasks, workers, plans and notes stay in Supercharge, and the control chat catches up from them when you next ask it something.'
+      ? 'Your tasks, workers, plans and comments stay in Supercharge, and the control chat catches up from them when you next ask it something.'
       : role.kind === 'worker'
         ? `${role.taskId}'s brief, stage and approved plan stay in Supercharge; the worker reads them back with supercharge whoami.`
         : 'Nothing is kept for this session: it is not part of a Supercharge project.';
@@ -1126,7 +1153,9 @@ function ChatHeader({
           size="sm"
           className="h-8"
           aria-pressed={panel.open}
-          title={panel.open ? 'Hide the project panel' : 'Show the project panel: notes, plans and comments'}
+          title={
+            panel.open ? 'Hide the project panel' : 'Show the project panel: plans, comments, watch and shell'
+          }
           onClick={panel.toggle}
         >
           <SidebarSimpleIcon className="size-4 -scale-x-100" weight={panel.open ? 'fill' : 'regular'} />
@@ -1535,13 +1564,14 @@ export function SessionChat({
           <div className={cn(view === 'terminal' && 'pt-3')}>
             {session.archived ? (
               <ArchivedNotice session={session} />
-            ) : session.prompt ? (
-              // While a menu is open a typed message would pick its highlighted option, so answer it here instead.
-              <div className="mx-auto max-h-[62dvh] w-full max-w-3xl overflow-y-auto overscroll-contain px-4 pb-3">
-                <PromptCard session={session} onAnswered={onAnswered} />
-              </div>
             ) : (
               <>
+                {session.prompt && (
+                  // Answered here; a message written meanwhile is queued until the menu is answered.
+                  <div className="mx-auto max-h-[45dvh] w-full max-w-3xl overflow-y-auto overscroll-contain px-4 pb-3">
+                    <PromptCard session={session} onAnswered={onAnswered} />
+                  </div>
+                )}
                 {role.kind === 'control' && chat && <ControlModelNotice session={session} chat={chat} />}
                 <ChatComposer
                   session={session}

@@ -50,6 +50,11 @@ export interface TransitionContext {
   hasMr: boolean;
   question?: string | null;
   force?: boolean;
+  /**
+   * done: the worker closes its own task, which has nothing to merge (a read-only or report task). The
+   * caller checks that first: no commits ahead of the base, a clean worktree, no open MR.
+   */
+  nothingToMerge?: boolean;
 }
 
 export type TransitionResult =
@@ -139,13 +144,17 @@ export function transition(
       allowed,
     };
   }
-  if (!edge.actors.includes(actor)) {
+  const closesOwn = to === 'done' && actor === 'worker' && !!ctx.nothingToMerge;
+  if (!edge.actors.includes(actor) && !closesOwn) {
     const daemonOnly = edge.actors.length === 1 && edge.actors[0] === 'daemon';
     return {
       ok: false,
       reason: daemonOnly
         ? `${STAGE_LABEL[to]} ${DAEMON_ONLY_HINT}.`
-        : `Only ${edge.actors.join('/')} can move a task to ${STAGE_LABEL[to]}.`,
+        : `Only ${edge.actors.join('/')} can move a task to ${STAGE_LABEL[to]}.` +
+          (to === 'done' && actor === 'worker'
+            ? ' With nothing to merge (a read-only or report task): supercharge stage done --nothing-to-merge'
+            : ''),
       allowed,
       daemonOnly,
     };

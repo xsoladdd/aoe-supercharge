@@ -3,14 +3,16 @@ import { realpathSync } from 'node:fs';
 import { copyFile, open, readFile, rm, stat, watch as fsWatch } from 'node:fs/promises';
 import { Command, Option } from 'commander';
 import {
+  appendAudit,
+  autonomous,
   ensureConfigFile,
   ensureToken,
   getByPath,
   loadConfig,
+  readAudit,
   resolvePaths,
   setConfigValue,
   ConfigValidationError,
-  type NoteChange,
 } from '@aoe-supercharge/core/node';
 import {
   isStage,
@@ -19,7 +21,6 @@ import {
   relativeTime,
   STAGE_LABEL,
   STAGES,
-  type NoteRecord,
   type ProjectStatus,
   type SessionView,
   type UsageReport,
@@ -28,17 +29,18 @@ import { cleanupAllDone, cleanupTask } from './cleanup.ts';
 import { checkAoeCompat, createCtx, dashboardOrigin, VERSION, type Ctx } from './context.ts';
 import { aoeUpgrade } from './commands/aoe-upgrade.ts';
 import { printDoctor, runDoctor } from './commands/doctor.ts';
+import { guard } from './guard.ts';
 import { proxyCommand } from './commands/proxy.ts';
 import { runDaemon } from './daemon/index.ts';
 import { serviceManager, servicePathEnv } from './service/index.ts';
 import { listGeneral, sendToGeneral, type NewGeneralSession } from './general.ts';
-import { findNote, formatNotes, noteAuthor, noteScope, type ScopeOpts } from './notes.ts';
 import { installUserSkills, removeUserSkills } from './skills.ts';
 import { connectStatusLine, disconnectStatusLine, statusLine, statusLineConnected } from './statusline.ts';
 import { buildProjectStatus } from './status.ts';
 import { daemonHealth, daemonRequest, waitForDaemon } from './util/daemon-client.ts';
 import { CliError, EXIT } from './util/errors.ts';
 import { which } from './util/exec.ts';
+import { signalExitCode, trapSignals } from './util/signals.ts';
 import { c, confirm, json, out, readStdin, sym } from './util/term.ts';
 import {
   askQuestion,
@@ -46,6 +48,7 @@ import {
   findTask,
   initProject,
   newTask,
+  reopenTask,
   replyToTask,
   resolveProject,
   savePlan,
@@ -121,8 +124,14 @@ export function buildProgram(): Command {
       out(`${sym.ok} Service installed (${svc.kind}): ${svc.file}`);
       for (const s of skills.filter((k) => k.state === 'installed' || k.state === 'updated'))
         out(`${sym.ok} Skill ${s.state}: ${s.dir}`);
+      for (const s of skills.filter((k) => k.state === 'retired'))
+        out(`${sym.ok} Removed the retired /${s.name} skill: ${s.dir}`);
       for (const s of skills.filter((k) => k.state === 'user-modified' || k.state === 'user-owned'))
-        out(`${sym.warn} Left your ${s.name} skill alone (${s.state})`);
+        out(
+          s.retired
+            ? `${sym.warn} Left your edited /${s.name} skill alone; Supercharge no longer ships it: ${s.dir}`
+            : `${sym.warn} Left your ${s.name} skill alone (${s.state})`,
+        );
       if (await waitForDaemon(x)) {
         out(`${sym.ok} Dashboard: ${dashboardOrigin(x.config)}`);
         out(`  Sign in on this machine with: ${c.bold('supercharge open')}`);
@@ -335,9 +344,7 @@ export function buildProgram(): Command {
 
   program
     .command('remove-project <name>')
-    .description(
-      'forget a project (its tasks, plans, comments and notes); --sessions also deletes them in AoE',
-    )
+    .description('forget a project (its tasks, plans and comments); --sessions also deletes them in AoE')
     .option('--sessions', 'also delete its control chat and worker sessions in AoE')
     .option('--worktrees', 'with --sessions: delete their worktrees too')
     .option('--branches', 'with --sessions: delete their branches too')
@@ -378,7 +385,7 @@ export function buildProgram(): Command {
       out(`${sym.ok} Removed ${svc.file}`);
       for (const s of await removeUserSkills(x.paths, VERSION)) {
         out(
-          s.state === 'missing'
+          s.state === 'missing' || s.state === 'retired'
             ? `${sym.ok} Removed skill ${s.dir}`
             : `${sym.info} Kept ${s.dir} (${s.state})`,
         );
@@ -452,18 +459,49 @@ export function buildProgram(): Command {
         const x = await ctx();
         const brief = o.briefFile ? await readFile(o.briefFile, 'utf8') : o.brief;
         const who = await whoami(x, cwd()).catch(() => null);
-        const t = await newTask(x, {
-          cwd: cwd(),
-          title,
-          project: o.project,
-          brief,
-          base: o.base,
-          model: o.model,
-          effort: o.effort,
-          permissionMode: o.permissionMode,
-          force: o.force,
-          actor: who?.role === 'control' ? 'control' : 'user',
-        });
+        // The daemon sends a control chat's new worker its first message: no need to hold the chat 30 s.
+        const control = who?.role === 'control';
+        const kickoff = control && (await daemonHealth(x)) ? { timeoutMs: 0 } : undefined;
+        // Interrupted (Ctrl-C, a kill, a closed terminal): roll the start back instead of leaving half a task.
+        let starting: string | null = null;
+        const trap = trapSignals(() =>
+          process.stderr.write(
+            `${sym.warn} Stopped before the rollback finished${starting ? ` (${starting})` : ''}: check "aoe list" and "git branch".\n`,
+          ),
+        );
+        let t: Awaited<ReturnType<typeof newTask>>;
+        try {
+          t = await newTask(x, {
+            cwd: cwd(),
+            title,
+            project: o.project,
+            brief,
+            base: o.base,
+            model: o.model,
+            effort: o.effort,
+            permissionMode: o.permissionMode,
+            force: o.force,
+            actor: control ? 'control' : 'user',
+            kickoff,
+            signal: trap.signal,
+            // On stderr, so --json output stays one document.
+            onStart: ({ id, branch, baseBranch }) => {
+              starting = `${id} on ${branch}`;
+              process.stderr.write(
+                `${sym.info} Starting ${id} on ${branch} (from ${baseBranch}); aoe add makes the worktree, which can take a few minutes.\n`,
+              );
+            },
+          });
+        } catch (e) {
+          // Rolled back: exit as a stopped process does (130 for Ctrl-C), not as a failure.
+          const sig = trap.caught();
+          if (sig && e instanceof CliError) e.exitCode = signalExitCode(sig);
+          throw e;
+        } finally {
+          trap.dispose();
+          const sig = trap.caught();
+          if (sig) process.exitCode = signalExitCode(sig);
+        }
         if (o.json)
           return json({
             id: t.id,
@@ -506,18 +544,66 @@ export function buildProgram(): Command {
     });
 
   task
-    .command('cleanup [task-id]')
+    .command('quiet <task-id>')
     .description(
-      'remove a finished worker: its AoE session, worktree and branch. Refuses unless its work has landed on origin/<its base branch> (merged, cherry-picked or squashed) or in its merged pull request, and the worktree is clean',
+      'no stalled notices for a worker you parked on purpose (e.g. waiting on a reviewer); questions and the rest still come',
     )
     .option('-p, --project <name>', 'project (default: the one for this repository)')
-    .option('--all-done', 'every done task of the project; the ones that are not safe are skipped')
+    .option('--off', 'send its stalled notices again')
+    .action(async (taskId: string, o: { project?: string; off?: boolean }) => {
+      const x = await ctx();
+      const project = (await resolveProject(x, cwd(), o.project)).name;
+      const id = taskId.toUpperCase();
+      if (!(await x.ledger.getTask(project, id)))
+        throw new CliError(`Unknown task ${id} in ${project}.`, EXIT.usage);
+      await x.ledger.updateTask(project, id, (t) => ({ ...t, quiet: !o.off }));
+      out(`${sym.ok} ${id} ${o.off ? 'sends stalled notices again' : 'is quiet: no stalled notices'}`);
+    });
+
+  task
+    .command('reopen <task-id>')
+    .description(
+      'reopen a done task for follow-up work: back to implementing (and out of the archive), so it shows with the working workers again',
+    )
+    .option('-p, --project <name>', 'project (default: the one for this repository)')
+    .option('--note <text>', 'short note for the history')
+    .action(async (taskId: string, o: { project?: string; note?: string }) => {
+      const x = await ctx();
+      const who = await whoami(x, cwd()).catch(() => null);
+      const project = (await resolveProject(x, cwd(), o.project)).name;
+      const id = taskId.toUpperCase();
+      if (who?.role === 'worker' && who.task?.id !== id)
+        throw new CliError(`A worker reopens only its own task (${who.task?.id}).`, EXIT.usage);
+      const t = await reopenTask(x, {
+        project,
+        taskId: id,
+        actor: who?.role === 'worker' ? 'worker' : who?.role === 'control' ? 'control' : 'user',
+        via: 'cli',
+        note: o.note,
+      });
+      out(`${sym.ok} ${t.id} is reopened: ${c.bold(STAGE_LABEL[t.stage])}`);
+    });
+
+  task
+    .command('cleanup [task-id]')
+    .description(
+      'remove a finished (done, or archived) worker: its AoE session, worktree and branch. Refuses unless its work has landed on origin/<its base branch> (merged, cherry-picked or squashed) or in its merged pull request, and the worktree is clean',
+    )
+    .option('-p, --project <name>', 'project (default: the one for this repository)')
+    .option(
+      '--all-done',
+      'every done or archived task of the project; the ones that are not safe are skipped',
+    )
     .option('--dry-run', 'only check and say what would be removed')
+    .option(
+      '--discard',
+      'one task only: drop its commits that never landed (a results or report commit) instead of refusing; lists each one and writes them to the audit log',
+    )
     .option('--json', 'machine-readable output')
     .action(
       async (
         taskId: string | undefined,
-        o: { project?: string; allDone?: boolean; dryRun?: boolean; json?: boolean },
+        o: { project?: string; allDone?: boolean; dryRun?: boolean; discard?: boolean; json?: boolean },
       ) => {
         if (!taskId === !o.allDone)
           throw new CliError(
@@ -525,19 +611,27 @@ export function buildProgram(): Command {
             EXIT.usage,
             'supercharge task cleanup AS-0007',
           );
+        if (o.discard && !taskId)
+          throw new CliError('--discard takes one task id, not --all-done.', EXIT.usage);
         const x = await ctx();
         const project = (await resolveProject(x, cwd(), o.project)).name;
         const opts = { actor: 'cli' as const, dryRun: o.dryRun };
         const results = taskId
-          ? [await cleanupTask(x, project, taskId.toUpperCase(), opts)]
+          ? [await cleanupTask(x, project, taskId.toUpperCase(), { ...opts, discard: o.discard })]
           : await cleanupAllDone(x, project, opts);
         if (o.json) json(results);
         else {
-          if (!results.length) out(`${sym.info} No done tasks in ${project}.`);
+          if (!results.length) out(`${sym.info} No done or archived tasks in ${project}.`);
           for (const r of results) {
             if (r.removed) out(`${sym.ok} ${r.taskId} cleaned up (${r.branch}, ${r.landedBy})`);
+            else if (r.pending) out(`${sym.info} ${r.taskId}: ${r.reason}\n  ${r.hint}`);
             else if (r.ok) out(`${sym.info} ${r.taskId} is safe to clean up (${r.branch}, ${r.landedBy})`);
-            else {
+            if (r.ok && r.discarded?.length) {
+              out(`  ${r.removed ? 'Dropped' : 'Drops'} ${r.discarded.length} commit(s) that never landed:`);
+              for (const d of r.discarded) out(`    ${d}`);
+            }
+            for (const k of r.kept ?? []) out(`  ${sym.warn} kept ${k}`);
+            if (!r.ok) {
               out(`${sym.warn} ${r.taskId} not cleaned up: ${r.reason}`);
               for (const d of r.detail ?? []) out(`    ${d}`);
               if (r.hint) out(`  ${r.hint}`);
@@ -548,92 +642,6 @@ export function buildProgram(): Command {
         if (results.some((r) => !r.ok)) process.exitCode = EXIT.error;
       },
     );
-
-  // ── notes and todos (SPEC §14.6): the office whiteboard, Claude's /note, /todo and /gnote ──
-  const textOf = async (words: string[]) =>
-    words.length === 1 && words[0] === '-' ? readStdin() : words.join(' ');
-  const scoped = (cmd: Command) =>
-    cmd
-      .option('-p, --project <name>', 'for this project (default: the project of the folder you are in)')
-      .option('-g, --global', 'a global note, for no project in particular')
-      .option('--json');
-  const add = (kind: 'note' | 'todo') => async (words: string[], o: ScopeOpts & { json?: boolean }) => {
-    const x = await ctx();
-    const project = await noteScope(x, cwd(), o);
-    const added = await x.notes.add({ project, kind, text: await textOf(words), ...noteAuthor(x) });
-    if (o.json) return json(added);
-    out(`${sym.ok} ${kind === 'todo' ? 'Todo' : 'Note'} ${added.id} added to ${project ?? 'Global'}`);
-  };
-  const change =
-    (what: string, patch: (n: NoteRecord) => NoteChange) => async (id: string, o: { json?: boolean }) => {
-      const x = await ctx();
-      const note = await findNote(x, id);
-      const next = await x.notes.update(note.id, patch(note));
-      if (o.json) return json(next);
-      out(`${sym.ok} ${what} ${note.id}: ${note.text.split('\n')[0]}`);
-    };
-  const onlyTodo = (n: NoteRecord) => {
-    if (n.kind !== 'todo') throw new CliError(`${n.id} is a note, not a todo.`, EXIT.usage);
-  };
-
-  const note = program.command('note').description('add or archive notes (on the office whiteboard)');
-  scoped(note.command('add <text...>').description('add a note; "-" reads it from stdin')).action(
-    add('note'),
-  );
-  note
-    .command('archive <id>')
-    .description('take a note or todo off the board; it is kept, out of sight')
-    .option('--json')
-    .action(change('Archived', () => ({ archivedAt: new Date().toISOString() })));
-
-  const todo = program.command('todo').description('add, tick or reopen todos');
-  scoped(todo.command('add <text...>').description('add a todo; "-" reads it from stdin')).action(
-    add('todo'),
-  );
-  todo
-    .command('done <id>')
-    .description('tick a todo')
-    .option('--json')
-    .action(
-      change('Done', (n) => {
-        onlyTodo(n);
-        return { done: true };
-      }),
-    );
-  todo
-    .command('reopen <id>')
-    .description('untick a todo')
-    .option('--json')
-    .action(
-      change('Reopened', (n) => {
-        onlyTodo(n);
-        return { done: false };
-      }),
-    );
-
-  program
-    .command('notes')
-    .description("list notes and todos: this project's and the global ones")
-    .option('-p, --project <name>', "this project's and the global ones")
-    .option('-g, --global', 'only the global ones')
-    .option('-a, --all', "every project's")
-    .option('--archived', 'the archived ones instead')
-    .option('--json')
-    .action(async (o: ScopeOpts & { all?: boolean; archived?: boolean; json?: boolean }) => {
-      const x = await ctx();
-      const scope = o.all ? undefined : await noteScope(x, cwd(), o).catch(() => undefined);
-      const notes = (await x.notes.all()).filter(
-        (n) =>
-          !!n.archivedAt === !!o.archived &&
-          (scope === undefined || n.project === null || n.project === scope),
-      );
-      if (o.json) return json(notes);
-      if (!notes.length)
-        return out(
-          o.archived ? 'Nothing archived.' : 'No notes yet. Add one with: supercharge note add "<text>"',
-        );
-      for (const l of formatNotes(notes)) out(l);
-    });
 
   program
     .command('whoami')
@@ -647,6 +655,48 @@ export function buildProgram(): Command {
       if (who.task) out(`task     ${who.task.id} ${who.task.title} (${STAGE_LABEL[who.task.stage]})`);
       out(`branch   ${who.branch ?? 'none'}`);
       out(`merge    ${who.merge === 'branch' ? 'branch (no merge requests)' : 'merge request'}`);
+      if (who.autonomous.on) out(`auto     autonomous until ${who.autonomous.until}`);
+    });
+
+  // ── audit log: who did what. Autonomous mode's morning summary is read from it. ──
+  const audit = program
+    .command('audit')
+    .description('show the audit log, oldest first; "audit note" records a decision')
+    .option('-p, --project <name>', 'only this project')
+    .option('--since <time>', 'only entries from then on (an ISO time, like 2026-11-12T22:00:00Z)')
+    .option('--json')
+    .action(async (o: { project?: string; since?: string; json?: boolean }) => {
+      const since = o.since ? Date.parse(o.since) : 0;
+      if (Number.isNaN(since))
+        throw new CliError(
+          `"${o.since}" is not a time.`,
+          EXIT.usage,
+          'Use an ISO time, like 2026-11-12T22:00:00Z.',
+        );
+      const entries = await readAudit(resolvePaths(), { project: o.project, since });
+      if (o.json) return json(entries);
+      for (const e of entries)
+        out(
+          [e.at, e.actor, e.action, e.taskId, e.text?.split('\n')[0], e.details && JSON.stringify(e.details)]
+            .filter(Boolean)
+            .join('  '),
+        );
+    });
+  audit
+    .command('note <text...>')
+    .description("record a decision (the control chat's, in autonomous mode) in the audit log")
+    .option('-p, --project <name>', 'for this project (default: the project of the folder you are in)')
+    .action(async (words: string[], o: { project?: string }) => {
+      const x = await ctx();
+      const who = await whoami(x, cwd());
+      await appendAudit(x.paths, {
+        actor: who.actor,
+        action: 'decision',
+        project: o.project ?? who.project,
+        sessionId: who.sessionId,
+        text: words.join(' '),
+      });
+      out(`${sym.ok} Recorded`);
     });
 
   program
@@ -654,27 +704,34 @@ export function buildProgram(): Command {
     .description(`report a stage change: ${STAGES.join(' | ')}`)
     .option('--note <text>', 'short note for the history')
     .option('--mr <url>', 'merge request URL (for mr_raised)')
-    .addOption(new Option('--force', 'skip transition checks (reopening, corrections)').hideHelp())
-    .action(async (stage: string, o: { note?: string; mr?: string; force?: boolean }) => {
-      if (!isStage(stage))
-        throw new CliError(`Unknown stage "${stage}".`, EXIT.usage, `Stages: ${STAGES.join(', ')}`);
-      const t = await stageTask(await ctx(), {
-        cwd: cwd(),
-        stage,
-        note: o.note,
-        mrUrl: o.mr,
-        force: o.force,
-      });
-      out(`${sym.ok} ${t.id} is now ${c.bold(STAGE_LABEL[t.stage])}`);
-      if (t.stage === 'mr_raised')
-        out(
-          `  Supercharge watches ${t.mr?.url} from here; it moves the task to Ready for review when it is.`,
-        );
-      if (t.stage === 'ready_for_review' && !t.mr)
-        out(
-          `  ${t.branch} waits to be merged into ${t.baseBranch}; Supercharge marks the task done once it lands there.`,
-        );
-    });
+    .option(
+      '--nothing-to-merge',
+      'with done: close a task that has nothing to merge (a read-only or report task); refused if the branch has commits, the worktree has files, or a merge request is open',
+    )
+    .addOption(new Option('--force', 'skip transition checks (corrections)').hideHelp())
+    .action(
+      async (stage: string, o: { note?: string; mr?: string; force?: boolean; nothingToMerge?: boolean }) => {
+        if (!isStage(stage))
+          throw new CliError(`Unknown stage "${stage}".`, EXIT.usage, `Stages: ${STAGES.join(', ')}`);
+        const t = await stageTask(await ctx(), {
+          cwd: cwd(),
+          stage,
+          note: o.note,
+          mrUrl: o.mr,
+          force: o.force,
+          nothingToMerge: o.nothingToMerge,
+        });
+        out(`${sym.ok} ${t.id} is now ${c.bold(STAGE_LABEL[t.stage])}`);
+        if (t.stage === 'mr_raised')
+          out(
+            `  Supercharge watches ${t.mr?.url} from here; it moves the task to Ready for review when it is.`,
+          );
+        if (t.stage === 'ready_for_review' && !t.mr)
+          out(
+            `  ${t.branch} waits to be merged into ${t.baseBranch}; Supercharge marks the task done once it lands there.`,
+          );
+      },
+    );
 
   program
     .command('ask <question>')
@@ -828,6 +885,20 @@ export function buildProgram(): Command {
     });
 
   program
+    .command('guard', { hidden: true })
+    .description('Claude Code hook: stops a control chat removing workers itself')
+    .action(async () => {
+      // No ctx(), and a failure lets the command through: a broken guard must never stall a session.
+      const why = await guard(resolvePaths(), await readStdin(), process.env.AOE_INSTANCE_ID).catch(
+        () => null,
+      );
+      if (why) {
+        process.stderr.write(`${why}\n`);
+        process.exitCode = 2;
+      }
+    });
+
+  program
     .command('daemon', { hidden: true })
     .description('run the daemon in the foreground')
     .action(async () => {
@@ -862,21 +933,27 @@ async function statusProject(x: Ctx, name: string, asJson: boolean) {
   else {
     const project = await x.ledger.getProject(name);
     if (!project) throw new CliError(`Unknown project "${name}".`, EXIT.usage);
-    // Daemon down: read AoE directly. buildProjectStatus only needs id + status.
+    // Daemon down: read AoE directly. buildProjectStatus only needs id, status and archived.
     const sessions = await x.aoe
-      .listSessions()
-      .then((list) => list.map((s) => ({ id: s.id, status: normalizeAoeStatus(s.status) }) as SessionView))
+      .listSessions('all')
+      .then((list) =>
+        list.map(
+          (s) =>
+            ({ id: s.id, status: normalizeAoeStatus(s.status), archived: !!s.archived_at }) as SessionView,
+        ),
+      )
       .catch(() => null);
     st = buildProjectStatus(
       project,
       await x.ledger.listTasks(name),
       sessions,
       x.config.remoteControl.enabled,
+      autonomous(x.config, name),
     );
   }
   if (asJson) return json(st);
   out(
-    `${c.bold(st.project)}  control ${LIVE_STATUS_LABEL[st.control.status as keyof typeof LIVE_STATUS_LABEL] ?? st.control.status}${st.control.remoteControl ? ', Remote Control on' : ''}`,
+    `${c.bold(st.project)}  control ${LIVE_STATUS_LABEL[st.control.status as keyof typeof LIVE_STATUS_LABEL] ?? st.control.status}${st.control.remoteControl ? ', Remote Control on' : ''}${st.autonomous.on ? `, autonomous until ${st.autonomous.until}` : ''}`,
   );
   out(
     `  ${
@@ -907,12 +984,15 @@ async function statusOverview(x: Ctx, asJson: boolean) {
           aoe: { state: string; message: string | null; serveVersion: string | null };
           daemon: { rssMb: number };
         };
+        sessions: { id: string; archived: boolean }[];
       }>(x, 'GET', '/api/snapshot')
     : null;
   const installed = await x.aoeCli.version();
   const compat = await checkAoeCompat(x, installed);
   const projects = await x.ledger.listProjects();
-  const tasks = await x.ledger.listTasks();
+  // Archived workers are left out when the daemon can say which they are.
+  const archived = new Set(snap?.body?.sessions?.filter((s) => s.archived).map((s) => s.id));
+  const tasks = (await x.ledger.listTasks()).filter((t) => !archived.has(t.aoeSessionId));
   const data = {
     daemon: {
       running: !!health,

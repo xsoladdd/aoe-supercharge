@@ -13,12 +13,18 @@ import {
   XIcon,
   type Icon,
 } from '@phosphor-icons/react';
-import { isRelayed, relativeTime, type NeedsYouItem, type NeedsYouKind } from '@aoe-supercharge/core/shared';
+import {
+  isRelayed,
+  needsYouPath,
+  relativeTime,
+  type NeedsYouItem,
+  type NeedsYouKind,
+} from '@aoe-supercharge/core/shared';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Link } from 'wouter';
 import { ApiError, sendJson } from '@/lib/api';
-import { chatHref } from '@/lib/nav';
+import { seenBefore, useSeen } from '@/lib/seen';
 import { useNow } from '@/lib/theme';
 import { cn } from '@/lib/utils';
 
@@ -39,35 +45,22 @@ export const KIND: Record<NeedsYouKind, { icon: Icon; label: string; color: stri
   schedule_failed: { icon: AlarmIcon, label: 'Scheduled prompt failed', color: 'text-st-red' },
 };
 
-export function hrefFor(item: NeedsYouItem): string {
-  if (item.kind === 'schedule_failed') return '/schedules';
-  // Task items open the task page, whose first tab shows its question or menu with the answer.
-  if (item.project && item.taskId) return `/p/${item.project}/t/${item.taskId}`;
-  // Passed on by a control chat: the worker it is about, who has the answer cards.
-  if (item.relay)
-    return item.project && item.relay.taskId
-      ? `/p/${item.project}/t/${item.relay.taskId}`
-      : chatHref(item.relay.sessionId);
-  if (item.sessionId && item.kind.startsWith('control_')) return chatHref(item.sessionId);
-  if (item.project) return `/p/${item.project}`;
-  if (item.sessionId) return chatHref(item.sessionId);
-  return '/';
-}
+/** The page an item opens (shared with the daemon, whose notifications open it too). */
+export const hrefFor = needsYouPath;
 
 /**
- * Dismiss a "Control chat replied" item until the control chat replies again (SPEC §10.2). The only
- * kind you can dismiss: everything else clears when what it is about is done.
+ * Dismiss a Needs-you item until something new happens on it (SPEC §10.2): a new question, a new wait,
+ * a newer reply. It also clears by itself once what it is about is done.
  */
-export function DismissReply({ item, className }: { item: NeedsYouItem; className?: string }) {
+export function DismissItem({ item, className }: { item: NeedsYouItem; className?: string }) {
   const [busy, setBusy] = useState(false);
-  if (item.kind !== 'control_replied') return null;
   return (
     <button
       type="button"
       disabled={busy}
       data-dismiss={item.id}
-      aria-label={`Dismiss: ${item.title} replied`}
-      title="Dismiss until it replies again"
+      aria-label={`Dismiss: ${item.title}, ${KIND[item.kind].label}`}
+      title="Dismiss until something new happens"
       onClick={async () => {
         setBusy(true);
         try {
@@ -89,6 +82,7 @@ export function DismissReply({ item, className }: { item: NeedsYouItem; classNam
 
 export function NeedsYouStrip({ items }: { items: NeedsYouItem[] }) {
   const now = useNow();
+  const seen = useSeen();
   // What a control chat passes on is shown, but counted once: as its worker's own item.
   const count = items.filter((i) => !isRelayed(i)).length;
   return (
@@ -112,17 +106,26 @@ export function NeedsYouStrip({ items }: { items: NeedsYouItem[] }) {
         <ul className="-mx-1 flex snap-x gap-3 overflow-x-auto px-1 pb-2">
           {items.map((item) => {
             const k = KIND[item.kind];
+            // Seen on an earlier look: still listed, in a quieter style, until something new happens.
+            const old = seenBefore(seen, item);
             return (
-              <li key={item.id} className="relative w-[19rem] shrink-0 snap-start">
+              <li
+                key={item.id}
+                className="relative w-[19rem] shrink-0 snap-start"
+                data-seen={old || undefined}
+              >
                 <Link
                   href={hrefFor(item)}
-                  className="group flex h-full w-full flex-col gap-1.5 rounded-lg border border-border bg-card p-3.5 text-left transition-colors hover:border-border-strong hover:bg-raised"
+                  className={cn(
+                    'group flex h-full w-full flex-col gap-1.5 rounded-lg border border-border p-3.5 text-left transition-colors hover:border-border-strong hover:bg-raised',
+                    old ? 'bg-transparent' : 'bg-card',
+                  )}
                 >
                   <span className="flex items-center justify-between gap-2">
                     <span
                       className={cn(
-                        'tint inline-flex h-6 items-center gap-1.5 rounded-full px-2 text-[0.8125rem] font-medium',
-                        k.color,
+                        'inline-flex h-6 items-center gap-1.5 rounded-full px-2 text-[0.8125rem] font-medium',
+                        old ? 'bg-raised text-muted-foreground' : ['tint', k.color],
                       )}
                     >
                       <k.icon weight="fill" className="size-3.5" aria-hidden />
@@ -135,12 +138,16 @@ export function NeedsYouStrip({ items }: { items: NeedsYouItem[] }) {
                       {relativeTime(item.since, now)}
                     </span>
                   </span>
-                  <span className="min-w-0 truncate text-[0.9375rem] font-medium">{item.title}</span>
-                  <span className="line-clamp-2 text-sm break-words text-muted-foreground">
+                  <span
+                    className={cn('min-w-0 truncate text-[0.9375rem]', old ? 'font-normal' : 'font-medium')}
+                  >
+                    {item.title}
+                  </span>
+                  <span className="line-clamp-2 pr-7 text-sm break-words text-muted-foreground">
                     {item.detail}
                   </span>
                 </Link>
-                <DismissReply item={item} className="absolute right-2 bottom-2" />
+                <DismissItem item={item} className="absolute right-2 bottom-2" />
               </li>
             );
           })}

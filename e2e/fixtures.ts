@@ -40,6 +40,19 @@ export async function fake(path: string, init?: RequestInit): Promise<unknown> {
 
 export async function axe(page: Page, label: string) {
   await page.waitForTimeout(300);
+  // Popovers and menus fade in: on a slow runner axe would measure their text half-transparent. Wait
+  // for the finite animations (not spinners or pulses), at most 2 s.
+  await page.evaluate(() =>
+    Promise.race([
+      Promise.all(
+        document
+          .getAnimations()
+          .filter((a) => a.effect?.getComputedTiming().iterations !== Infinity)
+          .map((a) => a.finished.catch(() => undefined)),
+      ),
+      new Promise((r) => setTimeout(r, 2_000)),
+    ]),
+  );
   const results = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
     .analyze();

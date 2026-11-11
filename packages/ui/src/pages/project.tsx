@@ -2,6 +2,7 @@ import { PlusIcon, DotsThreeIcon, GearSixIcon, TerminalWindowIcon } from '@phosp
 import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import type { Snapshot, UsageReport } from '@aoe-supercharge/core/shared';
+import { AutonomousBanner } from '@/components/autonomous';
 import { ControlBox } from '@/components/control-box';
 import { NewTaskForm } from '@/components/new-task-form';
 import { sendJson } from '@/lib/api';
@@ -105,6 +106,10 @@ export function ProjectPage({
   }
   const done = view.counts.done;
   const archived = view.tasks.filter((t) => sessions.get(t.aoeSessionId)?.archived).length;
+  // What "Clean up all done" checks: done tasks, and archived ones that stopped before done.
+  const finished = view.tasks.filter(
+    (t) => t.stage === 'done' || sessions.get(t.aoeSessionId)?.archived,
+  ).length;
   return (
     <div className="space-y-6">
       <PageHeader
@@ -134,6 +139,7 @@ export function ProjectPage({
           </DropdownMenu>
         </div>
       </PageHeader>
+      <AutonomousBanner name={view.project.name} state={snap.watch[view.project.name]?.autonomous} />
       <ControlBox view={view} remoteControl={snap.health.remoteControl} />
       <section aria-labelledby="workers-heading" className="space-y-3">
         <div className="flex items-center justify-between gap-3">
@@ -157,7 +163,7 @@ export function ProjectPage({
                 Show done ({done})
               </label>
             )}
-            {done > 0 && <CleanupDoneButton project={view.project.name} count={done} />}
+            {finished > 0 && <CleanupDoneButton project={view.project.name} count={finished} />}
           </div>
         </div>
         <WorkerList

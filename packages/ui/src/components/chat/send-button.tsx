@@ -1,4 +1,11 @@
-import { ArrowUpIcon, CaretUpIcon, CircleNotchIcon, ClockIcon, LightningIcon } from '@phosphor-icons/react';
+import {
+  ArrowUpIcon,
+  CaretUpIcon,
+  CircleNotchIcon,
+  ClockIcon,
+  HandIcon,
+  LightningIcon,
+} from '@phosphor-icons/react';
 import type { SendMode } from '@aoe-supercharge/core/shared';
 import {
   DropdownMenu,
@@ -9,9 +16,10 @@ import {
 import { cn } from '@/lib/utils';
 
 /**
- * The composer's send button. While Claude works, Send stops Claude (Esc) and sends; the caret beside it
- * holds the message until Claude is done, or sends it now. With a menu open or messages waiting already
- * (Claude not working) Send holds the message, and the caret sends now.
+ * The composer's send button. While Claude works, Send types the message in now and Claude Code reads it
+ * during the turn; the caret beside it holds it until Claude is done, or stops Claude (Esc) and sends.
+ * With a menu open or messages waiting already (Claude not working) Send queues the message, and the
+ * caret sends now. A message that can't go in now is queued, never lost.
  */
 export function SendButton({
   sending,
@@ -25,14 +33,14 @@ export function SendButton({
   empty: boolean;
   /** Send would hold the message rather than type it now. */
   wouldHold: boolean;
-  /** Claude is in a turn: Send interrupts it. */
+  /** Claude is in a turn: Send types it in now; Interrupt is in the caret. */
   working: boolean;
   onSend: (mode: SendMode) => void;
 }) {
   const label = sending
     ? 'Sending'
     : working
-      ? 'Interrupt and send'
+      ? 'Send now'
       : wouldHold
         ? 'Send when Claude is done'
         : 'Send message';
@@ -49,26 +57,44 @@ export function SendButton({
             <CaretUpIcon weight="bold" className="size-3.5" aria-hidden />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" side="top" className="w-72">
-            {working && (
+            {working ? (
+              <>
+                <DropdownMenuItem
+                  disabled={empty}
+                  onSelect={() => onSend('hold')}
+                  className="items-start py-1.5"
+                >
+                  <ClockIcon className="mt-0.5" aria-hidden />
+                  <span className="flex flex-col">
+                    <span className="font-medium">Send when Claude is done</span>
+                    <span className="text-xs text-muted-foreground">Queued here until the turn ends.</span>
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={empty}
+                  onSelect={() => onSend('interrupt')}
+                  className="items-start py-1.5"
+                >
+                  <HandIcon className="mt-0.5" aria-hidden />
+                  <span className="flex flex-col">
+                    <span className="font-medium">Interrupt and send</span>
+                    <span className="text-xs text-muted-foreground">Stops Claude (Esc), then sends.</span>
+                  </span>
+                </DropdownMenuItem>
+              </>
+            ) : (
               <DropdownMenuItem
                 disabled={empty}
-                onSelect={() => onSend('hold')}
+                onSelect={() => onSend('now')}
                 className="items-start py-1.5"
               >
-                <ClockIcon className="mt-0.5" aria-hidden />
+                <LightningIcon className="mt-0.5" aria-hidden />
                 <span className="flex flex-col">
-                  <span className="font-medium">Send when Claude is done</span>
-                  <span className="text-xs text-muted-foreground">Held here until the turn ends.</span>
+                  <span className="font-medium">Send now</span>
+                  <span className="text-xs text-muted-foreground">Typed in at once.</span>
                 </span>
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem disabled={empty} onSelect={() => onSend('now')} className="items-start py-1.5">
-              <LightningIcon className="mt-0.5" aria-hidden />
-              <span className="flex flex-col">
-                <span className="font-medium">Send now</span>
-                <span className="text-xs text-muted-foreground">Claude reads it during this turn.</span>
-              </span>
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       )}
@@ -77,9 +103,9 @@ export function SendButton({
         aria-label={label}
         title={
           working
-            ? 'Interrupt and send: stops Claude (Esc), then sends. The caret holds it until Claude is done instead. Every message is recorded in the audit log.'
+            ? 'Send now: typed in while Claude works, and Claude reads it during this turn. The caret queues it until Claude is done, or interrupts Claude. Every message is recorded in the audit log.'
             : wouldHold
-              ? 'Send when Claude is done: held here until then, and you can still edit or cancel it. Every message is recorded in the audit log.'
+              ? 'Send when Claude is done: queued here until then, and you can still edit or cancel it. Every message is recorded in the audit log.'
               : 'Send. Every message is recorded in the audit log.'
         }
         aria-disabled={sending || undefined}

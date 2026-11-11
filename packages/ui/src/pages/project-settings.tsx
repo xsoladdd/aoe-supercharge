@@ -3,6 +3,7 @@ import { ago, type Snapshot } from '@aoe-supercharge/core/shared';
 import { useId, useState } from 'react';
 import { toast } from 'sonner';
 import { Link, useLocation } from 'wouter';
+import { AutonomousMode } from '@/components/autonomous';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -70,8 +71,8 @@ function DeleteProject({ name, sessions, tasks }: { name: string; sessions: numb
       </h2>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
         <p className="max-w-xl text-[0.9375rem] text-muted-foreground">
-          Delete this project from Supercharge: its {tasks} {tasks === 1 ? 'task' : 'tasks'}, plans, comments
-          and notes. You can also delete its AoE sessions. This cannot be undone.
+          Delete this project from Supercharge: its {tasks} {tasks === 1 ? 'task' : 'tasks'}, plans and
+          comments. You can also delete its AoE sessions. This cannot be undone.
         </p>
         <Button variant="destructive" onClick={() => setOpen(true)}>
           <TrashIcon />
@@ -89,7 +90,7 @@ function DeleteProject({ name, sessions, tasks }: { name: string; sessions: numb
           <DialogHeader>
             <DialogTitle>Delete {name}?</DialogTitle>
             <DialogDescription>
-              Supercharge forgets the project, its tasks, plans, comments and notes. This cannot be undone.
+              Supercharge forgets the project, its tasks, plans and comments. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -234,6 +235,7 @@ export function ProjectSettingsPage({ snap, name }: { snap: Snapshot; name: stri
           ))}
         </dl>
       </section>
+      {project.controlSessionId && <AutonomousMode name={name} state={snap.watch[name]?.autonomous} />}
       <DeleteProject name={name} sessions={sessions} tasks={tasks.length} />
     </div>
   );

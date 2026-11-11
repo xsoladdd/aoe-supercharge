@@ -10,8 +10,8 @@ import {
   writeJsonAtomic,
 } from '@aoe-supercharge/core/node';
 import type { Health } from '@aoe-supercharge/core/shared';
-import { checkAoeCompat, createCtx, SHIPPED_COMPAT, VERSION } from '../context.ts';
-import { notify, Notifier } from '../notify.ts';
+import { checkAoeCompat, createCtx, dashboardOrigin, SHIPPED_COMPAT, VERSION } from '../context.ts';
+import { deliverNotice, Notifier } from '../notify.ts';
 import { mrProviders } from '../mr/index.ts';
 import { createApp } from './app.ts';
 import { RunTerminals } from './run-terminals.ts';
@@ -22,10 +22,11 @@ import { BranchWatcher } from './branch-watcher.ts';
 import { MrWatcher } from './mr-watcher.ts';
 import { CostWatcher, OfficeWatcher, WeatherWatcher } from './office.ts';
 import { Store } from './store.ts';
-import { AoeWatcher, ConfigWatcher, LedgerWatcher, NotesWatcher } from './watchers.ts';
+import { AoeWatcher, ConfigWatcher, LedgerWatcher } from './watchers.ts';
 import { WorkerWatch } from './worker-watch.ts';
 import { HeldMessages } from './held.ts';
 import { Scheduler } from './scheduler.ts';
+import { claudeSettingsArgs } from '../workflow.ts';
 
 export const RESTART_EXIT_CODE = 75;
 
@@ -118,7 +119,7 @@ async function runWorker(): Promise<void> {
   const store = new Store(health, {
     waitingDebounceSeconds: () => ctx.config.notifications.waitingDebounceSeconds,
   });
-  store.dismissedReplies = await readDismissed(ctx.paths).catch(() => ({}));
+  store.dismissed = await readDismissed(ctx.paths).catch(() => ({}));
   store.ui = {
     theme: ctx.config.ui.theme,
     density: ctx.config.ui.density,
@@ -127,13 +128,14 @@ async function runWorker(): Promise<void> {
     displayName: ctx.config.ui.displayName,
     officeAnimations: ctx.config.ui.officeAnimations,
     officeTheme: ctx.config.ui.officeTheme,
+    officeEnabled: ctx.config.office.enabled,
   };
 
-  const notifier = new Notifier(() => ctx.config);
+  const deliver = deliverNotice(store, () => dashboardOrigin(ctx.config));
+  const notifier = new Notifier(() => ctx.config, deliver);
   const transcripts = transcriptStore(ctx);
   const aoeWatcher = new AoeWatcher(ctx, store, new PromptReader(ctx, transcripts), transcripts);
   const ledgerWatcher = new LedgerWatcher(ctx, store);
-  const notesWatcher = new NotesWatcher(ctx, store);
   const mrWatcher = new MrWatcher(ctx, store, () => mrProviders(ctx.config, ctx.env));
   const branchWatcher = new BranchWatcher(ctx, store);
   const officeWatcher = new OfficeWatcher(ctx, store);
@@ -168,7 +170,6 @@ async function runWorker(): Promise<void> {
   const shutdown = async (code: number) => {
     aoeWatcher.stop();
     ledgerWatcher.stop();
-    notesWatcher.stop();
     mrWatcher.stop();
     branchWatcher.stop();
     configWatcher.stop();
@@ -196,7 +197,14 @@ async function runWorker(): Promise<void> {
       void shutdown(RESTART_EXIT_CODE);
     },
     onClientConnected: () => aoeWatcher.nudge(),
-    testNotification: () => notify('Supercharge', 'Notifications are working.'),
+    testNotification: () =>
+      deliver({
+        id: 'test',
+        title: 'Supercharge',
+        body: 'Notifications are working.',
+        href: '/',
+        test: true,
+      }),
     transcripts,
     office: officeWatcher,
     watch: workerWatch,
@@ -206,7 +214,6 @@ async function runWorker(): Promise<void> {
   });
 
   await ledgerWatcher.start();
-  await notesWatcher.start();
   await configWatcher.start();
   if (compat.ok) aoeWatcher.start();
   else {
@@ -225,6 +232,10 @@ async function runWorker(): Promise<void> {
   heldMessages.start();
   scheduler.start();
   pruneContextFiles();
+  // Sessions read their settings file at start: after an upgrade, restarted chats get the new guard at once.
+  await claudeSettingsArgs(ctx).catch((err: unknown) =>
+    logger.warn('could not write the Claude settings file', { err: (err as Error).message }),
+  );
 
   await new Promise<void>((resolveListen, rejectListen) => {
     server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port }, () => resolveListen());

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   backgroundShells,
@@ -166,6 +168,15 @@ describe('backgroundShells', () => {
     expect(backgroundShells(pane('⏵⏵ auto mode on · 2 shells · ← for agents'))).toBe(2);
     expect(backgroundShells(pane('⏵⏵ auto mode on · 1 shell · ← for agents'))).toBe(1);
     expect(backgroundShells(pane('⏵⏵ auto mode on · 3 background tasks'))).toBe(3);
+    expect(backgroundShells(pane('⏵⏵ auto mode on · 2 background agents'))).toBe(2);
+    expect(backgroundShells(pane('⏵⏵ auto mode on · 1 shell · 1 monitor · ← for agents'))).toBe(2);
+  });
+
+  it('counts a running Monitor and running background agents on real screens', () => {
+    const screen = (name: string) =>
+      readFileSync(join(import.meta.dirname, '../../../fixtures/claude-code/2.1.285', name), 'utf8');
+    expect(backgroundShells(screen('monitor-running.txt'))).toBe(1);
+    expect(backgroundShells(screen('background-agents.txt'))).toBe(3);
   });
 
   it('is 0 without shells, and ignores the turn summary above the prompt', () => {
@@ -256,6 +267,27 @@ describe('watchEvents', () => {
     ]);
   });
 
+  it('says nothing about an error while a new session starts, or before the debounce', () => {
+    const erroring = (o: Partial<SessionView>) =>
+      world({ sessions: [session('ctl', 'idle'), session('s1', 'error', o)] });
+    // The empty first capture of a session made 10 s ago.
+    expect(
+      eventsOf(erroring({ createdAt: new Date(T0 - 10_000).toISOString(), statusSince: minutesAgo(1) })),
+    ).toEqual([]);
+    expect(eventsOf(erroring({ statusSince: new Date(T0 - 5_000).toISOString() }))).toEqual([]);
+    expect(eventsOf(erroring({ createdAt: minutesAgo(5), statusSince: minutesAgo(1) }))).toMatchObject([
+      { key: 'error:s1', kind: 'error' },
+    ]);
+  });
+
+  it('tells nothing when AoE says waiting but no menu is on screen', () => {
+    const w = world({
+      sessions: [session('ctl', 'idle'), session('s1', 'waiting', { statusSince: minutesAgo(5) })],
+    });
+    expect(w.needsYou.map((i) => i.kind)).toContain('approval');
+    expect(eventsOf(w)).toEqual([]);
+  });
+
   it('reports a blocked question and a task ready for review', () => {
     const blocked = world({
       sessions: [session('ctl', 'idle'), session('s1', 'idle', { statusSince: minutesAgo(60) })],
@@ -313,6 +345,55 @@ describe('watchEvents', () => {
     expect(stallCandidates(workers, now, 15, () => false).map((w) => w.sessionId)).toEqual(['s1']);
     expect(stallCandidates(workers, now, 15, (k) => k === 'stalled:s1')).toEqual([]);
     expect(stallCandidates(workers, now, 60, () => false)).toEqual([]);
+  });
+
+  it('does not call a quiet task stalled, nor pick it for a pane read', () => {
+    const input = world({
+      sessions: [session('ctl', 'idle'), session('s1', 'idle', { statusSince: minutesAgo(40) })],
+      tasks: [task('AS-0001', 'alpha', 's1', { quiet: true })],
+    });
+    expect(eventsOf(input)).toEqual([]);
+    expect(stallCandidates(watchWorkers(input, input.projects[0]!), now, 15, () => false)).toEqual([]);
+  });
+
+  it('tells about new review threads once a ready task goes back to watching_mr', () => {
+    const mr = {
+      provider: 'gitlab' as const,
+      host: 'gitlab.com',
+      repo: 'a/b',
+      iid: 7,
+      url: 'https://gitlab.com/a/b/-/merge_requests/7',
+      state: 'opened' as const,
+      draft: false,
+      pipeline: 'success' as const,
+      unresolvedThreads: 2,
+      detailedMergeStatus: null,
+      checkedAt: null,
+      error: null,
+    };
+    const back = {
+      at: at(-5),
+      from: 'ready_for_review' as const,
+      to: 'watching_mr' as const,
+      by: 'daemon' as const,
+      note: null,
+    };
+    const w = (extra: Partial<TaskRecord>) =>
+      world({
+        sessions: [session('ctl', 'idle'), session('s1', 'idle')],
+        tasks: [task('AS-0001', 'alpha', 's1', { stage: 'watching_mr', mr, history: [back], ...extra })],
+      });
+    expect(eventsOf(w({}))).toMatchObject([
+      {
+        key: `threads:AS-0001:${at(-5)}`,
+        hold: null,
+        kind: 'threads',
+        detail: '2 unresolved thread(s) on https://gitlab.com/a/b/-/merge_requests/7',
+      },
+    ]);
+    // First time watching it, or the pipeline (not a thread) sent it back: nothing.
+    expect(eventsOf(w({ history: [{ ...back, from: 'mr_raised' }] }))).toEqual([]);
+    expect(eventsOf(w({ mr: { ...mr, unresolvedThreads: 0, pipeline: 'failed' } }))).toEqual([]);
   });
 
   it("reads a plain worker's QUESTION: or DONE: instead of calling it stalled", () => {

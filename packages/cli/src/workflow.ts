@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   appendAudit,
   applyStage,
+  autonomous,
   PERMISSION_MODES,
   readHeld,
   readUsage,
@@ -21,6 +22,7 @@ import {
   STAGE_LABEL,
   transition,
   type Actor,
+  type Autonomous,
   type LiveStatus,
   type MrState,
   type ParsedMenu,
@@ -32,6 +34,9 @@ import {
   countActiveWorkers,
   countBusyGeneral,
   generalSessionIds,
+  inputBox,
+  paneText,
+  parseTerminalMenu,
   normalizeAoeStatus,
   pickDesk,
   pickWorkerName,
@@ -45,7 +50,7 @@ import { mrProviders, toMrState } from './mr/index.ts';
 import { installUserSkills, readTemplate, render, SKILL_NAMES, upsertManagedBlock } from './skills.ts';
 import { AoeError, TerminalBusyError } from './aoe/client.ts';
 import { menuOnScreen } from './prompt.ts';
-import { uploadArgs } from './uploads.ts';
+import { outputDir, uploadArgs } from './uploads.ts';
 import { transcriptStore, type TranscriptStore } from './transcript.ts';
 import { CliError, EXIT } from './util/errors.ts';
 import { daemonHealth } from './util/daemon-client.ts';
@@ -54,6 +59,7 @@ import {
   commitsAhead,
   currentBranch,
   defaultBranch,
+  dirtyPaths,
   mainCheckout,
   parseRemote,
   remoteUrl,
@@ -85,10 +91,14 @@ export interface WhoAmI {
     | (Pick<TaskRecord, 'id' | 'title' | 'stage' | 'branch' | 'baseBranch' | 'blockedFrom'> & {
         /** The saved plan, so a worker whose conversation was cleared can pick up where it was. */
         planFile: string | null;
+        /** Where output that must outlive the worktree goes (reports, a read-only task's findings). */
+        outputDir: string;
       })
     | null;
   /** Actor used for stage changes: the worker itself, or a human running the CLI in the worktree. */
   actor: Actor;
+  /** The project's autonomous mode, read when this ran: a running control chat also gets `[AUTONOMOUS]` notices. */
+  autonomous: Autonomous;
 }
 
 export type MergeMode = 'mr' | 'branch';
@@ -114,6 +124,7 @@ export async function whoami(
         branch: null,
         task: null,
         actor: control ? 'control' : 'user',
+        autonomous: autonomous(ctx.config, null),
         record: null,
         projectRecord: null,
       };
@@ -129,6 +140,7 @@ export async function whoami(
     branch,
     task: null,
     actor: 'user' as const,
+    autonomous: autonomous(ctx.config, project?.name ?? null),
     record: null,
     projectRecord: project,
   };
@@ -159,8 +171,10 @@ export async function whoami(
       baseBranch: task.baseBranch,
       blockedFrom: task.blockedFrom,
       planFile: task.plan ? ctx.ledger.planFile(project.name, task.id) : null,
+      outputDir: outputDir(ctx.paths, project.name),
     },
     actor: sessionId ? 'worker' : 'user',
+    autonomous: autonomous(ctx.config, project.name),
     record: task,
     projectRecord: project,
   };
@@ -393,6 +407,13 @@ export async function newTask(
     force?: boolean;
     /** How long to wait for the session's prompt before leaving the first message to the daemon. */
     kickoff?: KickoffWait;
+    /**
+     * Aborted when the caller is interrupted (Ctrl-C, a kill): before the task is saved, the start is
+     * rolled back as a failed one; after, the kickoff wait stops and the task stays.
+     */
+    signal?: AbortSignal;
+    /** Told the task id and branch before `aoe add` runs, so an interrupted start can be found. */
+    onStart?: (start: { id: string; branch: string; baseBranch: string }) => void;
   },
 ): Promise<TaskRecord & { warnings?: string[]; usage?: UsageReport }> {
   const title = opts.title.trim();
@@ -431,7 +452,10 @@ export async function newTask(
     opts.brief?.trim() || '(no brief given; ask the control chat or the user if anything is unclear)';
 
   const before = new Set(sessionsBefore.map((s) => s.id));
-  const permissionMode = opts.permissionMode ?? ctx.config.agent.workerPermissionMode;
+  // Autonomous: no plan menu to wait on overnight; the control chat approves the plan as a message.
+  const permissionMode =
+    opts.permissionMode ??
+    (autonomous(ctx.config, project.name).on ? 'auto' : ctx.config.agent.workerPermissionMode);
   const model = workerModel(opts.model ?? (ctx.config.agent.model || null), permissionMode);
   const effort = opts.effort ?? (ctx.config.agent.effort === 'default' ? null : ctx.config.agent.effort);
   // A failed start rolls back only what it made: the branch counts as ours only if it is new.
@@ -440,7 +464,9 @@ export async function newTask(
   let sessionId: string | null = null;
   let launchWarn: string | null = null;
   let task: TaskRecord;
+  opts.onStart?.({ id, branch, baseBranch });
   try {
+    opts.signal?.throwIfAborted();
     const promptFile = ctx.ledger.sessionPromptFile(project.name, id);
     assertSafeArg(promptFile, 'The session prompt path');
     await writeFileAtomic(
@@ -474,12 +500,15 @@ export async function newTask(
       ],
       launch: true,
       timeoutMs: ctx.config.aoe.addTimeoutSeconds * 1000,
+      signal: opts.signal,
     });
     const created = (await listAoe(ctx)).find(
       (s) => !before.has(s.id) && (s.worktree?.branch === branch || s.title === `${id} ${title}`),
     );
+    // Known before anything else can stop the start, so the rollback removes it.
+    if (created) sessionId = created.id;
+    opts.signal?.throwIfAborted();
     if (!created) throw new Error(`no session was created for ${branch}`);
-    sessionId = created.id;
     launchWarn = launchWarning(r, created.id);
 
     const at = new Date().toISOString();
@@ -511,6 +540,7 @@ export async function newTask(
       updatedAt: at,
       history: [{ at, from: null, to: 'planning', by: opts.actor ?? 'control', note: 'Task created' }],
     };
+    opts.signal?.throwIfAborted();
     await ctx.ledger.createTask(task);
   } catch (err) {
     throw await failStart(ctx, {
@@ -524,6 +554,9 @@ export async function newTask(
       actor: opts.actor ?? 'cli',
       r,
       err,
+      interrupted: opts.signal?.aborted
+        ? String((opts.signal.reason as Error)?.message ?? opts.signal.reason)
+        : null,
     });
   }
   await appendAudit(ctx.paths, {
@@ -542,7 +575,9 @@ export async function newTask(
     },
   });
   const warnings = launchWarn ? [launchWarn] : [];
-  const kicked = launchWarn ? 'waiting' : await kickoffNewWorker(ctx, task, opts.kickoff);
+  const kicked = launchWarn
+    ? 'waiting'
+    : await kickoffNewWorker(ctx, task, { ...opts.kickoff, signal: opts.signal });
   if (kicked === 'waiting')
     warnings.push(
       `${id} is not at its prompt yet${launchWarn ? '' : ' (a menu such as the trust-folder dialog may be open)'}; the daemon sends its first message once it is.`,
@@ -573,20 +608,28 @@ interface StartMade {
   sessionId: string | null;
 }
 
-/** Roll back a failed `task new`, record `task_failed`, and say what to do next. */
+/** Roll back a failed (or interrupted) `task new`, record `task_failed`, and say what to do next. */
 async function failStart(
   ctx: Ctx,
-  o: StartMade & { actor: AuditEntry['actor']; r: RunResult | null; err: unknown },
+  o: StartMade & {
+    actor: AuditEntry['actor'];
+    r: RunResult | null;
+    err: unknown;
+    /** The signal that stopped it (SIGINT, SIGTERM, SIGHUP), or null. */
+    interrupted?: string | null;
+  },
 ): Promise<CliError> {
   const secs = ctx.config.aoe.addTimeoutSeconds;
-  const timedOut = !o.sessionId && !!o.r?.timedOut;
-  const reason = timedOut
-    ? `aoe add timed out after ${secs} s creating ${o.branch}.`
-    : !o.sessionId && o.r
-      ? `aoe add failed: ${(o.r.stderr || o.r.stdout || o.r.error?.message || '').trim() || `no session was created for ${o.branch}`}`
-      : o.err instanceof Error
-        ? o.err.message
-        : String(o.err);
+  const timedOut = !o.interrupted && !o.sessionId && !!o.r?.timedOut;
+  const reason = o.interrupted
+    ? `Interrupted (${o.interrupted}) while starting ${o.id} on ${o.branch}.`
+    : timedOut
+      ? `aoe add timed out after ${secs} s creating ${o.branch}.`
+      : !o.sessionId && o.r
+        ? `aoe add failed: ${(o.r.stderr || o.r.stdout || o.r.error?.message || '').trim() || `no session was created for ${o.branch}`}`
+        : o.err instanceof Error
+          ? o.err.message
+          : String(o.err);
   const { removed, kept } = await rollbackStart(ctx, o);
   await appendAudit(ctx.paths, {
     actor: o.actor,
@@ -594,12 +637,22 @@ async function failStart(
     project: o.project,
     taskId: o.id,
     sessionId: o.sessionId,
-    details: { reason, branch: o.branch, baseBranch: o.baseBranch, timedOut, removed, kept },
+    details: {
+      reason,
+      branch: o.branch,
+      baseBranch: o.baseBranch,
+      timedOut,
+      ...(o.interrupted ? { interrupted: o.interrupted } : {}),
+      removed,
+      kept,
+    },
   });
   const left = kept.length ? `Kept ${kept.join('; ')}.` : 'Nothing was left behind.';
-  const next = timedOut
-    ? `Raise aoe.addTimeoutSeconds (now ${secs}), e.g. "supercharge config set aoe.addTimeoutSeconds ${Math.min(secs * 2, 3600)}" or on the Settings page, then run the same command again.`
-    : 'Check "aoe list", then try again.';
+  const next = o.interrupted
+    ? 'Run the same command again to start it.'
+    : timedOut
+      ? `Raise aoe.addTimeoutSeconds (now ${secs}), e.g. "supercharge config set aoe.addTimeoutSeconds ${Math.min(secs * 2, 3600)}" or on the Settings page, then run the same command again.`
+      : 'Check "aoe list", then try again.';
   return new CliError(reason, EXIT.error, `${left} ${next}`);
 }
 
@@ -659,6 +712,8 @@ export interface KickoffWait {
   /** Who the first message's audit entry names; `cli` when unset. */
   actor?: KickoffOpts['actor'];
   wait?: (ms: number) => Promise<void>;
+  /** Stop waiting (the caller was interrupted): the daemon sends the first message instead. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -682,7 +737,7 @@ async function kickoffNewWorker(ctx: Ctx, task: TaskRecord, o: KickoffWait = {})
       return 'waiting' as const;
     });
     if (r !== 'waiting' && r !== 'sent' && r !== 'pending') return r;
-    if (Date.now() >= until) return r;
+    if (Date.now() >= until || o.signal?.aborted) return r;
     await wait(1_000);
   }
 }
@@ -724,13 +779,30 @@ function rejection(task: TaskRecord, to: Stage, reason: string, allowed: Stage[]
 
 export async function stageTask(
   ctx: Ctx,
-  opts: { cwd: string; stage: Stage; note?: string; mrUrl?: string; force?: boolean },
+  opts: {
+    cwd: string;
+    stage: Stage;
+    note?: string;
+    mrUrl?: string;
+    force?: boolean;
+    /** done: a worker closes its own task, which has nothing to merge. */
+    nothingToMerge?: boolean;
+  },
 ): Promise<TaskRecord> {
   const who = await requireTask(ctx, opts.cwd);
   const task = who.record;
   let mr: MrState | null = task.mr;
+  if (opts.nothingToMerge && opts.stage !== 'done')
+    throw new CliError(
+      '--nothing-to-merge goes with done.',
+      EXIT.usage,
+      'supercharge stage done --nothing-to-merge',
+    );
+  const closed = opts.nothingToMerge ? await nothingToMerge(ctx, who.projectRecord, task, opts.cwd) : null;
 
   if (opts.stage === 'mr_raised') {
+    // A merged or closed MR from before the task was reopened is not this round's.
+    if (mr?.state === 'merged' || mr?.state === 'closed') mr = null;
     const providers = mrProviders(ctx.config, ctx.env);
     if (opts.mrUrl) {
       const found = providers.forUrl(opts.mrUrl);
@@ -766,6 +838,7 @@ export async function stageTask(
     hasMr: opts.stage === 'ready_for_review' ? !!task.mr : !!mr,
     question: task.openQuestion?.text ?? null,
     force: opts.force,
+    nothingToMerge: !!closed,
   });
   if (!res.ok) throw rejection(task, opts.stage, res.reason, res.allowed);
 
@@ -786,13 +859,115 @@ export async function stageTask(
       );
   }
 
-  return ctx.ledger.updateTask(task.project, task.id, (t) => {
-    const next = applyStage(t, opts.stage, who.actor, opts.note?.trim() || (opts.force ? 'Forced' : null));
+  const note = opts.note?.trim() || (closed ? 'Nothing to merge' : opts.force ? 'Forced' : null);
+  const saved = await ctx.ledger.updateTask(task.project, task.id, (t) => {
+    const next = applyStage(t, opts.stage, who.actor, note);
     if (opts.stage === 'mr_raised') return { ...next, mr };
     if (branchReady) return { ...next, readyHead };
     if (opts.stage === 'implementing' && t.readyHead) return { ...next, readyHead: null };
     return next;
   });
+  if (closed)
+    await appendAudit(ctx.paths, {
+      actor: who.actor,
+      action: 'task_closed',
+      project: task.project,
+      taskId: task.id,
+      sessionId: task.aoeSessionId,
+      details: { nothingToMerge: true, from: task.stage, head: closed.head, base: closed.base },
+    });
+  return saved;
+}
+
+/**
+ * Checks that a task really has nothing to merge before its worker closes it: no commits that aren't
+ * on the base branch, nothing uncommitted or untracked in the worktree (cleanup would delete it), and
+ * no open merge request. Returns the head and the base it was compared with.
+ */
+async function nothingToMerge(
+  ctx: Ctx,
+  project: ProjectRecord,
+  task: TaskRecord,
+  cwd: string,
+): Promise<{ head: string; base: string }> {
+  if (task.mr?.state === 'opened')
+    throw new CliError(
+      `${task.id} has an open merge request (${task.mr.url}).`,
+      EXIT.invalidTransition,
+      'Close it first, or hand the task over as usual.',
+    );
+  const wt = task.worktreePath ?? cwd;
+  const dirty = await dirtyPaths(wt);
+  if (dirty === null) throw new CliError(`Could not read ${wt} with git.`, EXIT.error);
+  if (dirty.length)
+    throw new CliError(
+      `The worktree has ${dirty.length} uncommitted or untracked file${dirty.length === 1 ? '' : 's'}: ${dirty.slice(0, 5).join(', ')}${dirty.length > 5 ? ', …' : ''}.`,
+      EXIT.invalidTransition,
+      `Cleanup deletes the worktree. Move output that should stay to ${outputDir(ctx.paths, project.name)} (or where the brief says), and delete or commit the rest.`,
+    );
+  const head = await revParse(wt, 'HEAD');
+  if (!head) throw new CliError(`Could not read the commit ${wt} is on.`, EXIT.error);
+  for (const base of [`origin/${task.baseBranch}`, task.baseBranch]) {
+    if ((await revParse(project.repoPath, base)) && (await commitsAhead(project.repoPath, base, head)) === 0)
+      return { head, base };
+  }
+  const ahead = await commitsAhead(project.repoPath, task.baseBranch, head);
+  throw new CliError(
+    `${task.branch} has ${ahead ?? 'some'} commit${ahead === 1 ? '' : 's'} that ${ahead === 1 ? "isn't" : "aren't"} on ${task.baseBranch}: there is something to merge.`,
+    EXIT.invalidTransition,
+    'Hand it over as usual (supercharge stage ready_for_review, or mr_raised with a merge request).',
+  );
+}
+
+/**
+ * Reopen a done task for follow-up work: done → implementing, so it shows with the working workers
+ * again instead of vanishing from the list. Its session comes back from AoE's archive if it was
+ * archived; a session that is gone (trashed, cleaned up) can't be reopened. Audited.
+ */
+export async function reopenTask(
+  ctx: Ctx,
+  opts: { project: string; taskId: string; actor: Actor; via: 'cli' | 'ui'; note?: string },
+): Promise<TaskRecord> {
+  const task = await ctx.ledger.getTask(opts.project, opts.taskId);
+  if (!task)
+    throw new CliError(
+      `No task ${opts.taskId} in project ${opts.project}.`,
+      EXIT.usage,
+      'Check "supercharge task list".',
+    );
+  if (task.stage !== 'done')
+    throw new CliError(
+      `${task.id} is ${STAGE_LABEL[task.stage]}, not Done: there is nothing to reopen.`,
+      EXIT.invalidTransition,
+    );
+  const id = task.aoeSessionId;
+  const session = (await ctx.aoe.listSessions('all')).find((s) => s.id === id);
+  if (!session || session.trashed_at)
+    throw new CliError(
+      `${task.id}'s AoE session is gone.`,
+      EXIT.invalidTransition,
+      'Start a new task for the follow-up: supercharge task new "<title>"',
+    );
+  const unarchived = !!session.archived_at;
+  if (unarchived) {
+    await ctx.aoe.setArchived(id, false);
+    // Archiving killed the pane; AoE brings it back (resuming the conversation) on ensure.
+    await ctx.aoe.ensureSession(id);
+  }
+  const saved = await ctx.ledger.updateTask(task.project, task.id, (t) => ({
+    ...applyStage(t, 'implementing', opts.actor, opts.note?.trim() || 'Reopened'),
+    readyHead: null,
+    cleanup: null,
+  }));
+  await appendAudit(ctx.paths, {
+    actor: opts.via === 'ui' ? 'ui' : opts.actor,
+    action: 'task_reopened',
+    project: task.project,
+    taskId: task.id,
+    sessionId: id,
+    details: { unarchived },
+  });
+  return saved;
 }
 
 export async function askQuestion(
@@ -893,7 +1068,7 @@ export interface DeleteProjectResult {
 }
 
 /**
- * Remove a project from Supercharge: its ledger folder (record, tasks, plans, comments, notes). With
+ * Remove a project from Supercharge: its ledger folder (record, tasks, plans, comments). With
  * `deleteSessions`, its control chat and workers are deleted in AoE too, optionally with their
  * worktrees and branches. Irreversible; the dashboard asks you to type the project name first.
  */
@@ -927,6 +1102,7 @@ export async function deleteProject(
         await ctx.aoe.deleteSession(id, {
           deleteWorktree: opts.deleteWorktrees,
           deleteBranch: opts.deleteBranches,
+          timeoutMs: ctx.config.aoe.deleteTimeoutSeconds * 1000,
         });
         deleted.push(id);
         await rm(join(ctx.paths.uploadsDir, id), { recursive: true, force: true });
@@ -977,10 +1153,11 @@ export class SessionLockedError extends CliError {
 
 /**
  * One right-click action on one AoE session, audited. Lock is Supercharge's own; the rest go to AoE.
- * Delete moves the session to AoE's trash (restorable from AoE) unless `permanent`, which purges it
- * with optional worktree and branch, and either way takes a worker's task out of the ledger (kept
- * under removed/, so a restored session brings it back). A project's control chat is deleted with
- * the project, from its settings, not from here.
+ * Delete moves the session to AoE's trash (restorable from AoE) and takes a worker's task out of the
+ * ledger (kept under removed/, so a restored session brings it back). `permanent` purges a session that
+ * is not a task, with optional worktree and branch; a task's files go only through `task cleanup`,
+ * which checks first that nothing is lost. A project's control chat is deleted with the project, from
+ * its settings, not from here.
  */
 export async function sessionAction(
   ctx: Ctx,
@@ -1034,12 +1211,24 @@ export async function sessionAction(
       await aoe.ensureSession(id);
       break;
     case 'delete':
-      if (opts.permanent)
-        await aoe.deleteSession(id, {
+      if (opts.permanent) {
+        if (task)
+          throw new CliError(
+            `${task.id} is a Supercharge task: its files are deleted for good only by Clean up.`,
+            EXIT.usage,
+            `Clean up checks first that its work landed and nothing is uncommitted: "supercharge task cleanup ${task.id}", or Clean up… in its menu. Or move it to the trash, which deletes no files.`,
+          );
+        const res = await aoe.deleteSession(id, {
           deleteWorktree: !!opts.deleteWorktree,
           deleteBranch: !!opts.deleteBranch,
+          timeoutMs: ctx.config.aoe.deleteTimeoutSeconds * 1000,
         });
-      else await aoe.trashSession(id);
+        if (res.status !== 'deleted')
+          throw new CliError(
+            `AoE did not delete session ${id} (it said "${res.status}"${res.messages?.length ? `: ${res.messages.join(' ')}` : ''}).`,
+            EXIT.error,
+          );
+      } else await aoe.trashSession(id);
       if (task) await ctx.ledger.removeTask(task.project, task.id);
       if (opts.permanent) await rm(join(ctx.paths.uploadsDir, id), { recursive: true, force: true });
       break;
@@ -1323,24 +1512,39 @@ export function modelArgs(
 /** Where `supercharge statusline` lives: next to this bundle (dist/supercharge.mjs). */
 const CLI_SCRIPT = fileURLToPath(import.meta.url);
 
-/**
- * `--settings <file>` for a new session: the auto-compact window and the status line that records
- * your usage (agent.autoCompactWindow, agent.statusLine). Claude Code layers these over your own
- * settings for that session only. The file is rewritten each time, so it follows upgrades.
- */
-/** The shell command Claude Code runs for Supercharge's status line, through `script` (default: this CLI). */
-export function statusLineCommand(script: string = CLI_SCRIPT): string {
+/** The shell command that runs this CLI's `sub` command, through `script` (default: this CLI). */
+function cliCommand(sub: string, script: string = CLI_SCRIPT): string {
   const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-  return `${q(process.execPath)} ${q(script)} statusline`;
+  return `${q(process.execPath)} ${q(script)} ${sub}`;
 }
 
+/** The shell command Claude Code runs for Supercharge's status line, through `script` (default: this CLI). */
+export const statusLineCommand = (script?: string): string => cliCommand('statusline', script);
+
+/**
+ * The PreToolUse hook on Bash that runs `supercharge guard` (it acts only in control chats). The shell filter
+ * keeps every other command free: only one that mentions a cleanup or aoe starts node (~0.25 s). Claude Code
+ * 2.1.285 runs no hook for the user's `!` shell mode, so the Run button still works.
+ */
+const guardHookCommand = (script?: string): string =>
+  `i=$(cat); case "$i" in *"task cleanup"*|*"aoe "*) printf '%s' "$i" | ${cliCommand('guard', script)};; esac`;
+
+/**
+ * `--settings <file>` for a new session: the auto-compact window and the status line that records
+ * your usage (agent.autoCompactWindow, agent.statusLine), and the control chat's guard. Claude Code
+ * layers these over your own settings for that session only. The file is rewritten each time, so it
+ * follows upgrades.
+ */
 export async function claudeSettingsArgs(ctx: Ctx): Promise<string[]> {
   const settings: Record<string, unknown> = {};
   if (ctx.config.agent.autoCompactWindow) settings.autoCompactWindow = ctx.config.agent.autoCompactWindow;
   if (ctx.config.agent.statusLine) {
     settings.statusLine = { type: 'command', command: statusLineCommand(), padding: 0 };
   }
-  if (!Object.keys(settings).length) return [];
+  // A running session doesn't reread this file (2.1.285): chats started before pick the guard up on a restart.
+  settings.hooks = {
+    PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: guardHookCommand() }] }],
+  };
   const file = ctx.paths.claudeSettingsFile;
   assertSafeArg(file, 'The Claude settings path');
   await writeFileAtomic(file, `${JSON.stringify(settings, null, 2)}\n`);
@@ -1521,10 +1725,11 @@ export async function kickoffWorker(ctx: Ctx, task: TaskRecord, opts: KickoffOpt
 }
 
 /**
- * A sent first message can still be lost: typed before Claude Code's input was ready, picked up by a
- * menu that opened in between, or dropped by a restart. It counts once it is in the transcript. It is
- * sent again only on positive evidence that it is not: the session is idle with no menu, a while after
- * sending, and its known conversation has no message from the user. Up to KICKOFF_MAX_TRIES sends.
+ * A sent first message can still be lost: typed but its Enter lost, picked up by a menu that opened in
+ * between, or dropped by a restart. It counts once it is in the transcript. While it is not, the session
+ * is idle with no menu and its known conversation has no message from the user: from ~2 s after sending,
+ * a message still in the input box gets Enter; after 20 s, an empty box gets it typed again. It is never
+ * typed over itself or over other text. Up to KICKOFF_MAX_TRIES sends and Enters in all.
  */
 export async function confirmKickoff(
   ctx: Ctx,
@@ -1545,22 +1750,41 @@ export async function confirmKickoff(
   if (chat?.messages.some((m) => m.role === 'user')) return seen();
   // No conversation id (no AoE hooks): working is the best sign there is that it went in.
   if (!chat || chat.version === 'none') return opts.status === 'working' ? seen() : 'unverifiable';
-  const envMs = Number(ctx.env.SUPERCHARGE_KICKOFF_CONFIRM_MS || NaN);
-  const after = Number.isFinite(envMs) && envMs >= 0 ? envMs : 20_000;
-  if ((opts.now ?? Date.now()) - Date.parse(task.kickoffAt!) < after) return 'pending';
+  const ms = (name: string, fallback: number) => {
+    const v = Number(ctx.env[name] || NaN);
+    return Number.isFinite(v) && v >= 0 ? v : fallback;
+  };
+  const after = ms('SUPERCHARGE_KICKOFF_CONFIRM_MS', 20_000);
+  const elapsed = (opts.now ?? Date.now()) - Date.parse(task.kickoffAt!);
+  if (elapsed < Math.min(ms('SUPERCHARGE_KICKOFF_ENTER_MS', 2_000), after)) return 'pending';
   if (opts.status !== 'idle' || (await menuOnScreen(ctx, task.aoeSessionId))) return 'pending';
+  // Typed but its Enter lost: it is still in the input box (grey suggestions aside), so press Enter only.
+  const box = await ctx.aoe.output(task.aoeSessionId, 60, 'ansi').then(
+    (o) => inputBox(paneText(o.content)),
+    () => null,
+  );
+  const squash = (t: string) => t.replace(/\s+/g, '');
+  const typed = box !== null && squash(box).includes(squash(KICKOFF_MESSAGE));
+  if (box === null || (!typed && elapsed < after)) return 'pending';
   const sentAt = task.kickoffAt;
-  let out: 'resend' | 'gave_up' | 'skipped' = 'skipped';
+  let out = 'skipped' as 'enter' | 'resend' | 'gave_up' | 'skipped';
   await ctx.ledger.updateTask(task.project, task.id, (t) => {
     if (t.kickoffAt !== sentAt || t.kickoffSeenAt !== null) return t;
-    if ((t.kickoffTries ?? 1) >= KICKOFF_MAX_TRIES) {
+    // Something else in the box (the user typing): never type over it.
+    if ((t.kickoffTries ?? 1) >= KICKOFF_MAX_TRIES || (!typed && box !== '')) {
       out = 'gave_up';
       return { ...t, kickoffTries: KICKOFF_MAX_TRIES + 1 };
+    }
+    if (typed) {
+      out = 'enter';
+      return { ...t, kickoffAt: new Date().toISOString(), kickoffTries: (t.kickoffTries ?? 1) + 1 };
     }
     out = 'resend';
     return { ...t, kickoffAt: null };
   });
-  return out;
+  if (out !== 'enter') return out;
+  await ctx.aoe.pressKeys(task.aoeSessionId, ['\r']);
+  return 'pending';
 }
 
 /** One look at a new worker's first message: send it, confirm it, or send it again (SPEC §8.2). */
@@ -1577,14 +1801,28 @@ export async function advanceKickoff(ctx: Ctx, task: TaskRecord, opts: KickoffOp
 
 /**
  * AoE types the text and then presses Enter. With a menu open, that Enter picks its highlighted option
- * (for a plan: "Yes, and use auto mode"), so typing must wait until the menu is answered.
+ * (for a plan: "Yes, and use auto mode"), so typing must wait until the menu is answered. A menu this
+ * cannot parse (/chrome) still takes the input box's place, so no box on screen refuses too, as does a
+ * screen AoE would not show. Only with `aoe serve` down (the CLI send still works) is it left unchecked.
  */
 async function refuseOverMenu(ctx: Ctx, sessionId: string, what: string, then: string) {
-  const menu = await menuOnScreen(ctx, sessionId);
+  const pane = await ctx.aoe.output(sessionId, 60).then(
+    (o) => o.content,
+    (err) => (err instanceof AoeError && err.kind === 'unreachable' ? undefined : null),
+  );
+  if (pane === undefined) return;
+  const menu = pane === null ? null : parseTerminalMenu(pane);
   if (menu)
     throw new MenuOpenError(
       `The session is showing a menu${menu.question ? ` ("${menu.question}")` : ''}, so ${what} would pick its highlighted option.`,
       `Answer the menu first, in the dashboard or the terminal, then ${then}.`,
+    );
+  if (pane === null || inputBox(pane) === null)
+    throw new MenuOpenError(
+      pane === null
+        ? `AoE would not show the session's screen, so ${what} could land in a menu.`
+        : `Claude Code's input box is not on screen (a menu or dialog has its place), so ${what} would be lost or pick an option.`,
+      `Close it first, in the dashboard or the terminal, then ${then}.`,
     );
 }
 
@@ -1799,10 +2037,13 @@ export async function answerPrompt(
     sessionId: string;
     key: string;
     option: number;
+    /** A note sent once the menu closes: feedback for a "Tell Claude…" option, a plain message otherwise. */
     text?: string;
     actor: 'cli' | 'ui' | 'control';
     project?: string | null;
     taskId?: string | null;
+    /** The dashboard: a note that can't go in now (another menu came up) is held instead. */
+    hold?: (text: string) => Promise<unknown>;
   },
   wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
 ): Promise<void> {
@@ -1814,7 +2055,6 @@ export async function answerPrompt(
   const option = menu.options.find((o) => o.n === opts.option);
   if (!option) throw new CliError(`Option ${opts.option} is not in this menu.`, EXIT.usage);
   const text = opts.text?.trim() ?? '';
-  if (text && !option.feedback) throw new CliError(`Option ${option.n} does not take a message.`, EXIT.usage);
   await appendAudit(ctx.paths, {
     actor: opts.actor,
     action: 'prompt_answered',
@@ -1833,7 +2073,10 @@ export async function answerPrompt(
     if (i >= 20)
       throw new CliError('Claude did not close the menu, so your message was not sent. Check the terminal.');
   }
-  await sendToSession(ctx, { ...opts, message: text });
+  await sendToSession(ctx, { ...opts, message: text }).catch(async (err) => {
+    if (!opts.hold || !(err instanceof MenuOpenError)) throw err;
+    await opts.hold(text);
+  });
 }
 
 export async function replyToTask(

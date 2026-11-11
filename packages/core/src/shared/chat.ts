@@ -285,6 +285,20 @@ export function removePath(text: string, path: string): string {
   return text.slice(0, i) + text.slice(end);
 }
 
+/**
+ * The text the mark-up dialog hands back, with the paths that landed in the box while it was open (in
+ * the box now, not in the text the dialog started from) put back at the end, so attaching keeps them.
+ */
+export function keepNewPaths(edited: string, started: string, current: string, paths: string[]): string {
+  let text = edited;
+  for (const p of paths) {
+    const q = quotedPath(p);
+    if (current.includes(q) && !started.includes(q) && !text.includes(q))
+      text = insertPath(text, text.length, p).text;
+  }
+  return text;
+}
+
 /** Paths already written in the text are not appended again. */
 export function withAttachments(text: string, paths: string[]): string {
   const lines = paths.filter((p) => !text.includes(quotedPath(p))).map((p) => `Attached: ${quotedPath(p)}`);
@@ -299,23 +313,37 @@ export interface Attachment {
   image: boolean;
 }
 
+const UPLOAD = /\/uploads\/([A-Za-z0-9_-]+)\/([A-Za-z0-9][A-Za-z0-9._-]*)$/;
+/** An uploaded file's path written into the text (as a drop, paste or pick puts it), in backticks. */
+const INLINE_UPLOAD = /`(\/[^`\s]*\/uploads\/[A-Za-z0-9_-]+\/[A-Za-z0-9][A-Za-z0-9._-]*)`/g;
+
+function attachment(path: string): Attachment {
+  const up = UPLOAD.exec(path);
+  const name = path.split('/').pop() ?? path;
+  return {
+    path,
+    name: name.replace(/^\d{8}T\d{6}-[0-9a-f]{4}-/, ''),
+    url: up ? `/api/uploads/${up[1]}/${up[2]}` : null,
+    image: /\.(png|jpe?g|gif|webp)$/i.test(path),
+  };
+}
+
+/**
+ * A message's text and its files: the `Attached:` lines come out of the text; uploads whose paths are
+ * written in the text stay there and are listed too, so their images still show.
+ */
 export function splitAttachments(text: string): { text: string; files: Attachment[] } {
   const files: Attachment[] = [];
   const kept = text.split('\n').filter((line) => {
     const m = ATTACHMENT_LINE.exec(line.trim());
     if (!m) return true;
-    const path = (m[1] ?? m[2])!;
-    const up = /\/uploads\/([A-Za-z0-9_-]+)\/([A-Za-z0-9][A-Za-z0-9._-]*)$/.exec(path);
-    const name = path.split('/').pop() ?? path;
-    files.push({
-      path,
-      name: name.replace(/^\d{8}T\d{6}-[0-9a-f]{4}-/, ''),
-      url: up ? `/api/uploads/${up[1]}/${up[2]}` : null,
-      image: /\.(png|jpe?g|gif|webp)$/i.test(path),
-    });
+    files.push(attachment((m[1] ?? m[2])!));
     return false;
   });
-  return { text: kept.join('\n').trim(), files };
+  const body = kept.join('\n').trim();
+  for (const m of body.matchAll(INLINE_UPLOAD))
+    if (!files.some((f) => f.path === m[1])) files.push(attachment(m[1]!));
+  return { text: body, files };
 }
 
 /** Something you can run in a session by typing "/" (the chat composer completes these). */

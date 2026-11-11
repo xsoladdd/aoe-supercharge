@@ -39,6 +39,10 @@ export interface FakeSession {
   extra_args?: string | null;
   /** Fake only: how many more sends are accepted but lost (typed before Claude Code's input was ready). */
   swallow?: number;
+  /** Fake only: how many more sends are typed but not submitted (their Enter lost); Enter sends them. */
+  unsubmitted?: number;
+  /** Fake only: text typed into Claude Code's input box and not sent yet. */
+  typed?: string | null;
   /** Fake only: false when AoE's hooks are missing, so no Claude id is known before the first message. */
   hooks?: boolean;
   /** Fake only: Escape stopped its last turn, so the pane shows Claude Code's interrupt banner. */
@@ -48,6 +52,8 @@ export interface FakeSession {
   archived_at?: string | null;
   trashed_at?: string | null;
 }
+
+const RULE = '─'.repeat(80);
 
 /** Claude Code 2.1's plan approval, as it appears in the pane. */
 export const PLAN_MENU = [
@@ -140,7 +146,8 @@ export interface FakeState {
   version: string;
   token: string;
   sessions: FakeSession[];
-  sent: { id: string; message: string; at: string }[];
+  /** Every message typed in; `unsent` while it still sits in the input box. */
+  sent: { id: string; message: string; at: string; unsent?: boolean }[];
   /** Raw keys typed through the live-terminal websocket, as hex. */
   keys: { id: string; hex: string; at: string }[];
   /**
@@ -218,6 +225,8 @@ function toRest(s: FakeSession) {
     shells: _sh,
     extra_args: _x,
     swallow: _s,
+    unsubmitted: _u,
+    typed: _ty,
     hooks: _h,
     interrupted: _i,
     pinned_at: pinned,
@@ -300,6 +309,16 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     s.interrupted = false;
     if (transcripts) transcripts.converse(s.id, s.project_path, message);
   };
+  /** A message typed in by AoE: lost, left in the input box with its Enter lost, or sent. */
+  const typeIn = (s: FakeSession, message: string) => {
+    const unsent = !s.swallow && !!s.unsubmitted;
+    state.sent.push({ id: s.id, message, at: new Date().toISOString(), ...(unsent ? { unsent } : {}) });
+    if (s.swallow) s.swallow--;
+    else if (unsent) {
+      s.unsubmitted!--;
+      s.typed = (s.typed ?? '') + message;
+    } else converse(s.id, message);
+  };
 
   // ── test/shim control plane (no auth; loopback only) ──
   app.get('/__fake/state', (c) => c.json(state));
@@ -376,10 +395,10 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
   });
   app.post('/__fake/send', async (c) => {
     const { id, message } = (await c.req.json()) as { id: string; message: string };
-    state.sent.push({ id, message, at: new Date().toISOString() });
-    const s = state.sessions.find((x) => x.id === id)!;
-    if (s.swallow) s.swallow--;
-    else converse(id, message);
+    typeIn(
+      state.sessions.find((x) => x.id === id)!,
+      message,
+    );
     return c.json({ sent: true });
   });
   // `aoe session show --json`: Claude's session id for an AoE session.
@@ -479,10 +498,10 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     const refused = shelved(state.sessions.find((s) => s.id === id)!);
     if (refused) return c.json(refused, 409);
     const { message } = (await c.req.json()) as { message: string };
-    state.sent.push({ id, message, at: new Date().toISOString() });
-    const s = state.sessions.find((x) => x.id === id)!;
-    if (s.swallow) s.swallow--;
-    else converse(id, message);
+    typeIn(
+      state.sessions.find((x) => x.id === id)!,
+      message,
+    );
     return c.json({ sent: true });
   });
   app.get('/api/sessions/:id/output', (c) => {
@@ -492,7 +511,8 @@ export function createFakeApp(state: FakeState, transcripts: FakeTranscripts | n
     return c.json({
       id: s.id,
       lines: Number(c.req.query('lines') ?? 50),
-      format: 'text',
+      // Drawn without colour, so `ansi` is the same text.
+      format: c.req.query('format') === 'ansi' ? 'ansi' : 'text',
       content: lines.join('\n'),
     });
   });
@@ -603,12 +623,13 @@ function paneLines(state: FakeState, s: FakeSession): string[] {
       : []),
     '',
     ...state.sent
-      .filter((m) => m.id === s.id)
+      .filter((m) => m.id === s.id && !m.unsent)
       .flatMap((m) => [`❯ ${m.message}`, '', '⏺ Got it. Working on that now.', '']),
     // What Claude Code shows during a turn, and once Escape has stopped one.
     ...(s.status === 'Running' ? ['✻ Working… (3s · ↓ 1.2k tokens)', ''] : []),
     ...(s.interrupted ? ['  ⎿  Interrupted · What should Claude do instead?', ''] : []),
-    ...(s.menu ? [s.menu] : ['❯ ']),
+    // Claude Code's input box, between two rules; a menu takes its place.
+    ...(s.menu ? [s.menu] : [RULE, `❯ ${s.typed ?? ''}`, RULE]),
     ...(s.shells ? [`  ⏵⏵ auto mode on · ${s.shells} shells · ← for agents`] : []),
   ];
 }
@@ -676,6 +697,11 @@ function attachLiveTerminal(server: ServerType, state: FakeState, transcripts: F
         } else if (s.menu && !s.trust && /^\d$/.test(key)) {
           // Claude Code confirms a numbered option on the digit alone.
           s.menu = null;
+        } else if (!s.menu && key === '\r' && s.typed) {
+          // Enter sends what sits in the input box.
+          transcripts?.converse(s.id, s.project_path, s.typed);
+          for (const m of state.sent) if (m.id === s.id) delete m.unsent;
+          Object.assign(s, { typed: null, interrupted: false });
         } else if (bytes.length === 1 && bytes[0] === 0x1b && s.menu) {
           s.menu = null;
           transcripts?.get(s.id)?.rejectPending();

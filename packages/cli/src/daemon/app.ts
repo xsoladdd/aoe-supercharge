@@ -15,12 +15,12 @@ import {
   patchConfig,
   safeEqual,
   updateOfficeMark,
-  dismissControlReply,
+  dismissNeedsYou,
   readContext,
   readWatchLog,
   watchCapturePath,
   watchEnabled,
-  type NoteChange,
+  autonomous,
 } from '@aoe-supercharge/core/node';
 import {
   buildOffice,
@@ -56,6 +56,7 @@ import {
   answerQuestions,
   MenuOpenError,
   newTask,
+  reopenTask,
   PromptChangedError,
   replyToTask,
   runInSession,
@@ -285,6 +286,9 @@ export function createApp(deps: AppDeps) {
         send(snap.seq, 'snapshot', snap);
       }
       const unsub = store.subscribe((e) => send(e.seq, e.type, e.data));
+      // A tab that shows desktop notifications itself: the daemon leaves them to it while it is open.
+      const notifies = c.req.query('notify') === '1';
+      if (notifies) store.notifyClients++;
       deps.onClientConnected();
       const ping = setInterval(() => {
         chain = chain
@@ -293,6 +297,7 @@ export function createApp(deps: AppDeps) {
       }, 20_000);
       await new Promise<void>((done) => stream.onAbort(() => done()));
       closed = true;
+      if (notifies) store.notifyClients--;
       clearInterval(ping);
       unsub();
     }),
@@ -304,7 +309,15 @@ export function createApp(deps: AppDeps) {
     const p = store.projects.find((x) => x.name === c.req.param('project'));
     if (!p) return c.json({ error: 'not_found', message: 'Unknown project' }, 404);
     const sessions = store.health.aoe.state === 'ok' ? store.sessions : null;
-    return c.json(buildProjectStatus(p, store.tasks, sessions, ctx.config.remoteControl.enabled));
+    return c.json(
+      buildProjectStatus(
+        p,
+        store.tasks,
+        sessions,
+        ctx.config.remoteControl.enabled,
+        autonomous(ctx.config, p.name),
+      ),
+    );
   });
 
   app.get('/api/tasks/:project/:id', async (c) => {
@@ -578,13 +591,6 @@ export function createApp(deps: AppDeps) {
     return c.json({ tasks: out });
   });
 
-  app.get('/api/projects/:name/notes', async (c) => {
-    const name = c.req.param('name');
-    if (!store.projects.some((p) => p.name === name))
-      return c.json({ error: 'not_found', message: 'Unknown project' }, 404);
-    return c.json({ text: await ctx.ledger.readNotes(name) });
-  });
-
   // A project's worker watch: its settings at a glance and the notices it sent, newest first.
   app.get('/api/projects/:name/watch', async (c) => {
     const name = c.req.param('name');
@@ -593,6 +599,7 @@ export function createApp(deps: AppDeps) {
     const log = deps.watch ? await deps.watch.log(name) : await readWatchLog(ctx.paths, name);
     const body: WatchResponse = {
       enabled: watchEnabled(ctx.config, name),
+      autonomous: autonomous(ctx.config, name),
       stallMinutes: ctx.config.watch.stallMinutes,
       watching: 0,
       pending: log.filter((e) => e.state === 'pending').length,
@@ -617,17 +624,6 @@ export function createApp(deps: AppDeps) {
     });
   });
 
-  app.put('/api/projects/:name/notes', async (c) => {
-    const name = c.req.param('name');
-    if (!store.projects.some((p) => p.name === name))
-      return c.json({ error: 'not_found', message: 'Unknown project' }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { text?: unknown };
-    if (typeof body.text !== 'string' || body.text.length > 200_000)
-      return c.json({ error: 'bad_request', message: 'Notes must be text, up to 200k characters.' }, 400);
-    await ctx.ledger.writeNotes(name, body.text);
-    return c.json({ ok: true });
-  });
-
   app.post('/api/tasks/:project/:id/reply', async (c) => {
     const { project, id } = c.req.param();
     const body = (await c.req.json().catch(() => ({}))) as { message?: string; confirm?: boolean };
@@ -644,7 +640,19 @@ export function createApp(deps: AppDeps) {
     }
   });
 
-  // Clean up a finished worker (session, worktree, branch), only when its work is on origin/main.
+  // Reopen a done task for follow-up work (done → implementing; out of the archive too).
+  app.post('/api/tasks/:project/:id/reopen', async (c) => {
+    const { project, id } = c.req.param();
+    try {
+      const task = await reopenTask(ctx, { project, taskId: id, actor: 'user', via: 'ui' });
+      deps.onClientConnected();
+      return c.json(task);
+    } catch (err) {
+      return sendError(c, err, 'reopen_failed');
+    }
+  });
+
+  // Clean up a finished worker (session, worktree, branch), only when its work is on origin/<base>.
   // GET says whether that is so and why not; the POST checks again before it removes anything.
   app.get('/api/tasks/:project/:id/cleanup', async (c) => {
     const { project, id } = c.req.param();
@@ -681,7 +689,8 @@ export function createApp(deps: AppDeps) {
   });
 
   // The one place the dashboard spawns a worker: an explicit submit of the New task form (SPEC §8.2).
-  // `aoe add` can take up to 120 s, so this answers when the session exists; the daemon sends the first message.
+  // `aoe add` can take minutes (up to aoe.addTimeoutSeconds, default 300), so this answers when the
+  // session exists; the daemon sends the first message.
   app.post('/api/projects/:name/tasks', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const { title, brief, model, effort, base, force } = body;
@@ -780,7 +789,9 @@ export function createApp(deps: AppDeps) {
   const interrupting = new Set<string>();
 
   // Typing into a session from the dashboard: an explicit Send, always audited. `hold` (the chat
-  // composer's default) keeps it in the daemon while Claude is busy; without a mode it goes now.
+  // composer's default while Claude is free) keeps it in the daemon while Claude is busy; `now` (its
+  // default while Claude works) types it in, and Claude Code reads it during the turn. A send that can't
+  // go in now (a menu, AoE's typing lock, an interrupt under way) is held, never refused.
   app.post('/api/sessions/:id/send', async (c) => {
     const id = c.req.param('id');
     const session = store.sessions.find((s) => s.id === id);
@@ -795,14 +806,23 @@ export function createApp(deps: AppDeps) {
     const held = deps.held;
     const opts = { sessionId: id, message, actor: 'ui' as const, project, taskId: task?.id ?? null };
     if (!message) return c.json({ error: 'send_failed', message: 'The message is empty.' }, 400);
+    const blocked = (err: unknown) => err instanceof MenuOpenError || err instanceof TerminalBusyCliError;
     try {
       if (mode === 'interrupt' && session.status === 'working') {
-        if (interrupting.has(id))
+        if (interrupting.has(id)) {
+          if (held) return c.json({ held: await held.hold(id, message) } satisfies SendResult);
           return c.json({ error: 'interrupting', message: 'Already interrupting Claude. One moment.' }, 409);
+        }
         interrupting.add(id);
         try {
-          const { stopped } = await interruptAndSend(ctx, opts);
-          if (stopped || !held) return c.json({ ok: true } satisfies SendResult);
+          const r = await interruptAndSend(ctx, opts).catch((err) => {
+            if (held && blocked(err)) return null;
+            throw err;
+          });
+          // A menu came up or AoE kept the typing lock: queued, typed once the session is free.
+          if (!r)
+            return c.json({ held: await held!.hold(id, message, { front: true }) } satisfies SendResult);
+          if (r.stopped || !held) return c.json({ ok: true } satisfies SendResult);
           // Claude did not show it stopped in time: first in line, typed once it is free.
           return c.json({
             held: await held.hold(id, message, { front: true }),
@@ -821,12 +841,18 @@ export function createApp(deps: AppDeps) {
         try {
           await sendToSession(ctx, { ...opts, details: { mode } });
         } catch (err) {
-          if (err instanceof MenuOpenError) release();
-          throw err;
+          if (!(err instanceof MenuOpenError)) throw err;
+          release();
+          return c.json({ held: await held.hold(id, message) } satisfies SendResult);
         }
         return c.json({ ok: true } satisfies SendResult);
       }
-      await sendToSession(ctx, { ...opts, details: { mode: mode === 'hold' ? 'now' : mode } });
+      try {
+        await sendToSession(ctx, { ...opts, details: { mode: mode === 'hold' ? 'now' : mode } });
+      } catch (err) {
+        if (!held || !blocked(err)) throw err;
+        return c.json({ held: await held.hold(id, message) } satisfies SendResult);
+      }
       return c.json({ ok: true } satisfies SendResult);
     } catch (err) {
       if (err instanceof TerminalBusyCliError)
@@ -1073,6 +1099,7 @@ export function createApp(deps: AppDeps) {
         actor: 'ui',
         project,
         taskId: task?.id ?? null,
+        hold: deps.held ? (text) => deps.held!.hold(id, text) : undefined,
       });
       deps.onClientConnected(); // re-poll now so the answered menu clears quickly
       return c.json({ ok: true });
@@ -1094,62 +1121,6 @@ export function createApp(deps: AppDeps) {
       restartPrefixes: ['server', 'aoe', 'agent'],
       supervised: !!(process.env.SUPERCHARGE_SERVICE || process.env.SUPERCHARGE_SUPERVISED),
     });
-  });
-
-  // ── Notes and todos (SPEC §14.6). Claude's /note writes the files through the CLI; you write here. ──
-  const notesChanged = async () => store.setNotes(await ctx.notes.all());
-
-  app.get('/api/notes', async (c) => {
-    const archived = c.req.query('archived') === '1';
-    const notes = (await ctx.notes.all()).filter((n) => !!n.archivedAt === archived);
-    return c.json({ notes });
-  });
-
-  app.post('/api/notes', async (c) => {
-    const body = (await c.req.json().catch(() => null)) as {
-      kind?: unknown;
-      text?: unknown;
-      project?: unknown;
-    } | null;
-    if (!body || (body.kind !== 'note' && body.kind !== 'todo') || typeof body.text !== 'string')
-      return c.json(
-        { error: 'bad_request', message: 'Expected { kind: "note" | "todo", text, project }' },
-        400,
-      );
-    const project = typeof body.project === 'string' ? body.project : null;
-    if (project && !store.projects.some((p) => p.name === project))
-      return c.json({ error: 'not_found', message: `Unknown project "${project}"` }, 404);
-    try {
-      const note = await ctx.notes.add({ project, kind: body.kind, text: body.text, by: 'you' });
-      await notesChanged();
-      return c.json({ note }, 201);
-    } catch (err) {
-      return c.json({ error: 'bad_request', message: (err as Error).message }, 400);
-    }
-  });
-
-  // Tick a todo, edit the text, or archive (`archived: true`) and restore.
-  app.patch('/api/notes/:id', async (c) => {
-    const body = (await c.req.json().catch(() => null)) as {
-      done?: unknown;
-      text?: unknown;
-      archived?: unknown;
-    } | null;
-    const change: NoteChange = {};
-    if (typeof body?.done === 'boolean') change.done = body.done;
-    if (typeof body?.text === 'string') change.text = body.text;
-    if (typeof body?.archived === 'boolean')
-      change.archivedAt = body.archived ? new Date().toISOString() : null;
-    if (!Object.keys(change).length)
-      return c.json({ error: 'bad_request', message: 'Expected { done }, { text } or { archived }' }, 400);
-    try {
-      const note = await ctx.notes.update(c.req.param('id'), change);
-      if (!note) return c.json({ error: 'not_found', message: 'No note with that id' }, 404);
-      await notesChanged();
-      return c.json({ note });
-    } catch (err) {
-      return c.json({ error: 'bad_request', message: (err as Error).message }, 400);
-    }
   });
 
   // ── Scheduled prompts (SPEC §8.5). The list arrives with the snapshot. ──
@@ -1236,19 +1207,17 @@ export function createApp(deps: AppDeps) {
     return c.json(history);
   });
 
-  // Dismiss a "Control chat replied" item (SPEC §10.2) until the control chat replies again. Only that
-  // kind: everything else in Needs you clears when what it is about is done.
+  // Dismiss a Needs-you item (SPEC §10.2) until something new happens on it: a new question, a new
+  // wait, a newer reply. What it is about clearing (an answer, a merge, done) clears it anyway.
   app.post('/api/needs-you/dismiss', async (c) => {
     const body = (await c.req.json().catch(() => null)) as { id?: unknown } | null;
     if (typeof body?.id !== 'string')
       return c.json({ error: 'bad_request', message: 'Expected { id }' }, 400);
     const item = store.needsYou.find((i) => i.id === body.id);
     if (!item) return c.json({ error: 'not_found', message: 'No such Needs-you item' }, 404);
-    if (item.kind !== 'control_replied' || !item.sessionId)
-      return c.json({ error: 'bad_request', message: 'Only "Control chat replied" can be dismissed' }, 400);
-    // At least the reply's own time, so a clock skew cannot leave it showing.
+    // At least the item's own time, so a clock skew cannot leave it showing.
     const at = new Date(Math.max(Date.now(), Date.parse(item.since))).toISOString();
-    store.setDismissedReplies(await dismissControlReply(ctx.paths, item.sessionId, at));
+    store.setDismissed(await dismissNeedsYou(ctx.paths, item.id, at));
     return c.json({ ok: true });
   });
 

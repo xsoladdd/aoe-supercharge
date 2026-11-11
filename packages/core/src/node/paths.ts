@@ -8,8 +8,6 @@ export interface Paths {
   tokenFile: string;
   dataDir: string;
   projectsDir: string;
-  /** Notes and todos (SPEC §14.6): `<project>.json` per project and `_global.json`. */
-  notesDir: string;
   rolesDir: string;
   /** The office's own state (SPEC §14.5): who is archived, kept or snoozed. */
   officeDir: string;
@@ -58,7 +56,6 @@ export function resolvePaths(
     tokenFile: join(configDir, 'auth.token'),
     dataDir,
     projectsDir: join(dataDir, 'projects'),
-    notesDir: join(dataDir, 'notes'),
     rolesDir: join(dataDir, 'agent', 'claude-code', 'roles'),
     officeDir: join(dataDir, 'office'),
     stateDir,

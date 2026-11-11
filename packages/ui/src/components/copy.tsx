@@ -21,7 +21,8 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** Small muted copy button after a link: copies its URL, the check pops in for 1.5 s. */
+/** Small muted copy button after a link: copies its URL, the check pops in for 1.5 s. Its box stays
+ * 24px at any interface size (axe target-size); the negative margin keeps the line height. */
 export function LinkCopy({ href }: { href: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -36,7 +37,7 @@ export function LinkCopy({ href }: { href: string }) {
       }}
       aria-label="Copy link"
       title="Copy link"
-      className="ml-0.5 inline-grid size-5 cursor-pointer place-items-center rounded-md align-middle text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
+      className="-my-1 ml-0.5 inline-grid size-[max(1.5rem,24px)] cursor-pointer place-items-center rounded-md align-middle text-muted-foreground transition-colors hover:bg-raised hover:text-foreground"
     >
       {copied ? <CheckIcon className="pop size-3 text-st-green" /> : <CopyIcon className="size-3" />}
     </button>
