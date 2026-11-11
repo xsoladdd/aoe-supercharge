@@ -36,6 +36,8 @@
     command in the chat) keep a 24px box at any interface size.
   - **E2E specs**: they now expect a picked file's path in the text (as 1.7.0 made it), the name in a
     General chat's breadcrumb, and an unread control reply they set up themselves.
+  - **CI runs on pushes to `dev` too** (and can be started by hand), so `dev` is checked before the
+    release PR.
 - **AoE 1.22.x is supported.** The live contract passes against AoE 1.22.3 (22/22, macOS), and the tested
   range is now `>=1.17.2 <1.23.0`.
 - **The trust dialog shows as the question it is.** A session showing a startup dialog (trust, MCP approval)

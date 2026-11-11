@@ -1,9 +1,11 @@
 name: CI
 
 on:
+  # dev too: workers push straight to it, so its CI is the check before the release PR.
   push:
-    branches: [main]
+    branches: [main, dev]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
