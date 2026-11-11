@@ -278,11 +278,11 @@ export class AoeClient {
     });
   }
 
-  /** Recent pane text of a session (plain text, no ANSI). */
-  async output(id: string, lines: number) {
+  /** Recent pane text of a session: plain text, or with ANSI (to tell grey suggestions from typed text). */
+  async output(id: string, lines: number, format: 'text' | 'ansi' = 'text') {
     return this.request(
       'GET',
-      `/api/sessions/${encodeURIComponent(id)}/output?lines=${lines}&format=text`,
+      `/api/sessions/${encodeURIComponent(id)}/output?lines=${lines}&format=${format}`,
       AoeOutputSchema,
     );
   }

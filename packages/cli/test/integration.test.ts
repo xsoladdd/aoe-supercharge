@@ -533,6 +533,27 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
   });
 
+  it('task new presses Enter on a first message typed but not sent, and never types it twice', async () => {
+    const r = await sc(['task', 'new', 'Unsent kickoff', '--force', '--json'], {
+      extraEnv: {
+        FAKE_AOE_UNSUBMITTED_SENDS: '1',
+        SUPERCHARGE_KICKOFF_ENTER_MS: '200',
+        SUPERCHARGE_KICKOFF_CONFIRM_MS: '5000',
+      },
+    });
+    expect(r.code, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as TaskRecord & { worktree: string };
+    // Its Enter was lost, so it sat in the input box: Enter alone sent it.
+    expect(fake.state.sent.filter((m) => m.id === out.aoeSessionId).map((m) => m.message)).toEqual([
+      KICKOFF_MESSAGE,
+    ]);
+    expect(fake.state.keys.filter((k) => k.id === out.aoeSessionId).map((k) => k.hex)).toEqual(['0d']);
+    const t = await readTask(out.id);
+    expect(t.kickoffSeenAt).toBeTruthy();
+    expect(t.kickoffTries).toBe(2);
+    expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+  });
+
   it('task new says so when the worker is not ready and no daemon will send its first message', async () => {
     const r = await sc(['task', 'new', 'Nobody to send it', '--force', '--json'], {
       extraEnv: { FAKE_AOE_START_MENU: 'trust', SUPERCHARGE_KICKOFF_WAIT_MS: '0' },
@@ -768,7 +789,7 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(snap.needsYou.find((n) => n.kind === 'approval')?.taskId).toBe('NO-0001');
   });
 
-  it('reads a waiting menu, refuses stray messages, and answers it by number (audited)', async () => {
+  it('reads a waiting menu, holds stray messages, and answers it by number (audited)', async () => {
     const auth = { authorization: `Bearer ${bearer}` };
     const post = (path: string, body: unknown) =>
       fetch(`${base()}${path}`, {
@@ -792,10 +813,17 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(prompt).toMatchObject({ question: 'Do you want to proceed?', answerable: true });
     expect(prompt.options).toHaveLength(3);
 
-    // A typed message would land on the menu and pick its highlighted option, so it is refused.
+    // A typed message would land on the menu and pick its highlighted option: the dashboard holds it.
+    const sentAtMenu = fake.state.sent.length;
     const stray = await post(`/api/sessions/${id}/send`, { message: 'hello' });
-    expect(stray.status).toBe(409);
-    expect(((await stray.json()) as { error: string }).error).toBe('menu_open');
+    expect(stray.status, await stray.clone().text()).toBe(200);
+    const strayHeld = (await stray.json()) as { held: { id: string; message: string } };
+    expect(strayHeld.held.message).toBe('hello');
+    expect(fake.state.sent.length).toBe(sentAtMenu);
+    await fetch(`${base()}/api/sessions/${id}/held/${strayHeld.held.id}`, {
+      method: 'DELETE',
+      headers: auth,
+    });
     const command = await post(`/api/sessions/${id}/run`, { command: 'ls' });
     expect(command.status).toBe(409);
     expect(((await command.json()) as { error: string }).error).toBe('menu_open');
@@ -823,6 +851,25 @@ describe('daemon: security, live state and the MR watcher', () => {
     ]);
     const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
     expect(audit).toMatch(/"action":"prompt_answered".*3\. No, and tell Claude what to do differently/);
+    await until(async () => !(await snapshot()).sessions.find((x) => x.id === id)?.prompt);
+
+    // Any option can carry a note: "Yes" is pressed, then the note follows as a message.
+    await fetch(`${fake.url}/__fake/sessions/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'Waiting', menu: PERMISSION_MENU }),
+    });
+    const again = await until(
+      async () => (await snapshot()).sessions.find((x) => x.id === id)?.prompt ?? null,
+    );
+    const sentYes = fake.state.sent.length;
+    const yes = await post(`/api/sessions/${id}/answer`, {
+      key: again.key,
+      option: 1,
+      text: 'And log the run.',
+    });
+    expect(yes.status, await yes.clone().text()).toBe(200);
+    expect(fake.state.sent.slice(sentYes).map((m) => m.message)).toEqual(['And log the run.']);
     await until(async () => !(await snapshot()).sessions.find((x) => x.id === id)?.prompt);
     await fetch(`${fake.url}/__fake/sessions/${id}`, {
       method: 'PATCH',
@@ -870,7 +917,12 @@ describe('daemon: security, live state and the MR watcher', () => {
     });
     expect(view.prompt!.options.map((o) => o.label)).toEqual(['No, exit', 'Yes, I trust this folder']);
     expect(snap.needsYou.some((n) => n.sessionId === id)).toBe(true);
-    expect((await post(`/api/sessions/${id}/send`, { message: 'hi' })).status).toBe(409);
+    // Held, not typed into the dialog (AoE's Enter would pick its option).
+    const hi = (await (await post(`/api/sessions/${id}/send`, { message: 'hi' })).json()) as {
+      held: { id: string };
+    };
+    expect(hi.held).toBeTruthy();
+    await fetch(`${base()}/api/sessions/${id}/held/${hi.held.id}`, { method: 'DELETE', headers: auth });
 
     // "Yes": the cursor goes down one row and Enter confirms it, with nothing sent over REST.
     expect((await post(`/api/sessions/${id}/answer`, { key: view.prompt!.key, option: 2 })).status).toBe(200);

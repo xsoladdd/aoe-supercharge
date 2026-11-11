@@ -36,7 +36,7 @@ test.describe('chat composer', () => {
       const box = page.getByLabel(/^Message /);
       const message = `Use the staging database (${browserName})`;
       await box.fill(message);
-      await expect(page.getByRole('button', { name: 'Interrupt and send' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Send now' })).toBeVisible();
       const sendHeld = async () => {
         await page.getByRole('button', { name: 'More ways to send' }).click();
         await page.getByRole('menuitem', { name: /Send when Claude is done/ }).click();
@@ -44,7 +44,7 @@ test.describe('chat composer', () => {
       await sendHeld();
       const held = page.getByRole('list', { name: 'Held messages' });
       await expect(held.getByText(message)).toBeVisible();
-      await expect(held.getByText('Held. Sends when Claude is done')).toBeVisible();
+      await expect(held.getByText('Queued. Sends when Claude is done')).toBeVisible();
       await expect(box).toHaveValue('');
       expect(await sentTo(id)).not.toContain(message);
       await axe(page, 'held message');
@@ -75,7 +75,7 @@ test.describe('chat composer', () => {
     }
   });
 
-  test('Send and Enter stop Claude first while it works; the menu beside Send sends now', async ({
+  test('Send and Enter type it in while Claude works, without stopping it; the menu beside Send interrupts', async ({
     signedIn: page,
     browserName,
   }) => {
@@ -84,24 +84,28 @@ test.describe('chat composer', () => {
     try {
       await openChat(page, id, title);
       const box = page.getByLabel(/^Message /);
+      const keysOf = async (from: number) =>
+        ((await fake('/__fake/state')) as { keys: { id: string; hex: string }[] }).keys
+          .slice(from)
+          .filter((k) => k.id === id)
+          .map((k) => k.hex);
+      let keysBefore = ((await fake('/__fake/state')) as { keys: unknown[] }).keys.length;
       await box.fill(`Also check the footer (${browserName})`);
-      await page.getByRole('button', { name: 'More ways to send' }).click();
-      await axe(page, 'send menu');
-      await page.getByRole('menuitem', { name: /Send now/ }).click();
+      await expect(page.getByRole('button', { name: 'Send now' })).toBeVisible();
+      await box.press('Enter');
       await expect.poll(() => sentTo(id)).toContain(`Also check the footer (${browserName})`);
       await expect(box).toHaveValue('');
+      expect(await keysOf(keysBefore)).toEqual([]);
+
+      keysBefore = ((await fake('/__fake/state')) as { keys: unknown[] }).keys.length;
+      await box.fill(`Stop: wrong file (${browserName})`);
+      await page.getByRole('button', { name: 'More ways to send' }).click();
+      await axe(page, 'send menu');
+      await page.getByRole('menuitem', { name: /Interrupt and send/ }).click();
+      await expect.poll(() => sentTo(id), { timeout: 15_000 }).toContain(`Stop: wrong file (${browserName})`);
+      expect(await keysOf(keysBefore)).toEqual(['1b']);
       // Gone, not just closing: a click on the caret while the menu still fades out leaves it shut.
       await expect(page.getByRole('menu')).toHaveCount(0);
-
-      const keysBefore = ((await fake('/__fake/state')) as { keys: unknown[] }).keys.length;
-      await box.fill(`Stop: wrong file (${browserName})`);
-      await expect(page.getByRole('button', { name: 'Interrupt and send' })).toBeVisible();
-      await box.press('Enter');
-      await expect.poll(() => sentTo(id), { timeout: 15_000 }).toContain(`Stop: wrong file (${browserName})`);
-      const keys = ((await fake('/__fake/state')) as { keys: { id: string; hex: string }[] }).keys.slice(
-        keysBefore,
-      );
-      expect(keys.filter((k) => k.id === id).map((k) => k.hex)).toEqual(['1b']);
       // With Claude idle there is nothing to hold, so no menu.
       await expect(page.getByRole('button', { name: 'More ways to send' })).toHaveCount(0, {
         timeout: 15_000,
@@ -111,7 +115,7 @@ test.describe('chat composer', () => {
     }
   });
 
-  test('with Claude not working Enter never presses Escape; an open menu hides the composer', async ({
+  test('with Claude not working Enter never presses Escape; with a menu open a message is queued', async ({
     signedIn: page,
     browserName,
   }) => {
@@ -129,9 +133,15 @@ test.describe('chat composer', () => {
       const { keys } = (await fake('/__fake/state')) as { keys: { id: string }[] };
       expect(keys.slice(keysBefore).filter((k) => k.id === id)).toEqual([]);
 
-      // A menu on screen swaps the box for its prompt card, so Enter can't reach Escape there either.
+      // A menu on screen: its card shows above the box, and a message written meanwhile is queued.
       await fake(`/__fake/sessions/${id}/permission`, { method: 'POST', body: '{}' });
-      await expect(box).toHaveCount(0, { timeout: 15_000 });
+      await expect(page.getByRole('button', { name: 'Send answer' })).toBeVisible({ timeout: 15_000 });
+      const later = `And then the tests (${browserName})`;
+      await box.fill(later);
+      await box.press('Enter');
+      const held = page.getByRole('list', { name: 'Held messages' });
+      await expect(held.getByText("Queued. Sends after you answer Claude's menu")).toBeVisible();
+      expect(await sentTo(id)).not.toContain(later);
     } finally {
       await removeSession(id);
     }

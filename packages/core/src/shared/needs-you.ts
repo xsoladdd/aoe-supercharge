@@ -32,6 +32,9 @@ export interface NeedsYouInput {
   schedules?: ScheduledPrompt[];
 }
 
+/** How long a new session's `error` is taken for Claude Code still starting, not a dead pane. */
+export const STARTING_MS = 60_000;
+
 /**
  * Everything that needs a human, oldest first (SPEC §14.1).
  * A session counts as a "control" chat if a project registered it as such, or if other AoE sessions
@@ -143,6 +146,9 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         since,
       });
     } else if (s.status === 'error') {
+      // An empty first capture reads as an error while Claude Code starts: give it the debounce, and a minute.
+      const created = s.createdAt ? Date.parse(s.createdAt) : NaN;
+      if (now.getTime() - Date.parse(since) < debounceMs || now.getTime() - created < STARTING_MS) continue;
       items.push({
         id: `error:${s.id}`,
         kind: 'session_error',

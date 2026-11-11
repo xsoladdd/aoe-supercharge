@@ -326,13 +326,16 @@ test.describe('project', () => {
     const options = card.getByRole('radiogroup');
     await expect(options.getByText('Yes, manually approve edits')).toBeVisible();
     await expect(options.getByText('Tell Claude what to change')).toBeVisible();
+    // Any option takes a note, sent after the answer.
+    await options.getByText('Yes, manually approve edits').click();
+    await expect(card.getByLabel(/Add a note/)).toBeVisible();
     await options.getByText('Tell Claude what to change').click();
     await expect(card.getByLabel(/What should Claude do instead/)).toBeVisible();
     await axe(page, 'plan approval');
-    // The chat shows the same card in place of the message box.
+    // The chat shows the same card above the message box, which stays usable (a message is queued).
     await page.getByRole('navigation', { name: 'Task' }).getByRole('link', { name: 'Chat' }).click();
     await expect(page.getByRole('heading', { name: 'Plan ready for your approval' })).toBeVisible();
-    await expect(page.getByLabel(/^Message /)).toHaveCount(0);
+    await expect(page.getByLabel(/^Message /)).toBeVisible();
   });
 
   test('sessions the control chat started through AoE are listed with its project', async ({
@@ -445,6 +448,9 @@ test.describe('project', () => {
     await expect(asks.getByRole('link', { name: 'Content entry for launch pages' })).toBeVisible();
     await expect(asks.getByRole('radiogroup').getByText("Use Friday's deck")).toBeVisible();
     await expect(asks.getByRole('radiogroup').getByText('Write my own answer')).toBeVisible();
+    // An option is an answer; a note can go with it.
+    await asks.getByRole('radiogroup').getByText("Use Friday's deck").click();
+    await expect(asks.getByLabel(/Add a note/)).toBeVisible();
     await axe(page, 'control chat with worker questions');
   });
 

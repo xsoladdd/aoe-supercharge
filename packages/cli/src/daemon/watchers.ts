@@ -19,6 +19,7 @@ import {
   generalSessionIds,
   deskChanges,
   normalizeAoeStatus,
+  STARTING_MS,
   pickWorkerName,
   usageReport,
   type AoeState,
@@ -42,12 +43,17 @@ const nowIso = () => new Date().toISOString();
 
 /**
  * Sessions to bring back: AoE says `error` when a pane died with the tmux server (a reboot). A session
- * you stopped says `stopped` and stays so; archived and trashed ones have no pane on purpose.
+ * you stopped says `stopped` and stays so; archived and trashed ones have no pane on purpose. One made
+ * in the last minute is still starting (its first capture can read as an error), not dead.
  */
-export function toRevive(sessions: AoeSession[], done: string[]): AoeSession[] {
+export function toRevive(sessions: AoeSession[], done: string[], now = Date.now()): AoeSession[] {
   return sessions.filter(
     (s) =>
-      normalizeAoeStatus(s.status) === 'error' && !s.archived_at && !s.trashed_at && !done.includes(s.id),
+      normalizeAoeStatus(s.status) === 'error' &&
+      !s.archived_at &&
+      !s.trashed_at &&
+      !done.includes(s.id) &&
+      !(now - Date.parse(s.created_at ?? '') < STARTING_MS),
   );
 }
 

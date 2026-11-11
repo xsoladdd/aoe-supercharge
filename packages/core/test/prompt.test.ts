@@ -4,6 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { ASK_MENU, PERMISSION_MENU, PLAN_MENU } from '../../fake-aoe/src/server.ts';
 import {
   computeNeedsYou,
+  inputBox,
+  paneText,
   parseTerminalMenu,
   prettyModel,
   splitAttachments,
@@ -195,6 +197,42 @@ describe('parseTerminalMenu: real Claude Code 2.1.308 screens (fixtures/claude-c
   it('is not fooled by / and @ suggestion lists or a prompt held back while typing', () => {
     for (const name of ['slash-suggestions', 'at-suggestions', 'held-while-typing'])
       expect(parseTerminalMenu(screen(name))).toBeNull();
+  });
+});
+
+describe("inputBox and paneText: what is typed in Claude Code's input box", () => {
+  const screen = (file: string) =>
+    readFileSync(join(import.meta.dirname, '../../../fixtures/claude-code', file), 'utf8');
+
+  it('reads the typed text between the rules, under @ and / suggestion lists', () => {
+    expect(inputBox(screen('2.1.308/at-suggestions.txt'))).toBe('ook at @');
+    expect(inputBox(screen('2.1.308/slash-suggestions.txt'))).toBe('/');
+    expect(inputBox(screen('2.1.285/monitor-running.txt'))).toBe('');
+    expect(inputBox(screen('2.1.285/background-agents.txt'))).toBe('');
+    expect(
+      inputBox('────────\n❯ Start on your task: your brief\n  is in your system prompt\n────────\n  footer'),
+    ).toBe('Start on your task: your brief is in your system prompt');
+  });
+
+  it.each([
+    '2.1.308/plan-approval.txt',
+    '2.1.308/bash-permission.txt',
+    '2.1.308/ask-question.txt',
+    '2.1.308/agents-permission.txt',
+    '2.1.285/chrome-menu.txt',
+  ])('is null while a menu covers the box: %s', (file) => {
+    expect(inputBox(screen(file))).toBeNull();
+  });
+
+  it('drops the grey suggestion or placeholder Claude Code shows in an empty box', () => {
+    const suggestion = screen('2.1.285/input-suggestion.ansi');
+    expect(paneText(suggestion)).not.toContain('run lighthouse');
+    expect(paneText(suggestion)).toContain('auto mode on');
+    expect(paneText(suggestion)).not.toContain('\x1b');
+    expect(inputBox(paneText(suggestion))).toBe('');
+    expect(inputBox(paneText(screen('2.1.285/input-placeholder.ansi')))).toBe('');
+    // What was typed stays; only the dim completion after it goes.
+    expect(paneText('\x1b[39m❯\u00a0yes do it\x1b[2m and the cache too\x1b[0m')).toBe('❯\u00a0yes do it');
   });
 });
 

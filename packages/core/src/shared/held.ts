@@ -33,8 +33,8 @@ export function heldReason(
 ): string {
   if (m.state === 'sending') return 'Sending…';
   if (m.state === 'failed') return m.error ?? 'Could not send this.';
-  if (index > 0) return 'Held. Waiting its turn';
-  if (session?.archived) return 'Held. Sends once the session is back from the archive';
-  if (session?.prompt) return "Held. Sends after you answer Claude's menu";
-  return 'Held. Sends when Claude is done';
+  if (index > 0) return 'Queued. Waiting its turn';
+  if (session?.archived) return 'Queued. Sends once the session is back from the archive';
+  if (session?.prompt) return "Queued. Sends after you answer Claude's menu";
+  return 'Queued. Sends when Claude is done';
 }

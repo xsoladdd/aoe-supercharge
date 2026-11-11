@@ -126,6 +126,10 @@ if (cmd === '--version' || cmd === '-V') {
         : {}),
       // FAKE_AOE_SWALLOW_SENDS=N: the first N messages sent to it are lost.
       ...(process.env.FAKE_AOE_SWALLOW_SENDS ? { swallow: Number(process.env.FAKE_AOE_SWALLOW_SENDS) } : {}),
+      // FAKE_AOE_UNSUBMITTED_SENDS=N: the first N messages are typed but not sent until Enter.
+      ...(process.env.FAKE_AOE_UNSUBMITTED_SENDS
+        ? { unsubmitted: Number(process.env.FAKE_AOE_UNSUBMITTED_SENDS) }
+        : {}),
       // FAKE_AOE_NO_HOOKS=1: no Claude id is known until the first message goes in.
       ...(process.env.FAKE_AOE_NO_HOOKS === '1' ? { hooks: false } : {}),
     }),

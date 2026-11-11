@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   backgroundShells,
@@ -166,6 +168,15 @@ describe('backgroundShells', () => {
     expect(backgroundShells(pane('⏵⏵ auto mode on · 2 shells · ← for agents'))).toBe(2);
     expect(backgroundShells(pane('⏵⏵ auto mode on · 1 shell · ← for agents'))).toBe(1);
     expect(backgroundShells(pane('⏵⏵ auto mode on · 3 background tasks'))).toBe(3);
+    expect(backgroundShells(pane('⏵⏵ auto mode on · 2 background agents'))).toBe(2);
+    expect(backgroundShells(pane('⏵⏵ auto mode on · 1 shell · 1 monitor · ← for agents'))).toBe(2);
+  });
+
+  it('counts a running Monitor and running background agents on real screens', () => {
+    const screen = (name: string) =>
+      readFileSync(join(import.meta.dirname, '../../../fixtures/claude-code/2.1.285', name), 'utf8');
+    expect(backgroundShells(screen('monitor-running.txt'))).toBe(1);
+    expect(backgroundShells(screen('background-agents.txt'))).toBe(3);
   });
 
   it('is 0 without shells, and ignores the turn summary above the prompt', () => {
@@ -254,6 +265,27 @@ describe('watchEvents', () => {
     expect(eventsOf(waiting(minutesAgo(1), { ...perm, kind: 'plan' as never }))).toMatchObject([
       { key: 'plan_approval:s1', kind: 'permission', detail: 'Plan ready for your approval' },
     ]);
+  });
+
+  it('says nothing about an error while a new session starts, or before the debounce', () => {
+    const erroring = (o: Partial<SessionView>) =>
+      world({ sessions: [session('ctl', 'idle'), session('s1', 'error', o)] });
+    // The empty first capture of a session made 10 s ago.
+    expect(
+      eventsOf(erroring({ createdAt: new Date(T0 - 10_000).toISOString(), statusSince: minutesAgo(1) })),
+    ).toEqual([]);
+    expect(eventsOf(erroring({ statusSince: new Date(T0 - 5_000).toISOString() }))).toEqual([]);
+    expect(eventsOf(erroring({ createdAt: minutesAgo(5), statusSince: minutesAgo(1) }))).toMatchObject([
+      { key: 'error:s1', kind: 'error' },
+    ]);
+  });
+
+  it('tells nothing when AoE says waiting but no menu is on screen', () => {
+    const w = world({
+      sessions: [session('ctl', 'idle'), session('s1', 'waiting', { statusSince: minutesAgo(5) })],
+    });
+    expect(w.needsYou.map((i) => i.kind)).toContain('approval');
+    expect(eventsOf(w)).toEqual([]);
   });
 
   it('reports a blocked question and a task ready for review', () => {

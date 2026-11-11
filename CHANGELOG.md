@@ -46,6 +46,30 @@
 - **Attaching a marked-up image keeps the other files' paths.** Picking an image and a file together, the
   file's path landed in the box while the image was being marked up, and **Attach** then replaced the box
   with the dialog's text. The path is kept now, and the image's own path goes right after its message.
+- **A message is never refused or lost.** In the dashboard, a send that can't go in now (a menu on screen,
+  AoE's typing lock, an interrupt already under way) is queued and shown as "Queued", instead of failing
+  with `menu_open`, `terminal_busy` or `interrupting`. While Claude works, Send and Enter now type the
+  message in (Claude Code reads it during the turn) instead of stopping Claude; **Interrupt and send** is in
+  the caret menu. A menu's card shows above the message box, which stays usable.
+- **`supercharge reply` refuses when Claude Code's input box is not on screen.** It used to print "✓ Sent"
+  while a menu it could not read (such as `/chrome`) held the input, and the message was lost. It also
+  refuses when AoE won't show the screen (it still sends when `aoe serve` is down). The dashboard queues
+  instead.
+- **The start prompt is sent once.** A worker's first message that is still in its input box ~2 s later gets
+  Enter pressed, not typed again; it is typed again only into an empty box after 20 s. Before, it could sit
+  typed but unsent, or be stacked 2–3 times. `SUPERCHARGE_KICKOFF_ENTER_MS` overrides the 2 s.
+- **No false watch notices.**
+  - No `kind=error` for an AoE `error` that lasts less than the waiting debounce, or on a session less than
+    a minute old (an empty first capture). The reboot revive leaves such sessions alone too.
+  - No `kind=permission` when AoE says waiting but no menu is on screen. The Needs-you item stays.
+  - A worker running a Monitor or background agents is waiting, not stalled.
+- **Watch logs leave out grey prompt suggestions.** The pane is captured with ANSI (`format=ansi`), and the
+  dim suggestion or placeholder on the `❯` line is dropped before it is saved.
+- **Answer cards keep your note.** Every option of a worker's question or a Claude Code menu takes a note.
+  It is sent with the answer, or after the menu closes. The cards say that options are answers, not
+  actions, and a shell block in a worker's question gets **Run**.
+- New Claude Code 2.1.285 screen fixtures: `/chrome`, a running Monitor, background agents, and a grey
+  suggestion and placeholder (with ANSI).
 
 - **`aoe add` gets as long as you need.** `task new` used to kill `aoe add` after a fixed 120 seconds, and
   `git worktree add` alone can take longer on a large repository. The timeout is now `aoe.addTimeoutSeconds`

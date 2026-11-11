@@ -790,7 +790,9 @@ export function createApp(deps: AppDeps) {
   const interrupting = new Set<string>();
 
   // Typing into a session from the dashboard: an explicit Send, always audited. `hold` (the chat
-  // composer's default) keeps it in the daemon while Claude is busy; without a mode it goes now.
+  // composer's default while Claude is free) keeps it in the daemon while Claude is busy; `now` (its
+  // default while Claude works) types it in, and Claude Code reads it during the turn. A send that can't
+  // go in now (a menu, AoE's typing lock, an interrupt under way) is held, never refused.
   app.post('/api/sessions/:id/send', async (c) => {
     const id = c.req.param('id');
     const session = store.sessions.find((s) => s.id === id);
@@ -805,14 +807,23 @@ export function createApp(deps: AppDeps) {
     const held = deps.held;
     const opts = { sessionId: id, message, actor: 'ui' as const, project, taskId: task?.id ?? null };
     if (!message) return c.json({ error: 'send_failed', message: 'The message is empty.' }, 400);
+    const blocked = (err: unknown) => err instanceof MenuOpenError || err instanceof TerminalBusyCliError;
     try {
       if (mode === 'interrupt' && session.status === 'working') {
-        if (interrupting.has(id))
+        if (interrupting.has(id)) {
+          if (held) return c.json({ held: await held.hold(id, message) } satisfies SendResult);
           return c.json({ error: 'interrupting', message: 'Already interrupting Claude. One moment.' }, 409);
+        }
         interrupting.add(id);
         try {
-          const { stopped } = await interruptAndSend(ctx, opts);
-          if (stopped || !held) return c.json({ ok: true } satisfies SendResult);
+          const r = await interruptAndSend(ctx, opts).catch((err) => {
+            if (held && blocked(err)) return null;
+            throw err;
+          });
+          // A menu came up or AoE kept the typing lock: queued, typed once the session is free.
+          if (!r)
+            return c.json({ held: await held!.hold(id, message, { front: true }) } satisfies SendResult);
+          if (r.stopped || !held) return c.json({ ok: true } satisfies SendResult);
           // Claude did not show it stopped in time: first in line, typed once it is free.
           return c.json({
             held: await held.hold(id, message, { front: true }),
@@ -831,12 +842,18 @@ export function createApp(deps: AppDeps) {
         try {
           await sendToSession(ctx, { ...opts, details: { mode } });
         } catch (err) {
-          if (err instanceof MenuOpenError) release();
-          throw err;
+          if (!(err instanceof MenuOpenError)) throw err;
+          release();
+          return c.json({ held: await held.hold(id, message) } satisfies SendResult);
         }
         return c.json({ ok: true } satisfies SendResult);
       }
-      await sendToSession(ctx, { ...opts, details: { mode: mode === 'hold' ? 'now' : mode } });
+      try {
+        await sendToSession(ctx, { ...opts, details: { mode: mode === 'hold' ? 'now' : mode } });
+      } catch (err) {
+        if (!held || !blocked(err)) throw err;
+        return c.json({ held: await held.hold(id, message) } satisfies SendResult);
+      }
       return c.json({ ok: true } satisfies SendResult);
     } catch (err) {
       if (err instanceof TerminalBusyCliError)
@@ -1083,6 +1100,7 @@ export function createApp(deps: AppDeps) {
         actor: 'ui',
         project,
         taskId: task?.id ?? null,
+        hold: deps.held ? (text) => deps.held!.hold(id, text) : undefined,
       });
       deps.onClientConnected(); // re-poll now so the answered menu clears quickly
       return c.json({ ok: true });

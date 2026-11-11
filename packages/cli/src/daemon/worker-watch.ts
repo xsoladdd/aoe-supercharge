@@ -13,6 +13,7 @@ import {
   backgroundShells,
   formatWatchNotice,
   markerOf,
+  paneText,
   stallCandidates,
   watchEvents,
   watchStep,
@@ -73,7 +74,9 @@ export class WorkerWatch {
     this.send =
       deps.send ??
       ((sessionId, message, project) => sendToSession(ctx, { sessionId, message, actor: 'daemon', project }));
-    this.capture = deps.capture ?? (async (id) => (await ctx.aoe.output(id, CAPTURE_LINES)).content);
+    // With ANSI, so the grey suggestion in the input line is told from typed text and left out.
+    this.capture =
+      deps.capture ?? (async (id) => paneText((await ctx.aoe.output(id, CAPTURE_LINES, 'ansi')).content));
     this.now = deps.now ?? (() => new Date());
   }
 

@@ -271,11 +271,11 @@ describe('HeldMessages: messages held while Claude is busy', () => {
 describe('heldReason', () => {
   const m = { id: 'a', sessionId: 's', message: 'x', heldAt: '', state: 'held' as const, error: null };
   it('says why it waits', () => {
-    expect(heldReason(m, 0, { status: 'working' })).toBe('Held. Sends when Claude is done');
+    expect(heldReason(m, 0, { status: 'working' })).toBe('Queued. Sends when Claude is done');
     expect(heldReason(m, 0, { status: 'waiting', prompt: {} })).toBe(
-      "Held. Sends after you answer Claude's menu",
+      "Queued. Sends after you answer Claude's menu",
     );
-    expect(heldReason(m, 1, { status: 'working' })).toBe('Held. Waiting its turn');
+    expect(heldReason(m, 1, { status: 'working' })).toBe('Queued. Waiting its turn');
     expect(heldReason({ ...m, state: 'sending' }, 0, null)).toBe('Sending…');
     expect(heldReason({ ...m, state: 'failed', error: 'boom' }, 0, null)).toBe('boom');
   });

@@ -1154,6 +1154,15 @@ describe('reviving sessions whose pane died (a reboot)', () => {
     expect(toRevive(sessions, ['dead'])).toEqual([]);
   });
 
+  it('leaves a session made in the last minute alone: it is starting, not dead', () => {
+    const now = Date.parse('2026-11-11T10:00:00Z');
+    const young = [
+      s('new', 'Error', { created_at: '2026-11-11T09:59:30Z' }),
+      s('old', 'Error', { created_at: '2026-11-11T09:00:00Z' }),
+    ];
+    expect(toRevive(young, [], now).map((x) => x.id)).toEqual(['old']);
+  });
+
   it('ensures each one once per boot, and again after the next boot', async () => {
     const home = await mkdtemp(join(tmpdir(), 'sc-revive-'));
     try {

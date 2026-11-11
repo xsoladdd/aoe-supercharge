@@ -218,9 +218,10 @@ export interface WatchEvent {
 const WORKING_STAGES: readonly Stage[] = ['planning', 'implementing', 'verifying'];
 
 /**
- * How many background shells or tasks a Claude Code pane's footer says are running ("auto mode on · 2
- * shells · ← for agents"), 0 when none. Only the footer under the last prompt line counts: the turn
- * summary above it ("2 shells still running") goes stale.
+ * How much a Claude Code pane says still runs in the background, 0 when nothing: shells, tasks and
+ * monitors in the footer ("auto mode on · 2 shells · 1 monitor · ← for agents"), plus each running
+ * background agent listed under it ("◯ Explore  Reading…"). Only what is under the last prompt line
+ * counts: the turn summary above it ("2 shells still running") goes stale.
  */
 export function backgroundShells(pane: string): number {
   const lines = pane.replace(/\r/g, '').split('\n');
@@ -230,11 +231,15 @@ export function backgroundShells(pane: string): number {
       from = i + 1;
       break;
     }
+  let n = 0;
   for (const line of lines.slice(from)) {
-    const m = /\b(\d+) (?:shells?|background tasks?)\b(?! still)/i.exec(line);
-    if (m) return Number(m[1]);
+    for (const m of line.matchAll(
+      /\b(\d+) (?:shells?|monitors?|background (?:tasks?|agents?))\b(?! still)/gi,
+    ))
+      n += Number(m[1]);
+    if (/^\s*◯ \S/.test(line)) n++;
   }
-  return 0;
+  return n;
 }
 
 /** Whether a worker has been idle long enough, by AoE's clock, to be called stalled (given no marker). */
@@ -334,9 +339,9 @@ export function watchEvents(input: WatchEventsInput): WatchEvent[] {
               : { ...base, key: `ask:${sid}`, hold: `waiting:${sid}`, kind: 'question', detail: i.detail },
           );
           break;
+        // `approval` is AoE's waiting with no menu on screen: nothing to tell yet.
         case 'permission':
         case 'plan_approval':
-        case 'approval':
           events.push({
             ...base,
             key: `${i.kind}:${sid}`,

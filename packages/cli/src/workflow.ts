@@ -34,6 +34,9 @@ import {
   countActiveWorkers,
   countBusyGeneral,
   generalSessionIds,
+  inputBox,
+  paneText,
+  parseTerminalMenu,
   normalizeAoeStatus,
   pickDesk,
   pickWorkerName,
@@ -1546,10 +1549,11 @@ export async function kickoffWorker(ctx: Ctx, task: TaskRecord, opts: KickoffOpt
 }
 
 /**
- * A sent first message can still be lost: typed before Claude Code's input was ready, picked up by a
- * menu that opened in between, or dropped by a restart. It counts once it is in the transcript. It is
- * sent again only on positive evidence that it is not: the session is idle with no menu, a while after
- * sending, and its known conversation has no message from the user. Up to KICKOFF_MAX_TRIES sends.
+ * A sent first message can still be lost: typed but its Enter lost, picked up by a menu that opened in
+ * between, or dropped by a restart. It counts once it is in the transcript. While it is not, the session
+ * is idle with no menu and its known conversation has no message from the user: from ~2 s after sending,
+ * a message still in the input box gets Enter; after 20 s, an empty box gets it typed again. It is never
+ * typed over itself or over other text. Up to KICKOFF_MAX_TRIES sends and Enters in all.
  */
 export async function confirmKickoff(
   ctx: Ctx,
@@ -1570,22 +1574,41 @@ export async function confirmKickoff(
   if (chat?.messages.some((m) => m.role === 'user')) return seen();
   // No conversation id (no AoE hooks): working is the best sign there is that it went in.
   if (!chat || chat.version === 'none') return opts.status === 'working' ? seen() : 'unverifiable';
-  const envMs = Number(ctx.env.SUPERCHARGE_KICKOFF_CONFIRM_MS || NaN);
-  const after = Number.isFinite(envMs) && envMs >= 0 ? envMs : 20_000;
-  if ((opts.now ?? Date.now()) - Date.parse(task.kickoffAt!) < after) return 'pending';
+  const ms = (name: string, fallback: number) => {
+    const v = Number(ctx.env[name] || NaN);
+    return Number.isFinite(v) && v >= 0 ? v : fallback;
+  };
+  const after = ms('SUPERCHARGE_KICKOFF_CONFIRM_MS', 20_000);
+  const elapsed = (opts.now ?? Date.now()) - Date.parse(task.kickoffAt!);
+  if (elapsed < Math.min(ms('SUPERCHARGE_KICKOFF_ENTER_MS', 2_000), after)) return 'pending';
   if (opts.status !== 'idle' || (await menuOnScreen(ctx, task.aoeSessionId))) return 'pending';
+  // Typed but its Enter lost: it is still in the input box (grey suggestions aside), so press Enter only.
+  const box = await ctx.aoe.output(task.aoeSessionId, 60, 'ansi').then(
+    (o) => inputBox(paneText(o.content)),
+    () => null,
+  );
+  const squash = (t: string) => t.replace(/\s+/g, '');
+  const typed = box !== null && squash(box).includes(squash(KICKOFF_MESSAGE));
+  if (box === null || (!typed && elapsed < after)) return 'pending';
   const sentAt = task.kickoffAt;
-  let out: 'resend' | 'gave_up' | 'skipped' = 'skipped';
+  let out = 'skipped' as 'enter' | 'resend' | 'gave_up' | 'skipped';
   await ctx.ledger.updateTask(task.project, task.id, (t) => {
     if (t.kickoffAt !== sentAt || t.kickoffSeenAt !== null) return t;
-    if ((t.kickoffTries ?? 1) >= KICKOFF_MAX_TRIES) {
+    // Something else in the box (the user typing): never type over it.
+    if ((t.kickoffTries ?? 1) >= KICKOFF_MAX_TRIES || (!typed && box !== '')) {
       out = 'gave_up';
       return { ...t, kickoffTries: KICKOFF_MAX_TRIES + 1 };
+    }
+    if (typed) {
+      out = 'enter';
+      return { ...t, kickoffAt: new Date().toISOString(), kickoffTries: (t.kickoffTries ?? 1) + 1 };
     }
     out = 'resend';
     return { ...t, kickoffAt: null };
   });
-  return out;
+  if (out !== 'enter') return out;
+  await ctx.aoe.pressKeys(task.aoeSessionId, ['\r']);
+  return 'pending';
 }
 
 /** One look at a new worker's first message: send it, confirm it, or send it again (SPEC §8.2). */
@@ -1602,14 +1625,28 @@ export async function advanceKickoff(ctx: Ctx, task: TaskRecord, opts: KickoffOp
 
 /**
  * AoE types the text and then presses Enter. With a menu open, that Enter picks its highlighted option
- * (for a plan: "Yes, and use auto mode"), so typing must wait until the menu is answered.
+ * (for a plan: "Yes, and use auto mode"), so typing must wait until the menu is answered. A menu this
+ * cannot parse (/chrome) still takes the input box's place, so no box on screen refuses too, as does a
+ * screen AoE would not show. Only with `aoe serve` down (the CLI send still works) is it left unchecked.
  */
 async function refuseOverMenu(ctx: Ctx, sessionId: string, what: string, then: string) {
-  const menu = await menuOnScreen(ctx, sessionId);
+  const pane = await ctx.aoe.output(sessionId, 60).then(
+    (o) => o.content,
+    (err) => (err instanceof AoeError && err.kind === 'unreachable' ? undefined : null),
+  );
+  if (pane === undefined) return;
+  const menu = pane === null ? null : parseTerminalMenu(pane);
   if (menu)
     throw new MenuOpenError(
       `The session is showing a menu${menu.question ? ` ("${menu.question}")` : ''}, so ${what} would pick its highlighted option.`,
       `Answer the menu first, in the dashboard or the terminal, then ${then}.`,
+    );
+  if (pane === null || inputBox(pane) === null)
+    throw new MenuOpenError(
+      pane === null
+        ? `AoE would not show the session's screen, so ${what} could land in a menu.`
+        : `Claude Code's input box is not on screen (a menu or dialog has its place), so ${what} would be lost or pick an option.`,
+      `Close it first, in the dashboard or the terminal, then ${then}.`,
     );
 }
 
@@ -1824,10 +1861,13 @@ export async function answerPrompt(
     sessionId: string;
     key: string;
     option: number;
+    /** A note sent once the menu closes: feedback for a "Tell Claude…" option, a plain message otherwise. */
     text?: string;
     actor: 'cli' | 'ui' | 'control';
     project?: string | null;
     taskId?: string | null;
+    /** The dashboard: a note that can't go in now (another menu came up) is held instead. */
+    hold?: (text: string) => Promise<unknown>;
   },
   wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
 ): Promise<void> {
@@ -1839,7 +1879,6 @@ export async function answerPrompt(
   const option = menu.options.find((o) => o.n === opts.option);
   if (!option) throw new CliError(`Option ${opts.option} is not in this menu.`, EXIT.usage);
   const text = opts.text?.trim() ?? '';
-  if (text && !option.feedback) throw new CliError(`Option ${option.n} does not take a message.`, EXIT.usage);
   await appendAudit(ctx.paths, {
     actor: opts.actor,
     action: 'prompt_answered',
@@ -1858,7 +1897,10 @@ export async function answerPrompt(
     if (i >= 20)
       throw new CliError('Claude did not close the menu, so your message was not sent. Check the terminal.');
   }
-  await sendToSession(ctx, { ...opts, message: text });
+  await sendToSession(ctx, { ...opts, message: text }).catch(async (err) => {
+    if (!opts.hold || !(err instanceof MenuOpenError)) throw err;
+    await opts.hold(text);
+  });
 }
 
 export async function replyToTask(

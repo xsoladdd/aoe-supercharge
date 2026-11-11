@@ -1,0 +1,7 @@
+
+────────────────────────────────────────── fix-message-loss-start-prompt-watch ─
+❯
+────────────────────────────────────────────────────────────────────────────────
+  Opus 5.5 · context 15% · 5h 5% · week 17%
+  ⏵⏵ auto mode on · 1 monitor · ← for agents
+                               Update available! Run: brew upgrade claude-code

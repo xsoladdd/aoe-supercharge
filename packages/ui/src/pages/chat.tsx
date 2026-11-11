@@ -641,8 +641,11 @@ function ChatComposer({
     }
   };
 
-  /** Send the box and every attachment as one message. Enter and Send interrupt while Claude works. */
-  const deliver = async (text: string, mode: SendMode = working ? 'interrupt' : 'hold') => {
+  /**
+   * Send the box and every attachment as one message. While Claude works, Enter and Send type it in now
+   * (Claude Code reads it during the turn); otherwise it is queued while a menu or others wait.
+   */
+  const deliver = async (text: string, mode: SendMode = working ? 'now' : 'hold') => {
     if (sending) return false;
     setSending(true);
     setError(null);
@@ -1551,13 +1554,14 @@ export function SessionChat({
           <div className={cn(view === 'terminal' && 'pt-3')}>
             {session.archived ? (
               <ArchivedNotice session={session} />
-            ) : session.prompt ? (
-              // While a menu is open a typed message would pick its highlighted option, so answer it here instead.
-              <div className="mx-auto max-h-[62dvh] w-full max-w-3xl overflow-y-auto overscroll-contain px-4 pb-3">
-                <PromptCard session={session} onAnswered={onAnswered} />
-              </div>
             ) : (
               <>
+                {session.prompt && (
+                  // Answered here; a message written meanwhile is queued until the menu is answered.
+                  <div className="mx-auto max-h-[45dvh] w-full max-w-3xl overflow-y-auto overscroll-contain px-4 pb-3">
+                    <PromptCard session={session} onAnswered={onAnswered} />
+                  </div>
+                )}
                 {role.kind === 'control' && chat && <ControlModelNotice session={session} chat={chat} />}
                 <ChatComposer
                   session={session}
