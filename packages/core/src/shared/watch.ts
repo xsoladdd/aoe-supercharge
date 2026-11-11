@@ -473,8 +473,18 @@ export interface WatchLogEntry {
 }
 
 /** A project's watch at a glance: the dashboard's Watch tab and status line. */
+/** A project's autonomous mode (`projects.<name>.autonomousSince`/`autonomousUntil`). */
+export interface Autonomous {
+  on: boolean;
+  /** Set while it is on, and until its end has been summarised. */
+  since: string | null;
+  /** When it ends, or last ended. */
+  until: string | null;
+}
+
 export interface WatchSummary {
   enabled: boolean;
+  autonomous: Autonomous;
   stallMinutes: number;
   /** Workers watched right now. */
   watching: number;

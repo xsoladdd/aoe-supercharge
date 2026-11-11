@@ -3,6 +3,7 @@ import { ago, type Snapshot } from '@aoe-supercharge/core/shared';
 import { useId, useState } from 'react';
 import { toast } from 'sonner';
 import { Link, useLocation } from 'wouter';
+import { AutonomousMode } from '@/components/autonomous';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -234,6 +235,7 @@ export function ProjectSettingsPage({ snap, name }: { snap: Snapshot; name: stri
           ))}
         </dl>
       </section>
+      {project.controlSessionId && <AutonomousMode name={name} state={snap.watch[name]?.autonomous} />}
       <DeleteProject name={name} sessions={sessions} tasks={tasks.length} />
     </div>
   );

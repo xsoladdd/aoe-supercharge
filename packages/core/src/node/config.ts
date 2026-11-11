@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { ensureDir, writeFileAtomic } from './fs.ts';
 import type { Paths } from './paths.ts';
 import { validTimeZone } from '../shared/office-ambience.ts';
+import type { Autonomous } from '../shared/watch.ts';
 
 /** Arguments that land on AoE's shell launch line must not contain shell metacharacters (SPEC §10.1). */
 /** What `agent.workerPermissionMode` and `task new --permission-mode` accept. */
@@ -13,6 +14,9 @@ export const PERMISSION_MODES = ['plan', 'default', 'acceptEdits', 'auto'] as co
 export const SAFE_ARG = /^[A-Za-z0-9_@%+=:,./-]+$/;
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const HOSTNAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:\d{1,5})?$/;
+
+/** A time with its offset (`2026-11-12T07:00:00.000Z`), or empty once cleared. */
+const instant = z.union([z.iso.datetime({ offset: true }), z.literal('')]);
 
 const seconds = (def: number, min: number, desc: string) =>
   z.number().int().min(min).max(3600).default(def).describe(desc);
@@ -85,9 +89,9 @@ export const ConfigSchema = z.strictObject({
       model: z
         .string()
         .regex(/^[A-Za-z0-9._-]*$/, 'An alias like opus or sonnet, or a full model id')
-        .default('')
+        .default('opus')
         .describe(
-          'Model for workers started without --model. The control chat picks one per task (sonnet for well-scoped work, opus for harder work), so this is only the fallback. Workers that start in plan mode always plan with Opus: sonnet, or nothing here, starts them on opusplan (Opus while planning, Sonnet once the plan is approved).',
+          'Model for workers started without --model: Opus 5.5, and the control chat only picks the effort. The opus alias follows the next Opus; pin a full id to stop that. Workers that start in plan mode always plan with Opus: sonnet, or empty here, starts them on opusplan (Opus while planning, Sonnet once the plan is approved).',
         ),
       effort: z
         .enum(['default', 'low', 'medium', 'high', 'xhigh', 'max'])
@@ -440,6 +444,16 @@ export const ConfigSchema = z.strictObject({
           .regex(/^[A-Za-z0-9._/-]*$/)
           .optional(),
         watch: z.boolean().optional().describe('Worker watch for this project. Unset follows watch.enabled.'),
+        autonomousSince: instant
+          .optional()
+          .describe(
+            'When autonomous mode was switched on (the dashboard sets it). Cleared once it ends and the control chat was asked for its summary.',
+          ),
+        autonomousUntil: instant
+          .optional()
+          .describe(
+            'When autonomous mode ends: new workers start in auto mode and the control chat acts within its limits until then. Set it to now to switch it off.',
+          ),
       }),
     )
     .default({})
@@ -474,9 +488,17 @@ hosts = ["github.com"]
 theme = "dark"
 `;
 
-/** Whether a project's control chat hears about its workers (`projects.<name>.watch`, else `watch.enabled`). */
+/** Whether a project's control chat hears about its workers (`projects.<name>.watch`, else `watch.enabled`), always while autonomous. */
 export function watchEnabled(config: Config, project: string): boolean {
-  return config.projects[project]?.watch ?? config.watch.enabled;
+  return autonomous(config, project).on || (config.projects[project]?.watch ?? config.watch.enabled);
+}
+
+/** A project's autonomous mode: on from `autonomousSince` until `autonomousUntil`. */
+export function autonomous(config: Config, project: string | null, now = Date.now()): Autonomous {
+  const p = project ? config.projects[project] : undefined;
+  const since = p?.autonomousSince || null;
+  const until = p?.autonomousUntil || null;
+  return { on: !!since && !!until && now < Date.parse(until), since, until };
 }
 
 export function defaultConfig(): Config {

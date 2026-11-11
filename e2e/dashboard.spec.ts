@@ -284,8 +284,8 @@ test.describe('project', () => {
     await expect(page.getByText(/aoe session attach/)).toBeVisible();
     const details = page.getByRole('complementary', { name: 'Task details' });
     await expect(details.getByText('Started on')).toBeVisible();
-    // Started without --model in plan mode: it plans with Opus and builds with Sonnet.
-    await expect(details.getByText('Opus to plan, then Sonnet once the plan is approved')).toBeVisible();
+    // Started without --model: workers plan and build on Opus (agent.model).
+    await expect(details.getByText('Opus', { exact: true })).toBeVisible();
     await axe(page, 'task overview');
     await tabs.getByRole('link', { name: 'Plan' }).click();
     await expect(page).toHaveURL(/\/t\/NW-0001\/plan$/);
@@ -1169,7 +1169,9 @@ test.describe('project', () => {
     await dialog.getByLabel('Title').fill('Add request tracing');
     await dialog.getByLabel('Brief').fill('Trace every request id through the API.');
     await dialog.getByLabel('Model').click();
-    await page.getByRole('option', { name: 'Sonnet' }).click();
+    // Workers build on Opus or, when asked for, Fable: there is no Sonnet.
+    await expect(page.getByRole('option', { name: 'Sonnet' })).toHaveCount(0);
+    await page.getByRole('option', { name: 'Fable' }).click();
     await dialog.getByLabel('Effort').click();
     await page.getByRole('option', { name: 'Low' }).click();
     await dialog.getByRole('button', { name: 'Start task' }).click();

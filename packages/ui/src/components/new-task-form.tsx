@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { ApiError } from '@/lib/api';
 
-export const TASK_MODELS: ModelAlias[] = ['opus', 'sonnet', 'fable'];
+export const TASK_MODELS: ModelAlias[] = ['opus', 'fable'];
 export const TASK_EFFORTS: EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 export interface NewTaskValues {

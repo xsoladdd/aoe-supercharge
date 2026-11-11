@@ -123,8 +123,8 @@ Then talk to the control chat (in AoE, or from your phone; see [Phone access](#p
   - a ledger entry.
 - **A start that fails leaves nothing behind.** `aoe add` creates the worktree, which can take minutes on a large repository; it gets `aoe.addTimeoutSeconds` (default 300). If it runs out of time or fails, `task new` removes what that start made and nothing else: the ledger entry, the AoE session if one was registered, and the branch and worktree, but only when the start created the branch and it has no commits. The error says what to do next (raise the timeout, or check `aoe list`, then run it again), and the audit log records `task_failed` with the reason. The task id is not reused; the `task_failed` entry explains the gap.
 - The control chat runs `task new` itself; you can run it by hand too, or press **New task** on a project's page in the dashboard (title, brief, model and effort; it runs the same code and is audited as you). It is the only place the dashboard starts a worker, and only when you submit the form. If your usage says to wait, nothing is started: the form shows why and offers **Start anyway**.
-- **Model and effort.** A control chat starts on Opus at `xhigh` effort (`agent.controlModel`, `agent.controlEffort`) and is locked to them: its Model picker in the composer is shown, with a lock, and cannot be changed, so nothing is typed into the chat that Claude Code would save as your default. The `opus` alias is Opus 5.5 on the current Claude Code and follows the next Opus; pin a full model id in Settings to stop that. Workers get a `--model` and an `--effort` per task from the control chat (the table is in its skill); `agent.model` and `agent.effort` are only the fallbacks. Both apply to that one session.
-- **Permission mode.** Workers start in `agent.workerPermissionMode` (`plan` by default), so they wait for you to approve their plan. `supercharge task new --permission-mode <plan|default|acceptEdits|auto>` overrides it for that one task, for example `auto` for a small, well-scoped task that should run overnight. The mode is recorded in the `task_created` audit entry. Existing control chats keep the arguments they were started with; new ones get `xhigh`.
+- **Model and effort.** A control chat starts on Opus at `xhigh` effort (`agent.controlModel`, `agent.controlEffort`) and is locked to them: its Model picker in the composer is shown, with a lock, and cannot be changed, so nothing is typed into the chat that Claude Code would save as your default. The `opus` alias is Opus 5.5 on the current Claude Code and follows the next Opus; pin a full model id in Settings to stop that. Workers run Opus 5.5 too (`agent.model`, `opus` by default), and the control chat picks only an `--effort` per task (the table is in its skill); `agent.effort` is the fallback. General chats and workers start on Opus as well. `--model` still takes another model when you pass one. Both apply to that one session.
+- **Permission mode.** Workers start in `agent.workerPermissionMode` (`plan` by default), so they wait for you to approve their plan. `supercharge task new --permission-mode <plan|default|acceptEdits|auto>` overrides it for that one task, for example `auto` for a small, well-scoped task that should run overnight. While the project's [autonomous mode](#autonomous-mode) is on, new workers start in `auto` instead. The mode is recorded in the `task_created` audit entry. Existing control chats keep the arguments they were started with; new ones get `xhigh`.
 - **Startup prompts show up in the dashboard.** Claude Code's "Do you trust this folder?" and its MCP approval fire no hook, so AoE says Idle while they wait. Supercharge reads the screen of a new session (and of an idle one once per idle spell) and shows them as an answer card in the chat, with a Needs-you item. Answering presses just the keys, so a second dialog is never answered for you. Dialogs drawn without numbers are answered with the arrow keys and Enter.
 - **A new worker starts on its own.** Claude Code does nothing until it gets a first message, so `task new` sends a short kickoff once the session is at its prompt with no menu open. If that can't happen, the daemon sends it later; if it is lost, it is sent again (up to 3 times), but never to a worker someone already wrote to. Every send is audited as `prompt_sent`.
 
@@ -157,6 +157,8 @@ A done worker is still a live AoE session with a worktree and a branch. `superch
 
 It also refuses when the worktree has uncommitted or untracked files, when the session is locked, or when the task is not done. The message says why, lists up to five files or commits, and says what to do. Otherwise it removes the AoE session with its worktree and branch (what `aoe rm --purge --delete-worktree --delete-branch` does, without `--force`), moves the task to `removed/` and writes `task_cleaned_up` to the audit log. `--all-done` checks each done task of the project on its own and skips the ones that are not safe. `--dry-run` only checks. It never touches a session outside the project.
 
+**The control chat never removes a worker itself.** It may run `--dry-run` to check, then gives you the command in a `bash` block for the **Run** button. A guard backs that up: every session Supercharge starts gets a `PreToolUse` hook (in `~/.local/state/supercharge/claude-settings.json`) that stops a control chat's own Bash tool from running `task cleanup` without `--dry-run`, `aoe rm`/`aoe remove`, or `aoe session archive`/`empty-trash`. Your **Run in chat** (Claude Code's `!` shell mode, which runs no hooks) and **Run in terminal** still run them, and workers and General chats are not stopped. Claude Code reads that file when a session starts, so a control chat started before this version gets the guard at its next restart. It is a guard against mistakes, not a security boundary (see [Security](#security)).
+
 **Instructions reach the agents without touching your repository.** Two user-level skills are installed in `~/.claude/skills/` (`supercharge-control` and `supercharge-worker`), and each session gets its role and brief through `--append-system-prompt-file`.
 
 - Because the skills are visible to every Claude session on the machine, each one first runs `supercharge whoami` and steps aside unless the session is managed by Supercharge.
@@ -179,6 +181,17 @@ supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_req
 - Invalid moves are rejected with exit code 3 and a list of what's allowed from the current stage.
 - `watching_mr` and `ready_for_review` are set only by the MR watcher. The one exception is a project with `mr = "none"`: a worker with no MR runs `supercharge stage ready_for_review` itself once its branch is pushed (see [Merge requests](#merge-requests)).
 - Inside a worker, `AOE_INSTANCE_ID` is cross-checked against the task's session, so an agent in the wrong worktree is refused.
+
+### Autonomous mode
+
+For when you are away. **Project settings → Autonomous mode** switches it on until a set time (the next 08:00 by default), and the project page shows a banner with **Turn off** while it is on. It is stored as `projects.<name>.autonomousSince` and `autonomousUntil`, and `supercharge whoami --json` and `status --project <p> --json` show it as `autonomous: {on, since, until}`.
+
+- New workers start in `auto` permission mode, so there is no plan menu to wait on. They post their plan and wait; the control chat approves it with `supercharge reply` (audited), and they save it with `supercharge plan` as usual. Workers started before keep their mode.
+- The control chat is told with an `[AUTONOMOUS] on` line. It answers worker questions within your standing rules, approves plans that stay inside their brief, starts the next item from a queue you named (your board, or a list in its chat) once a merge request is up, and gets red pipelines and review threads fixed. It logs each decision with `supercharge audit note`. The worker watch is on for the project meanwhile.
+- Hard limits stay: no merges into `dev` or `main`, no production access, no writes to `dev` you haven't approved, no removing workers, and owner decisions (copy, money, GDPR, values) are parked under Needs you, never guessed. Apart from the removal guard above, these are rules in its skill, not enforced by Supercharge; enforce "no production" with deny rules in the repository's own `.claude/settings.json`.
+- When the time comes, or you turn it off, the daemon (within 20 seconds) types an `[AUTONOMOUS] off` line asking the control chat for your summary: what was done, what it decided and what it parked, from `supercharge audit --project <p> --since <since>` and `supercharge status`. The summary is its reply in its chat, and what is parked shows in Needs you. The end is recorded as `autonomous_ended`.
+- The control chat's own permission prompts still wait for you. Put it in auto mode (Shift+Tab in its terminal) before you leave.
+- There is no task queue in Supercharge: with no queue named, the control chat starts nothing new.
 
 ### Scheduled prompts
 
@@ -212,7 +225,9 @@ supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_req
 | `supercharge task list [--project <p>] [--json]` | List tasks |
 | `supercharge task quiet <task-id> [--off]` | No stalled notices for a worker you parked on purpose (questions and the rest still come); `--off` undoes it |
 | `supercharge task cleanup <task-id> \| --all-done [--dry-run] [--json]` | Remove a finished worker's session, worktree and branch. Refuses unless its work is on `origin/<base>` (its base branch) or in its merged pull request (see [Cleaning up](#cleaning-up-finished-workers)) |
-| `supercharge whoami [--json]` | `control`, `worker`, `general-control`, `general` or `none` for this session |
+| `supercharge whoami [--json]` | `control`, `worker`, `general-control`, `general` or `none` for this session, and the project's autonomous mode |
+| `supercharge audit [--project <p>] [--since <time>] [--json]` | The audit log, oldest first |
+| `supercharge audit note "<text>"` | Record a decision in the audit log (the control chat, in autonomous mode) |
 | `supercharge stage <stage> [--note …] [--mr <url>]` | Report a stage change |
 | `supercharge ask "<question>"` | Block on a question |
 | `supercharge plan <file \| ->` `[--draft]` | Save the approved plan |
@@ -254,7 +269,7 @@ addTimeoutSeconds = 300            # how long `aoe add` (it makes the worktree) 
 workerPermissionMode = "plan"      # plan | default | acceptEdits | auto
 controlModel = "opus"              # new control chats; "" = your Claude Code default
 controlEffort = "xhigh"            # new control chats: low | medium | high | xhigh | max
-model = ""                         # workers started without --model
+model = "opus"                     # workers started without --model
 effort = "default"                 # workers started without --effort
 extraArgs = []
 
@@ -317,6 +332,7 @@ windows = "activity"               # or "weather": the real sky at home in the w
 baseBranch = "develop"
 gitlabHost = "gitlab.example.com"
 # mr = "none"                      # this project merges branches without merge requests
+# autonomousSince / autonomousUntil  # autonomous mode; set from the project's settings page
 ```
 
 Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **Restart** button. Everything else reloads live.
@@ -422,6 +438,7 @@ Self-hosted GitLab works: add the host to `mr.gitlab.hosts` and log in with `gla
   - Every cookie-authenticated write needs a CSRF token plus a matching `Origin`.
 - **AoE token:** read server-side only (`aoe url --token-only`) and never sent to the browser. Logs redact anything token-shaped.
 - **Prompts to agents** (`reply`) always require confirmation and are appended to `~/.local/state/supercharge/audit.jsonl`.
+- **Sessions can reach the daemon too.** Every Claude session runs as you, so it can read `auth.token` and call the daemon's API. The control chat's guard and autonomous mode's limits keep an honest agent on track; they don't stop one that sets out to get around them.
 - **Attach terminal** runs `osascript` on your Mac. The browser sends only a session id, which must be one of yours; the daemon builds the command and passes it to the script as an argument, never inside it. Each one is audited (`session_attach`).
 
 ## AoE versions

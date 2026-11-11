@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import {
   appendAudit,
   applyStage,
+  autonomous,
   PERMISSION_MODES,
   readHeld,
   readUsage,
@@ -21,6 +22,7 @@ import {
   STAGE_LABEL,
   transition,
   type Actor,
+  type Autonomous,
   type LiveStatus,
   type MrState,
   type ParsedMenu,
@@ -89,6 +91,8 @@ export interface WhoAmI {
     | null;
   /** Actor used for stage changes: the worker itself, or a human running the CLI in the worktree. */
   actor: Actor;
+  /** The project's autonomous mode, read when this ran: a running control chat also gets `[AUTONOMOUS]` notices. */
+  autonomous: Autonomous;
 }
 
 export type MergeMode = 'mr' | 'branch';
@@ -114,6 +118,7 @@ export async function whoami(
         branch: null,
         task: null,
         actor: control ? 'control' : 'user',
+        autonomous: autonomous(ctx.config, null),
         record: null,
         projectRecord: null,
       };
@@ -129,6 +134,7 @@ export async function whoami(
     branch,
     task: null,
     actor: 'user' as const,
+    autonomous: autonomous(ctx.config, project?.name ?? null),
     record: null,
     projectRecord: project,
   };
@@ -161,6 +167,7 @@ export async function whoami(
       planFile: task.plan ? ctx.ledger.planFile(project.name, task.id) : null,
     },
     actor: sessionId ? 'worker' : 'user',
+    autonomous: autonomous(ctx.config, project.name),
     record: task,
     projectRecord: project,
   };
@@ -431,7 +438,10 @@ export async function newTask(
     opts.brief?.trim() || '(no brief given; ask the control chat or the user if anything is unclear)';
 
   const before = new Set(sessionsBefore.map((s) => s.id));
-  const permissionMode = opts.permissionMode ?? ctx.config.agent.workerPermissionMode;
+  // Autonomous: no plan menu to wait on overnight; the control chat approves the plan as a message.
+  const permissionMode =
+    opts.permissionMode ??
+    (autonomous(ctx.config, project.name).on ? 'auto' : ctx.config.agent.workerPermissionMode);
   const model = workerModel(opts.model ?? (ctx.config.agent.model || null), permissionMode);
   const effort = opts.effort ?? (ctx.config.agent.effort === 'default' ? null : ctx.config.agent.effort);
   // A failed start rolls back only what it made: the branch counts as ours only if it is new.
@@ -1323,24 +1333,39 @@ export function modelArgs(
 /** Where `supercharge statusline` lives: next to this bundle (dist/supercharge.mjs). */
 const CLI_SCRIPT = fileURLToPath(import.meta.url);
 
-/**
- * `--settings <file>` for a new session: the auto-compact window and the status line that records
- * your usage (agent.autoCompactWindow, agent.statusLine). Claude Code layers these over your own
- * settings for that session only. The file is rewritten each time, so it follows upgrades.
- */
-/** The shell command Claude Code runs for Supercharge's status line, through `script` (default: this CLI). */
-export function statusLineCommand(script: string = CLI_SCRIPT): string {
+/** The shell command that runs this CLI's `sub` command, through `script` (default: this CLI). */
+function cliCommand(sub: string, script: string = CLI_SCRIPT): string {
   const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
-  return `${q(process.execPath)} ${q(script)} statusline`;
+  return `${q(process.execPath)} ${q(script)} ${sub}`;
 }
 
+/** The shell command Claude Code runs for Supercharge's status line, through `script` (default: this CLI). */
+export const statusLineCommand = (script?: string): string => cliCommand('statusline', script);
+
+/**
+ * The PreToolUse hook on Bash that runs `supercharge guard` (it acts only in control chats). The shell filter
+ * keeps every other command free: only one that mentions a cleanup or aoe starts node (~0.25 s). Claude Code
+ * 2.1.285 runs no hook for the user's `!` shell mode, so the Run button still works.
+ */
+const guardHookCommand = (script?: string): string =>
+  `i=$(cat); case "$i" in *"task cleanup"*|*"aoe "*) printf '%s' "$i" | ${cliCommand('guard', script)};; esac`;
+
+/**
+ * `--settings <file>` for a new session: the auto-compact window and the status line that records
+ * your usage (agent.autoCompactWindow, agent.statusLine), and the control chat's guard. Claude Code
+ * layers these over your own settings for that session only. The file is rewritten each time, so it
+ * follows upgrades.
+ */
 export async function claudeSettingsArgs(ctx: Ctx): Promise<string[]> {
   const settings: Record<string, unknown> = {};
   if (ctx.config.agent.autoCompactWindow) settings.autoCompactWindow = ctx.config.agent.autoCompactWindow;
   if (ctx.config.agent.statusLine) {
     settings.statusLine = { type: 'command', command: statusLineCommand(), padding: 0 };
   }
-  if (!Object.keys(settings).length) return [];
+  // A running session doesn't reread this file (2.1.285): chats started before pick the guard up on a restart.
+  settings.hooks = {
+    PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: guardHookCommand() }] }],
+  };
   const file = ctx.paths.claudeSettingsFile;
   assertSafeArg(file, 'The Claude settings path');
   await writeFileAtomic(file, `${JSON.stringify(settings, null, 2)}\n`);

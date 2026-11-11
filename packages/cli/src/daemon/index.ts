@@ -26,6 +26,7 @@ import { AoeWatcher, ConfigWatcher, LedgerWatcher, NotesWatcher } from './watche
 import { WorkerWatch } from './worker-watch.ts';
 import { HeldMessages } from './held.ts';
 import { Scheduler } from './scheduler.ts';
+import { claudeSettingsArgs } from '../workflow.ts';
 
 export const RESTART_EXIT_CODE = 75;
 
@@ -225,6 +226,10 @@ async function runWorker(): Promise<void> {
   heldMessages.start();
   scheduler.start();
   pruneContextFiles();
+  // Sessions read their settings file at start: after an upgrade, restarted chats get the new guard at once.
+  await claudeSettingsArgs(ctx).catch((err: unknown) =>
+    logger.warn('could not write the Claude settings file', { err: (err as Error).message }),
+  );
 
   await new Promise<void>((resolveListen, rejectListen) => {
     server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port }, () => resolveListen());

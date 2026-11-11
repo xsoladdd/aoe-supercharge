@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- **Autonomous mode, per project.** Project settings has an Autonomous mode switch with an "until" time (the
+  next 08:00 by default), and the project page shows a banner with Turn off while it is on. Meanwhile new
+  workers start in `auto` permission mode (no plan menu), the worker watch is on, and the control chat is told
+  with an `[AUTONOMOUS] on` line: within its skill's limits it approves plans, answers questions, starts the
+  next queued item and gets red pipelines fixed, and logs each decision. No merges into dev or main, no
+  production, no unapproved dev writes, no removing workers, and owner decisions are parked. At the set time,
+  or on Off, the daemon asks the control chat for a summary of what was done, decided and parked, and records
+  `autonomous_ended`. Stored as `projects.<name>.autonomousSince`/`autonomousUntil`; `whoami --json` and
+  `status --project --json` show `autonomous`.
+- **`supercharge audit`.** Reads the audit log (`--project`, `--since`, `--json`), and `supercharge audit note
+  "<text>"` records a decision in it. Autonomous mode's summary is built from it.
+- **Workers run Opus 5.5; only the effort changes.** `agent.model` now defaults to `opus` instead of empty
+  (which started workers on `opusplan`, building on Sonnet). The new-task form offers Opus and Fable, no
+  Sonnet. The control and General skills pick only an `--effort`. General chats and General workers started
+  without `--model` also start on Opus now. Set `agent.model = ""` to get the old behaviour back.
+- **The control chat never removes workers.** Its skill says to check with `task cleanup --dry-run` and hand
+  you the command for the Run button. A `PreToolUse` hook in Supercharge's Claude settings file now stops a
+  control chat's own Bash tool from running `task cleanup` (without `--dry-run`), `aoe rm`/`aoe remove` or
+  `aoe session archive`/`empty-trash`. Run in chat and Run in terminal still work, and workers and General
+  chats are not affected. Control chats started before pick it up at their next restart. The daemon writes
+  the settings file when it starts.
+- **Control skill: after an interrupted `task new`, run `supercharge task list` before starting it again.**
+
 - **`aoe add` gets as long as you need.** `task new` used to kill `aoe add` after a fixed 120 seconds, and
   `git worktree add` alone can take longer on a large repository. The timeout is now `aoe.addTimeoutSeconds`
   (default 300, 1 to 3600), on the Settings page with the other AoE settings, and it takes effect on the next

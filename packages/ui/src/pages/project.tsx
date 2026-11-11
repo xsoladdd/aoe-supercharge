@@ -2,6 +2,7 @@ import { PlusIcon, DotsThreeIcon, GearSixIcon, TerminalWindowIcon } from '@phosp
 import { useMemo, useState } from 'react';
 import { Link, useLocation } from 'wouter';
 import type { Snapshot, UsageReport } from '@aoe-supercharge/core/shared';
+import { AutonomousBanner } from '@/components/autonomous';
 import { ControlBox } from '@/components/control-box';
 import { NewTaskForm } from '@/components/new-task-form';
 import { sendJson } from '@/lib/api';
@@ -134,6 +135,7 @@ export function ProjectPage({
           </DropdownMenu>
         </div>
       </PageHeader>
+      <AutonomousBanner name={view.project.name} state={snap.watch[view.project.name]?.autonomous} />
       <ControlBox view={view} remoteControl={snap.health.remoteControl} />
       <section aria-labelledby="workers-heading" className="space-y-3">
         <div className="flex items-center justify-between gap-3">

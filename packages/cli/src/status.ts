@@ -1,5 +1,6 @@
 import {
   STAGES,
+  type Autonomous,
   type ProjectRecord,
   type ProjectStatus,
   type SessionView,
@@ -16,6 +17,7 @@ export function buildProjectStatus(
   tasks: TaskRecord[],
   sessions: SessionView[] | null,
   remoteControl: boolean,
+  autonomous: Autonomous,
 ): ProjectStatus {
   const own = tasks.filter((t) => t.project === project.name);
   const byId = new Map((sessions ?? []).map((s) => [s.id, s]));
@@ -31,6 +33,7 @@ export function buildProjectStatus(
       status: sessions === null ? 'unknown' : control ? control.status : 'missing',
       remoteControl,
     },
+    autonomous,
     counts,
     blocked: own
       .filter((t) => t.stage === 'blocked' && t.openQuestion && !archived(t))

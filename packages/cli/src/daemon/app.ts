@@ -20,6 +20,7 @@ import {
   readWatchLog,
   watchCapturePath,
   watchEnabled,
+  autonomous,
   type NoteChange,
 } from '@aoe-supercharge/core/node';
 import {
@@ -304,7 +305,15 @@ export function createApp(deps: AppDeps) {
     const p = store.projects.find((x) => x.name === c.req.param('project'));
     if (!p) return c.json({ error: 'not_found', message: 'Unknown project' }, 404);
     const sessions = store.health.aoe.state === 'ok' ? store.sessions : null;
-    return c.json(buildProjectStatus(p, store.tasks, sessions, ctx.config.remoteControl.enabled));
+    return c.json(
+      buildProjectStatus(
+        p,
+        store.tasks,
+        sessions,
+        ctx.config.remoteControl.enabled,
+        autonomous(ctx.config, p.name),
+      ),
+    );
   });
 
   app.get('/api/tasks/:project/:id', async (c) => {
@@ -593,6 +602,7 @@ export function createApp(deps: AppDeps) {
     const log = deps.watch ? await deps.watch.log(name) : await readWatchLog(ctx.paths, name);
     const body: WatchResponse = {
       enabled: watchEnabled(ctx.config, name),
+      autonomous: autonomous(ctx.config, name),
       stallMinutes: ctx.config.watch.stallMinutes,
       watching: 0,
       pending: log.filter((e) => e.state === 'pending').length,

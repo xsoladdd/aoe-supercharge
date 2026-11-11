@@ -3,7 +3,15 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { defaultConfig, resolvePaths } from '@aoe-supercharge/core/node';
+import {
+  appendAudit,
+  autonomous,
+  defaultConfig,
+  Ledger,
+  readAudit,
+  resolvePaths,
+  watchEnabled,
+} from '@aoe-supercharge/core/node';
 import {
   parseTerminalMenu,
   type MrState,
@@ -20,6 +28,7 @@ import {
 import { attachCommand, findTmuxWindow, openInTerminal, osascriptArgs, terminalApp } from '../src/attach.ts';
 import { parseUpdateCheck, releaseAsset } from '../src/commands/aoe-upgrade.ts';
 import { claudeModelsCheck, hookConsentFix } from '../src/commands/doctor.ts';
+import { controlForbidden, guard } from '../src/guard.ts';
 import { connectStatusLine, disconnectStatusLine, statusLineConnected } from '../src/statusline.ts';
 import { renderCaddyfile } from '../src/commands/proxy.ts';
 import { landedOn, markLanded, renamedTo } from '../src/daemon/branch-watcher.ts';
@@ -200,6 +209,7 @@ describe('status: archived workers', () => {
       tasks,
       [view('s1', 'stopped', { archived }), view('s2', 'stopped', { archived })],
       false,
+      { on: false, since: null, until: null },
     );
 
   it('leaves archived tasks out of the counts and blocked, and says so per task', () => {
@@ -750,6 +760,9 @@ describe('model and effort for new sessions', () => {
   });
   it('adds --model / --effort only when set (session-only launch flags)', () => {
     const c = defaultConfig();
+    // Workers build on Opus unless told otherwise (retro item 24).
+    expect(modelArgs(c)).toEqual(['--model', 'opus']);
+    c.agent.model = '';
     expect(modelArgs(c)).toEqual([]);
     c.agent.model = 'opus';
     c.agent.effort = 'high';
@@ -1170,6 +1183,91 @@ describe('reviving sessions whose pane died (a reboot)', () => {
         ['session_revived', 'later'],
         ['session_revived', 'dead'],
       ]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('autonomous mode', () => {
+  it('is on from autonomousSince until autonomousUntil, and forces the watch on', () => {
+    const c = defaultConfig();
+    c.watch.enabled = false;
+    const now = Date.parse('2020-11-11T22:00:00Z');
+    expect(autonomous(c, 'alpha', now)).toEqual({ on: false, since: null, until: null });
+    c.projects.alpha = { autonomousSince: '2020-11-11T21:00:00Z', autonomousUntil: '2020-11-12T07:00:00Z' };
+    expect(autonomous(c, 'alpha', now).on).toBe(true);
+    expect(autonomous(c, 'alpha', Date.parse('2020-11-12T07:00:00Z')).on).toBe(false);
+    expect(autonomous(c, null, now).on).toBe(false);
+    expect(watchEnabled(c, 'alpha')).toBe(false); // it ended in 2020
+    c.projects.alpha.autonomousUntil = new Date(Date.now() + 60_000).toISOString();
+    expect(watchEnabled(c, 'alpha')).toBe(true);
+    c.projects.alpha.autonomousSince = '';
+    expect(autonomous(c, 'alpha', now)).toMatchObject({ on: false, since: null });
+  });
+
+  it('reads the audit log for one project from a time on', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'sc-audit-'));
+    try {
+      const paths = resolvePaths({ HOME: home }, home);
+      await appendAudit(paths, {
+        actor: 'control',
+        action: 'decision',
+        project: 'alpha',
+        text: 'Parked the copy',
+      });
+      await appendAudit(paths, {
+        actor: 'control',
+        action: 'decision',
+        project: 'beta',
+        text: 'Other project',
+      });
+      await writeFile(paths.auditFile, `${await readFile(paths.auditFile, 'utf8')}not json\n`);
+      expect((await readAudit(paths, { project: 'alpha' })).map((e) => e.text)).toEqual(['Parked the copy']);
+      expect(await readAudit(paths, { since: Date.now() + 60_000 })).toEqual([]);
+      const none = join(home, 'none');
+      expect(await readAudit(resolvePaths({ HOME: none }, none))).toEqual([]);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('the control chat guard (supercharge guard)', () => {
+  it('stops cleanup, aoe remove, archive and empty-trash, but lets a dry run through', () => {
+    for (const cmd of [
+      'supercharge task cleanup AS-0003',
+      'supercharge task cleanup --all-done',
+      'cd /x && supercharge task cleanup AS-1 && echo --dry-run',
+      'aoe remove 1a2b',
+      'aoe -p main rm 1a2b --delete-worktree',
+      '/opt/homebrew/bin/aoe remove x',
+      'aoe session archive 1a2b',
+      'bash -c "aoe session empty-trash"',
+    ])
+      expect(controlForbidden(cmd), cmd).not.toBeNull();
+    for (const cmd of [
+      'supercharge task cleanup AS-0003 --dry-run',
+      'supercharge task cleanup --dry-run --all-done',
+      'aoe session unarchive 1a2b',
+      'aoe list --json',
+      'git -C /Users/me/aoe-supercharge rm old.ts',
+      'supercharge status --project alpha --json',
+    ])
+      expect(controlForbidden(cmd), cmd).toBeNull();
+  });
+
+  it('acts only in a control chat', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'sc-guard-'));
+    try {
+      const paths = resolvePaths({ HOME: home }, home);
+      await new Ledger(paths).updateGeneral((g) => ({ ...g, controlSessionId: 'ctl' }));
+      const input = JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'aoe remove w1' } });
+      expect(await guard(paths, input, 'ctl')).toMatch(/never runs `aoe remove` itself/);
+      expect(await guard(paths, input, 'worker')).toBeNull();
+      expect(await guard(paths, input, undefined)).toBeNull();
+      const dry = JSON.stringify({ tool_input: { command: 'supercharge task cleanup AS-1 --dry-run' } });
+      expect(await guard(paths, dry, 'ctl')).toBeNull();
     } finally {
       await rm(home, { recursive: true, force: true });
     }

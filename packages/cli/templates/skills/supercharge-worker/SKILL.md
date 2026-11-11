@@ -30,7 +30,7 @@ Supercharge rejects invalid moves and tells you what is allowed instead.
 
 ## 3. What to do at each step
 
-1. **Plan.** You start in plan mode. Investigate, then propose a plan and wait for the user to approve it.
+1. **Plan.** You start in plan mode. Investigate, then propose a plan and wait for the user to approve it. Started in auto mode instead (no plan menu, as in the user's autonomous mode)? Post the plan in your reply and stop: the approval arrives as a message.
 2. **Save the approved plan.** After approval, save it into the ledger. Use stdin so nothing is written into the repository:
 
    ```bash

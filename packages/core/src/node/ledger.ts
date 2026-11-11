@@ -383,7 +383,9 @@ export interface AuditEntry {
     | 'terminal_opened'
     | 'session_attach'
     | 'scheduled_prompt'
-    | 'session_revived';
+    | 'session_revived'
+    | 'autonomous_ended'
+    | 'decision';
   project?: string | null;
   taskId?: string | null;
   sessionId?: string | null;
@@ -394,4 +396,25 @@ export interface AuditEntry {
 /** Append-only JSONL audit log (SPEC §6.2). Every prompt sent to an agent lands here. */
 export async function appendAudit(paths: Paths, entry: AuditEntry): Promise<void> {
   await appendLine(paths.auditFile, JSON.stringify({ at: new Date().toISOString(), ...entry }));
+}
+
+/** The audit log, oldest first: one project's entries (or all), from `since` (ms) on. A broken line is skipped. */
+export async function readAudit(
+  paths: Paths,
+  o: { project?: string; since?: number } = {},
+): Promise<(AuditEntry & { at: string })[]> {
+  let raw = '';
+  try {
+    raw = await readFile(paths.auditFile, 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  return raw.split('\n').flatMap((line) => {
+    try {
+      const e = JSON.parse(line) as AuditEntry & { at: string };
+      return (!o.project || e.project === o.project) && Date.parse(e.at) >= (o.since ?? 0) ? [e] : [];
+    } catch {
+      return [];
+    }
+  });
 }

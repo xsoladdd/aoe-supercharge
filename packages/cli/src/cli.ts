@@ -3,10 +3,13 @@ import { realpathSync } from 'node:fs';
 import { copyFile, open, readFile, rm, stat, watch as fsWatch } from 'node:fs/promises';
 import { Command, Option } from 'commander';
 import {
+  appendAudit,
+  autonomous,
   ensureConfigFile,
   ensureToken,
   getByPath,
   loadConfig,
+  readAudit,
   resolvePaths,
   setConfigValue,
   ConfigValidationError,
@@ -28,6 +31,7 @@ import { cleanupAllDone, cleanupTask } from './cleanup.ts';
 import { checkAoeCompat, createCtx, dashboardOrigin, VERSION, type Ctx } from './context.ts';
 import { aoeUpgrade } from './commands/aoe-upgrade.ts';
 import { printDoctor, runDoctor } from './commands/doctor.ts';
+import { guard } from './guard.ts';
 import { proxyCommand } from './commands/proxy.ts';
 import { runDaemon } from './daemon/index.ts';
 import { serviceManager, servicePathEnv } from './service/index.ts';
@@ -664,6 +668,48 @@ export function buildProgram(): Command {
       if (who.task) out(`task     ${who.task.id} ${who.task.title} (${STAGE_LABEL[who.task.stage]})`);
       out(`branch   ${who.branch ?? 'none'}`);
       out(`merge    ${who.merge === 'branch' ? 'branch (no merge requests)' : 'merge request'}`);
+      if (who.autonomous.on) out(`auto     autonomous until ${who.autonomous.until}`);
+    });
+
+  // ── audit log: who did what. Autonomous mode's morning summary is read from it. ──
+  const audit = program
+    .command('audit')
+    .description('show the audit log, oldest first; "audit note" records a decision')
+    .option('-p, --project <name>', 'only this project')
+    .option('--since <time>', 'only entries from then on (an ISO time, like 2026-11-12T22:00:00Z)')
+    .option('--json')
+    .action(async (o: { project?: string; since?: string; json?: boolean }) => {
+      const since = o.since ? Date.parse(o.since) : 0;
+      if (Number.isNaN(since))
+        throw new CliError(
+          `"${o.since}" is not a time.`,
+          EXIT.usage,
+          'Use an ISO time, like 2026-11-12T22:00:00Z.',
+        );
+      const entries = await readAudit(resolvePaths(), { project: o.project, since });
+      if (o.json) return json(entries);
+      for (const e of entries)
+        out(
+          [e.at, e.actor, e.action, e.taskId, e.text?.split('\n')[0], e.details && JSON.stringify(e.details)]
+            .filter(Boolean)
+            .join('  '),
+        );
+    });
+  audit
+    .command('note <text...>')
+    .description("record a decision (the control chat's, in autonomous mode) in the audit log")
+    .option('-p, --project <name>', 'for this project (default: the project of the folder you are in)')
+    .action(async (words: string[], o: { project?: string }) => {
+      const x = await ctx();
+      const who = await whoami(x, cwd());
+      await appendAudit(x.paths, {
+        actor: who.actor,
+        action: 'decision',
+        project: o.project ?? who.project,
+        sessionId: who.sessionId,
+        text: words.join(' '),
+      });
+      out(`${sym.ok} Recorded`);
     });
 
   program
@@ -845,6 +891,20 @@ export function buildProgram(): Command {
     });
 
   program
+    .command('guard', { hidden: true })
+    .description('Claude Code hook: stops a control chat removing workers itself')
+    .action(async () => {
+      // No ctx(), and a failure lets the command through: a broken guard must never stall a session.
+      const why = await guard(resolvePaths(), await readStdin(), process.env.AOE_INSTANCE_ID).catch(
+        () => null,
+      );
+      if (why) {
+        process.stderr.write(`${why}\n`);
+        process.exitCode = 2;
+      }
+    });
+
+  program
     .command('daemon', { hidden: true })
     .description('run the daemon in the foreground')
     .action(async () => {
@@ -894,11 +954,12 @@ async function statusProject(x: Ctx, name: string, asJson: boolean) {
       await x.ledger.listTasks(name),
       sessions,
       x.config.remoteControl.enabled,
+      autonomous(x.config, name),
     );
   }
   if (asJson) return json(st);
   out(
-    `${c.bold(st.project)}  control ${LIVE_STATUS_LABEL[st.control.status as keyof typeof LIVE_STATUS_LABEL] ?? st.control.status}${st.control.remoteControl ? ', Remote Control on' : ''}`,
+    `${c.bold(st.project)}  control ${LIVE_STATUS_LABEL[st.control.status as keyof typeof LIVE_STATUS_LABEL] ?? st.control.status}${st.control.remoteControl ? ', Remote Control on' : ''}${st.autonomous.on ? `, autonomous until ${st.autonomous.until}` : ''}`,
   );
   out(
     `  ${

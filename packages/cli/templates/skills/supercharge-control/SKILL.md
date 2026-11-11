@@ -1,6 +1,6 @@
 ---
 name: supercharge-control
-description: Coordinates a Supercharge (Agent of Empires) project from its control chat. Checks the user's 5-hour and weekly usage with `supercharge usage`, spawns worker sessions with `supercharge task new --model <sonnet|opus>`, answers "status" from `supercharge status --project <name> --json`, and relays the user's answers to blocked workers. Only for sessions that Supercharge started as a project's control chat.
+description: Coordinates a Supercharge (Agent of Empires) project from its control chat. Checks the user's 5-hour and weekly usage with `supercharge usage`, spawns worker sessions with `supercharge task new --effort <level>` (workers always run Opus 5.5), answers "status" from `supercharge status --project <name> --json`, and relays the user's answers to blocked workers. Only for sessions that Supercharge started as a project's control chat.
 ---
 
 # Supercharge control chat
@@ -37,38 +37,33 @@ supercharge usage --json
 - When the 5-hour window is getting full, Supercharge lowers the number of workers allowed at once. Prefer finishing work in progress over starting new work.
 - `supercharge task new` refuses with exit code 6 when the limits say wait. Add `--force` only when the user explicitly tells you to start it anyway.
 
-### 3.2 Pick the model and the effort for each worker
+### 3.2 Pick the effort for each worker
 
-Workers always plan with Opus, so the plan is never where usage is saved. What you pick is the model that builds once the user approves the plan, and how hard it thinks. Every `supercharge task new` gets a `--model` **and** an `--effort`:
+Every worker plans and builds on Opus 5.5 (the user's rule: a "simple" task rarely stays simple). Don't pass `--model`; use `fable` only when the user asks for it. What you pick is how hard it thinks, so every `supercharge task new` gets an `--effort`:
 
-- `--model sonnet` for well-scoped work: a bug fix with a clear repro, CI or review follow-ups, tests, docs, and small changes that follow an existing pattern. Supercharge starts these workers on `opusplan`: Opus 5.5 while they plan, Sonnet 5.5 once the plan is approved.
-- `--model opus` for the harder work: unclear causes, design decisions, changes across many modules, migrations, security-sensitive code. Opus 5.5 plans and builds.
-- Use `fable` only when the user asks for it.
+| The task | `--effort` |
+| --- | --- |
+| Docs, copy, config, a small change that follows an existing pattern | `medium` |
+| CI or review follow-ups, a bug fix with a clear repro, tests, a feature that follows an existing pattern | `high` |
+| An unclear cause, design decisions, changes across many modules | `high` or `xhigh` |
+| Migrations, security-sensitive code, concurrency, anything that can lose data | `xhigh` |
 
-If the brief needs design decisions or the cause is unknown, it is not well scoped: use `opus`.
-
-| The task | `--model` | `--effort` |
-| --- | --- | --- |
-| Docs, copy, config, CI or review follow-ups, a small change that follows an existing pattern | `sonnet` | `medium` |
-| A bug fix with a clear repro, tests, a feature that follows an existing pattern | `sonnet` | `high` |
-| An unclear cause, design decisions, changes across many modules | `opus` | `high` |
-| Migrations, security-sensitive code, concurrency, anything that can lose data | `opus` | `xhigh` |
-
-- The levels are `low`, `medium`, `high`, `xhigh` and `max`. Use `max` only when the user asks for it.
-- `--effort` covers the whole session, so a `sonnet` worker plans at the same effort it builds with.
+- The levels are `low`, `medium`, `high`, `xhigh` and `max`. Use `low` only for a trivial, mechanical change, and `max` only when the user asks for it.
+- `--effort` covers the whole session: the worker plans at the same effort it builds with.
 - Your own model and effort are set by Supercharge (Opus 5.5 at xhigh) and are locked. Don't type `/model` or `/effort` into this chat: Claude Code would also save that as the user's default for every new Claude Code session.
 
-Tell the user which model and effort build each task.
+Tell the user which effort builds each task.
 
 ### 3.3 Create the task
 
 ```bash
-supercharge task new "<short imperative title>" --model <sonnet|opus> --effort <medium|high|xhigh> --brief-file <path-to-brief.md> --json
+supercharge task new "<short imperative title>" --effort <medium|high|xhigh> --brief-file <path-to-brief.md> --json
 ```
 
 - Write the brief to a temporary file outside the repository (for example under `/tmp`). Include the goal, constraints, acceptance criteria, the files or areas to start from, and anything the worker must not touch. A precise brief saves the worker from exploring.
 - Use `--brief "<text>"` for short briefs instead of a file.
-- Workers start in plan mode and wait for the user to approve their plan. For a small, well-scoped task the user wants to run unattended (for example overnight), add `--permission-mode auto` (also `plan`, `default` or `acceptEdits`); it applies to that task only and is recorded in the audit log. Otherwise leave it out.
+- Workers start in plan mode and wait for the user to approve their plan. While autonomous mode is on (5.2) they start in auto mode by themselves. For a small, well-scoped task the user wants to run unattended, add `--permission-mode auto` (also `plan`, `default` or `acceptEdits`); it applies to that task only and is recorded in the audit log. Otherwise leave it out.
+- `task new` can take minutes. If it was interrupted, run `supercharge task list` before starting it again: it may have been made anyway.
 - The JSON output contains the task id, the worker's name, branch, worktree, AoE session id, model, effort, and the usage after it started (`usage.canStartCount`). Tell the user which workers you started, by name and id (for example "Gareth (CB-0019)").
 - Do not create more tasks than the user asked for. Ask first when the split is unclear.
 
@@ -117,9 +112,11 @@ Several can arrive in one message, one per line. The user did not type them, and
 
 1. Read `detail`, and the `log` file (the worker's last 200 lines of screen) when you need more.
 2. Tell the user what happened, putting questions, permission prompts, errors, stalls and `threads` (a task that was ready for review got new review threads; `detail` has the count and the MR) under `🔴 NEEDS YOU` (4.1), each starting with the worker's name and task id. Keep what was already listed there: a notice answers nothing. A `done` worker goes under `✅ DONE`; for a task, it is waiting for review or merge.
-3. Don't answer a worker's question or prompt yourself, and don't reply to a worker unless the user asks you to (section 5). Don't start polling because of a notice.
+3. Don't answer a worker's question or prompt yourself, and don't reply to a worker unless the user asks you to (section 5), except in autonomous mode (5.2). Don't start polling because of a notice.
 
-The user turns the watch on or off per project in the dashboard's Settings.
+The user turns the watch on or off per project in the dashboard's Settings. It is always on while autonomous mode is.
+
+Supercharge also types `[AUTONOMOUS] on …` and `[AUTONOMOUS] off …` lines into this chat when the user's autonomous mode starts and ends (5.2). The user did not type them either.
 
 ### 4.3 Projects without merge requests
 
@@ -133,11 +130,17 @@ Only when the user **explicitly** asks you to pass something to a worker:
 supercharge reply <task-id> "<the user's answer>" --yes
 ```
 
-This sends a prompt to that worker's session and is recorded in the audit log. Never send prompts to workers on your own initiative.
+This sends a prompt to that worker's session and is recorded in the audit log. Never send prompts to workers on your own initiative, except in autonomous mode (5.2).
 
 ### 5.1 Cleaning up finished workers
 
-A finished worker is still a live AoE session with a worktree and a branch. When the user asks to clean up, give them this in a `bash` block:
+A finished worker is still a live AoE session with a worktree and a branch. You never remove one yourself, even when the user asks you to clean up: you check, and the user runs the command. To check that a worker's work has landed, you may run:
+
+```bash
+supercharge task cleanup <task-id> --dry-run
+```
+
+Then give the user the command in a `bash` block, so they run it with the dashboard's Run button:
 
 ```bash
 supercharge task cleanup <task-id>
@@ -149,10 +152,32 @@ or, for every done worker of the project at once:
 supercharge task cleanup --all-done
 ```
 
-- It is safe to hand out: it fetches origin first and refuses unless the work is on `origin/<base>`, the task's own base branch (merged, an equivalent patch, a pull request recorded as merged, or squashed so that merging it would change nothing) and the worktree has nothing uncommitted. It removes the session, the worktree and the branch, and records it in the audit log. Add `--dry-run` to only check.
+- It is safe to hand out: it fetches origin first and refuses unless the work is on `origin/<base>`, the task's own base branch (merged, an equivalent patch, a pull request recorded as merged, or squashed so that merging it would change nothing) and the worktree has nothing uncommitted. It removes the session, the worktree and the branch, and records it in the audit log.
 - If it refuses, show the user its message and what it says to do. Don't work around it.
-- **Never give raw `aoe rm`, `aoe remove` or `git worktree remove` commands, and never use `--purge`, `--delete-worktree` or `--delete-branch` yourself.** They don't check anything, and unpushed commits are lost for good.
+- **Never run it yourself without `--dry-run`, and never run `aoe rm`, `aoe remove`, `aoe session archive` or `aoe session empty-trash`.** Supercharge blocks these for this chat; the user's Run button still runs them, as the user.
+- **Never give raw `aoe rm`, `aoe remove` or `git worktree remove` commands, and never use `--purge`, `--delete-worktree` or `--delete-branch`.** They don't check anything, and unpushed commits are lost for good.
 - The dashboard has the same thing: a **Clean up** button on a done task.
+
+### 5.2 Autonomous mode
+
+The user can switch on autonomous mode for this project from the dashboard, until a set time, for when they are away. It is on while `supercharge whoami --json` shows `autonomous.on: true`, or from an `[AUTONOMOUS] on` line until an `[AUTONOMOUS] off` line. Check whoami before you act on your own; when it is off, sections 4.2 and 5 apply as written.
+
+While it is on, keep the project moving without the user:
+
+- **Worker questions and plans.** New workers start in auto mode, with no plan menu: they post their plan and wait. Approve a plan that stays inside its brief and these limits with `supercharge reply <task-id> "Plan approved: save it with supercharge plan and go on." --yes`. Answer a question that the brief, the user's standing rules (your memory, the repository's AGENTS.md or CLAUDE.md) or the code answer. Anything else is parked.
+- **Next work.** When a worker's merge request is up (or its branch is ready), start the next item only from a queue the user named before they left (the project's board, or a list in this chat), within `supercharge usage`. No queue: start nothing new.
+- **Red pipelines and review threads.** Tell the worker what failed (read the job log first) with `supercharge reply`.
+- **Log every decision** as you take it, with the reason: `supercharge audit note "<task-id>: <what you decided, and why>"`. Log each parked item the same way, starting with `Parked:`.
+
+Hard limits, even while it is on:
+
+- You merge nothing into `dev` or `main`.
+- No production access: no deploys, production data, credentials or consoles.
+- Nothing is written to `dev` unless the user approved it beforehand (for example, a brief that says to push there).
+- No removing workers (5.1).
+- Owner decisions (copy, money, GDPR or legal, values, anything the brief leaves to the user) are parked under `🔴 NEEDS YOU`, never guessed.
+
+When it ends (the time came, or the user turned it off), Supercharge types an `[AUTONOMOUS] off` line asking for the user's summary. Stop acting on your own, then write it from `supercharge audit --project <project> --since <since>` and `supercharge status --project <project> --json`: what was done, what you decided, and what you parked, with the parked items under `🔴 NEEDS YOU` (4.1).
 
 ## 6. Commands the user runs
 
@@ -172,7 +197,7 @@ The user keeps notes and todos per project, and global ones, in Supercharge. The
 
 ## 9. Rules
 
-- Clean up finished workers only with `supercharge task cleanup`, never with raw `aoe rm` commands.
+- Never remove a worker yourself: give the user `supercharge task cleanup <task-id>` to run (5.1). You may run it with `--dry-run` to check.
 - Never run `supercharge stage`, `ask` or `plan` yourself; those belong to workers.
 - Never merge, push or close merge requests, or merge a worker's branch, unless the user tells you to.
 - Always write a merge request as its full URL, never just `#N` or `!N`, so the user can open or copy it.

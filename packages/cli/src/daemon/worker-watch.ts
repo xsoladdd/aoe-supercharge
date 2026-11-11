@@ -1,5 +1,6 @@
 import { basename } from 'node:path';
 import {
+  autonomous,
   pruneWatchCaptures,
   readWatchBook,
   readWatchLog,
@@ -198,6 +199,7 @@ export class WorkerWatch {
       log = await this.log(project.name);
       summaries[project.name] = {
         enabled,
+        autonomous: autonomous(ctx.config, project.name, now.getTime()),
         stallMinutes: ctx.config.watch.stallMinutes,
         watching: workers.length,
         pending: log.filter((e) => e.state === 'pending').length,

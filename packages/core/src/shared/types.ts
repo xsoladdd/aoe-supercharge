@@ -5,7 +5,7 @@ import type { RunawayLimits, SessionCost } from './office-cost.ts';
 import type { IdleLimits } from './office-idle.ts';
 import type { Weather, WindowsMode } from './office-ambience.ts';
 import type { UsageReport } from './usage.ts';
-import type { WatchSummary } from './watch.ts';
+import type { Autonomous, WatchSummary } from './watch.ts';
 import type { HeldMessage } from './held.ts';
 import type { ScheduleView } from './schedule.ts';
 
@@ -361,6 +361,7 @@ export type SnapshotEvent =
 export interface ProjectStatus {
   project: string;
   control: { sessionId: string | null; status: LiveStatus | 'missing'; remoteControl: boolean };
+  autonomous: Autonomous;
   counts: Record<Stage, number>;
   blocked: { taskId: string; name: string | null; title: string; question: string; since: string }[];
   readyForReview: {

@@ -450,6 +450,10 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(settings.autoCompactWindow).toBe(500_000);
     expect(settings.statusLine).toMatchObject({ type: 'command', padding: 0 });
     expect(settings.statusLine.command).toMatch(/supercharge\.mjs' statusline$/);
+    // The control chat's guard: a PreToolUse hook that starts node only for a cleanup or an aoe command.
+    expect(settings.hooks.PreToolUse).toEqual([
+      { matcher: 'Bash', hooks: [{ type: 'command', command: expect.stringMatching(/' guard;; esac$/) }] },
+    ]);
     expect((await readTask(out.id)).model).toBe('opusplan');
     expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
   });
@@ -475,6 +479,27 @@ describe('workflow through the real CLI against fake AoE', () => {
     for (const t of [out, JSON.parse(next.stdout)])
       expect((await sc(['stage', 'done'], { cwd: t.worktree })).code).toBe(0);
   });
+
+  it('starts new workers in auto mode while the project is autonomous, and status says so', async () => {
+    // No plan menu to wait on overnight.
+    const until = new Date(Date.now() + 3_600_000).toISOString();
+    const set = (k: string, v: string) => sc(['config', 'set', `projects.northwind.${k}`, v]);
+    expect((await set('autonomousSince', new Date().toISOString())).code).toBe(0);
+    try {
+      expect((await set('autonomousUntil', until)).code).toBe(0);
+      const auto = await sc(['task', 'new', 'While away', '--force', '--json']);
+      expect(auto.code, auto.stderr).toBe(0);
+      const t = JSON.parse(auto.stdout);
+      const args = fake.state.sessions.find((s) => s.id === t.aoeSessionId)?.extra_args ?? '';
+      expect(args).toContain('--permission-mode auto');
+      const st = JSON.parse((await sc(['status', '--project', 'northwind', '--json'])).stdout);
+      expect(st.autonomous).toEqual({ on: true, since: expect.any(String), until });
+      expect((await sc(['stage', 'done'], { cwd: t.worktree })).code).toBe(0);
+    } finally {
+      // Left on, it would hold notices for the control chat in the daemon tests below.
+      await set('autonomousSince', '');
+    }
+  }, 60_000);
 
   it('holds new workers while the 5-hour window is nearly used, unless forced', async () => {
     expect((await sc(['statusline'], { input: statusInput(90) })).code).toBe(0);
