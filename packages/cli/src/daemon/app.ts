@@ -704,7 +704,8 @@ export function createApp(deps: AppDeps) {
   });
 
   // The one place the dashboard spawns a worker: an explicit submit of the New task form (SPEC §8.2).
-  // `aoe add` can take up to 120 s, so this answers when the session exists; the daemon sends the first message.
+  // `aoe add` can take minutes (up to aoe.addTimeoutSeconds, default 300), so this answers when the
+  // session exists; the daemon sends the first message.
   app.post('/api/projects/:name/tasks', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const { title, brief, model, effort, base, force } = body;

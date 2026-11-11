@@ -7,6 +7,8 @@ export interface RunResult {
   /** Set when the binary could not be started (ENOENT, EACCES) or timed out. */
   error: NodeJS.ErrnoException | null;
   timedOut: boolean;
+  /** Stopped because `signal` aborted (the caller was interrupted). */
+  aborted?: boolean;
 }
 
 export interface RunOptions {
@@ -14,6 +16,8 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv;
   cwd?: string;
   input?: string;
+  /** Aborting kills the child as a timeout does. */
+  signal?: AbortSignal;
 }
 
 /** Run a binary with an argv array. Never goes through a shell. */
@@ -37,6 +41,14 @@ export function run(cmd: string, args: string[], opts: RunOptions = {}): Promise
           }, opts.timeoutMs)
         : null;
     timer?.unref();
+    let aborted = false;
+    const abort = () => {
+      aborted = true;
+      child.kill('SIGTERM');
+      setTimeout(() => child.kill('SIGKILL'), 2000).unref();
+    };
+    if (opts.signal?.aborted) abort();
+    else opts.signal?.addEventListener('abort', abort, { once: true });
     child.stdout?.setEncoding('utf8').on('data', (d: string) => (stdout += d));
     child.stderr?.setEncoding('utf8').on('data', (d: string) => (stderr += d));
     if (opts.input !== undefined) child.stdin?.end(opts.input);
@@ -44,10 +56,11 @@ export function run(cmd: string, args: string[], opts: RunOptions = {}): Promise
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
-      resolve({ code, stdout, stderr, error, timedOut });
+      opts.signal?.removeEventListener('abort', abort);
+      resolve({ code, stdout, stderr, error, timedOut, ...(aborted ? { aborted } : {}) });
     };
     child.on('error', (err: NodeJS.ErrnoException) => finish(null, err));
-    child.on('close', (code) => finish(timedOut ? null : code, null));
+    child.on('close', (code) => finish(timedOut || aborted ? null : code, null));
   });
 }
 

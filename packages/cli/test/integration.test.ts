@@ -46,13 +46,20 @@ interface Res {
 
 function sc(
   args: string[],
-  opts: { cwd?: string; extraEnv?: NodeJS.ProcessEnv; input?: string } = {},
+  opts: {
+    cwd?: string;
+    extraEnv?: NodeJS.ProcessEnv;
+    input?: string;
+    /** The running CLI, e.g. to stop it half-way. */
+    onSpawn?: (child: ChildProcess) => void;
+  } = {},
 ): Promise<Res> {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [CLI, ...args], {
       cwd: opts.cwd ?? repo,
       env: { ...env, ...opts.extraEnv },
     });
+    opts.onSpawn?.(child);
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (d) => (stdout += d));
@@ -269,6 +276,40 @@ describe('workflow through the real CLI against fake AoE', () => {
     expect(existsSync(worker.worktree)).toBe(true);
     expect((await readTask('NO-0001')).stage).not.toBe('done');
   });
+
+  it('rolls back a task new that is stopped half-way (SIGTERM), and said what it was starting', async () => {
+    let started = '';
+    const run = sc(['task', 'new', 'Stopped halfway', '--force'], {
+      extraEnv: { FAKE_AOE_ADD_SLEEP_MS: '30000' },
+      onSpawn: (child) =>
+        child.stderr!.on('data', (d: Buffer) => {
+          const m = /Starting (NO-\d+) on (\S+) \(from main\)/.exec(d.toString());
+          if (!m || started) return;
+          started = m[1]!;
+          // Once aoe add has made the worktree (it then sleeps), stop the CLI.
+          void until(async () => existsSync(join(`${repo}-worktrees`, m[2]!.replace('/', '-'))), 30_000).then(
+            () => child.kill('SIGTERM'),
+          );
+        }),
+    });
+    const r = await run;
+    expect(started).toMatch(/^NO-\d+$/);
+    expect(r.code, r.stderr).toBe(143);
+    expect(r.stderr).toMatch(new RegExp(`Interrupted \\(SIGTERM\\) while starting ${started}`));
+    expect(r.stderr).toMatch(/Nothing was left behind/);
+    const branch = `sc/${started.toLowerCase()}-stopped-halfway`;
+    expect(execFileSync('git', ['branch', '--list', branch], { cwd: repo }).toString()).toBe('');
+    expect(existsSync(join(`${repo}-worktrees`, branch.replace('/', '-')))).toBe(false);
+    expect(existsSync(join(home, '.local/share/supercharge/projects/northwind/tasks', started))).toBe(false);
+    const audit = (await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l) as { action: string; taskId?: string; details?: object });
+    expect(audit.filter((a) => a.action === 'task_failed').at(-1)).toMatchObject({
+      taskId: started,
+      details: { interrupted: 'SIGTERM', kept: [] },
+    });
+  }, 60_000);
 
   it('whoami identifies the worker and rejects a foreign session id', async () => {
     const ok = await sc(['whoami', '--json'], {

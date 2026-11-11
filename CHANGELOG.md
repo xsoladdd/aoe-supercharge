@@ -161,6 +161,13 @@
   `branch -d` refuses squash-merged branches. `task cleanup <id> --discard` drops a results commit that
   never needed merging, and lists and audits every commit it drops.
 
+- **A stopped `task new` rolls back.** A `task new` killed half-way (Ctrl-C, a kill, a closed terminal) left
+  a used id, a task folder without `task.json`, a branch, a worktree and maybe a session. It now stops
+  `aoe add` and rolls the start back as a failed one (`task_failed` with `interrupted`), exiting 130 or
+  143. It prints the task id and branch before `aoe add` runs, so even a `kill -9` says what it was
+  starting. Run from a control chat with the daemon up, it no longer waits 30 seconds for the worker's
+  prompt: the daemon sends the first message. The New task dialog no longer says "up to two minutes".
+
 ## 1.8.0 (2026-10-27)
 
 - **No more play buttons; "Attach terminal" is in the chat's ⋯ menu.** A chat's icon in the sidebar no longer

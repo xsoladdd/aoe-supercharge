@@ -407,6 +407,13 @@ export async function newTask(
     force?: boolean;
     /** How long to wait for the session's prompt before leaving the first message to the daemon. */
     kickoff?: KickoffWait;
+    /**
+     * Aborted when the caller is interrupted (Ctrl-C, a kill): before the task is saved, the start is
+     * rolled back as a failed one; after, the kickoff wait stops and the task stays.
+     */
+    signal?: AbortSignal;
+    /** Told the task id and branch before `aoe add` runs, so an interrupted start can be found. */
+    onStart?: (start: { id: string; branch: string; baseBranch: string }) => void;
   },
 ): Promise<TaskRecord & { warnings?: string[]; usage?: UsageReport }> {
   const title = opts.title.trim();
@@ -457,7 +464,9 @@ export async function newTask(
   let sessionId: string | null = null;
   let launchWarn: string | null = null;
   let task: TaskRecord;
+  opts.onStart?.({ id, branch, baseBranch });
   try {
+    opts.signal?.throwIfAborted();
     const promptFile = ctx.ledger.sessionPromptFile(project.name, id);
     assertSafeArg(promptFile, 'The session prompt path');
     await writeFileAtomic(
@@ -491,12 +500,15 @@ export async function newTask(
       ],
       launch: true,
       timeoutMs: ctx.config.aoe.addTimeoutSeconds * 1000,
+      signal: opts.signal,
     });
     const created = (await listAoe(ctx)).find(
       (s) => !before.has(s.id) && (s.worktree?.branch === branch || s.title === `${id} ${title}`),
     );
+    // Known before anything else can stop the start, so the rollback removes it.
+    if (created) sessionId = created.id;
+    opts.signal?.throwIfAborted();
     if (!created) throw new Error(`no session was created for ${branch}`);
-    sessionId = created.id;
     launchWarn = launchWarning(r, created.id);
 
     const at = new Date().toISOString();
@@ -528,6 +540,7 @@ export async function newTask(
       updatedAt: at,
       history: [{ at, from: null, to: 'planning', by: opts.actor ?? 'control', note: 'Task created' }],
     };
+    opts.signal?.throwIfAborted();
     await ctx.ledger.createTask(task);
   } catch (err) {
     throw await failStart(ctx, {
@@ -541,6 +554,9 @@ export async function newTask(
       actor: opts.actor ?? 'cli',
       r,
       err,
+      interrupted: opts.signal?.aborted
+        ? String((opts.signal.reason as Error)?.message ?? opts.signal.reason)
+        : null,
     });
   }
   await appendAudit(ctx.paths, {
@@ -559,7 +575,9 @@ export async function newTask(
     },
   });
   const warnings = launchWarn ? [launchWarn] : [];
-  const kicked = launchWarn ? 'waiting' : await kickoffNewWorker(ctx, task, opts.kickoff);
+  const kicked = launchWarn
+    ? 'waiting'
+    : await kickoffNewWorker(ctx, task, { ...opts.kickoff, signal: opts.signal });
   if (kicked === 'waiting')
     warnings.push(
       `${id} is not at its prompt yet${launchWarn ? '' : ' (a menu such as the trust-folder dialog may be open)'}; the daemon sends its first message once it is.`,
@@ -590,20 +608,28 @@ interface StartMade {
   sessionId: string | null;
 }
 
-/** Roll back a failed `task new`, record `task_failed`, and say what to do next. */
+/** Roll back a failed (or interrupted) `task new`, record `task_failed`, and say what to do next. */
 async function failStart(
   ctx: Ctx,
-  o: StartMade & { actor: AuditEntry['actor']; r: RunResult | null; err: unknown },
+  o: StartMade & {
+    actor: AuditEntry['actor'];
+    r: RunResult | null;
+    err: unknown;
+    /** The signal that stopped it (SIGINT, SIGTERM, SIGHUP), or null. */
+    interrupted?: string | null;
+  },
 ): Promise<CliError> {
   const secs = ctx.config.aoe.addTimeoutSeconds;
-  const timedOut = !o.sessionId && !!o.r?.timedOut;
-  const reason = timedOut
-    ? `aoe add timed out after ${secs} s creating ${o.branch}.`
-    : !o.sessionId && o.r
-      ? `aoe add failed: ${(o.r.stderr || o.r.stdout || o.r.error?.message || '').trim() || `no session was created for ${o.branch}`}`
-      : o.err instanceof Error
-        ? o.err.message
-        : String(o.err);
+  const timedOut = !o.interrupted && !o.sessionId && !!o.r?.timedOut;
+  const reason = o.interrupted
+    ? `Interrupted (${o.interrupted}) while starting ${o.id} on ${o.branch}.`
+    : timedOut
+      ? `aoe add timed out after ${secs} s creating ${o.branch}.`
+      : !o.sessionId && o.r
+        ? `aoe add failed: ${(o.r.stderr || o.r.stdout || o.r.error?.message || '').trim() || `no session was created for ${o.branch}`}`
+        : o.err instanceof Error
+          ? o.err.message
+          : String(o.err);
   const { removed, kept } = await rollbackStart(ctx, o);
   await appendAudit(ctx.paths, {
     actor: o.actor,
@@ -611,12 +637,22 @@ async function failStart(
     project: o.project,
     taskId: o.id,
     sessionId: o.sessionId,
-    details: { reason, branch: o.branch, baseBranch: o.baseBranch, timedOut, removed, kept },
+    details: {
+      reason,
+      branch: o.branch,
+      baseBranch: o.baseBranch,
+      timedOut,
+      ...(o.interrupted ? { interrupted: o.interrupted } : {}),
+      removed,
+      kept,
+    },
   });
   const left = kept.length ? `Kept ${kept.join('; ')}.` : 'Nothing was left behind.';
-  const next = timedOut
-    ? `Raise aoe.addTimeoutSeconds (now ${secs}), e.g. "supercharge config set aoe.addTimeoutSeconds ${Math.min(secs * 2, 3600)}" or on the Settings page, then run the same command again.`
-    : 'Check "aoe list", then try again.';
+  const next = o.interrupted
+    ? 'Run the same command again to start it.'
+    : timedOut
+      ? `Raise aoe.addTimeoutSeconds (now ${secs}), e.g. "supercharge config set aoe.addTimeoutSeconds ${Math.min(secs * 2, 3600)}" or on the Settings page, then run the same command again.`
+      : 'Check "aoe list", then try again.';
   return new CliError(reason, EXIT.error, `${left} ${next}`);
 }
 
@@ -676,6 +712,8 @@ export interface KickoffWait {
   /** Who the first message's audit entry names; `cli` when unset. */
   actor?: KickoffOpts['actor'];
   wait?: (ms: number) => Promise<void>;
+  /** Stop waiting (the caller was interrupted): the daemon sends the first message instead. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -699,7 +737,7 @@ async function kickoffNewWorker(ctx: Ctx, task: TaskRecord, o: KickoffWait = {})
       return 'waiting' as const;
     });
     if (r !== 'waiting' && r !== 'sent' && r !== 'pending') return r;
-    if (Date.now() >= until) return r;
+    if (Date.now() >= until || o.signal?.aborted) return r;
     await wait(1_000);
   }
 }

@@ -33,7 +33,7 @@ export function NewTaskForm({
 }: {
   usage: UsageReport | null;
   submit: (values: NewTaskValues) => Promise<void>;
-  /** The dialog must not close while `aoe add` runs (up to 120 s). */
+  /** The dialog must not close while `aoe add` runs (minutes on a large repo; up to aoe.addTimeoutSeconds). */
   onBusyChange?: (busy: boolean) => void;
   onCancel: () => void;
 }) {
@@ -149,7 +149,7 @@ export function NewTaskForm({
       {busy && (
         <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
           <CircleNotchIcon className="size-4 animate-spin" />
-          Creating the branch, worktree and session. This can take up to two minutes.
+          Creating the branch, worktree and session. On a large repository this can take a few minutes.
         </p>
       )}
       <div className="flex justify-end gap-2">

@@ -43,6 +43,7 @@ import { buildProjectStatus } from './status.ts';
 import { daemonHealth, daemonRequest, waitForDaemon } from './util/daemon-client.ts';
 import { CliError, EXIT } from './util/errors.ts';
 import { which } from './util/exec.ts';
+import { signalExitCode, trapSignals } from './util/signals.ts';
 import { c, confirm, json, out, readStdin, sym } from './util/term.ts';
 import {
   askQuestion,
@@ -457,18 +458,49 @@ export function buildProgram(): Command {
         const x = await ctx();
         const brief = o.briefFile ? await readFile(o.briefFile, 'utf8') : o.brief;
         const who = await whoami(x, cwd()).catch(() => null);
-        const t = await newTask(x, {
-          cwd: cwd(),
-          title,
-          project: o.project,
-          brief,
-          base: o.base,
-          model: o.model,
-          effort: o.effort,
-          permissionMode: o.permissionMode,
-          force: o.force,
-          actor: who?.role === 'control' ? 'control' : 'user',
-        });
+        // The daemon sends a control chat's new worker its first message: no need to hold the chat 30 s.
+        const control = who?.role === 'control';
+        const kickoff = control && (await daemonHealth(x)) ? { timeoutMs: 0 } : undefined;
+        // Interrupted (Ctrl-C, a kill, a closed terminal): roll the start back instead of leaving half a task.
+        let starting: string | null = null;
+        const trap = trapSignals(() =>
+          process.stderr.write(
+            `${sym.warn} Stopped before the rollback finished${starting ? ` (${starting})` : ''}: check "aoe list" and "git branch".\n`,
+          ),
+        );
+        let t: Awaited<ReturnType<typeof newTask>>;
+        try {
+          t = await newTask(x, {
+            cwd: cwd(),
+            title,
+            project: o.project,
+            brief,
+            base: o.base,
+            model: o.model,
+            effort: o.effort,
+            permissionMode: o.permissionMode,
+            force: o.force,
+            actor: control ? 'control' : 'user',
+            kickoff,
+            signal: trap.signal,
+            // On stderr, so --json output stays one document.
+            onStart: ({ id, branch, baseBranch }) => {
+              starting = `${id} on ${branch}`;
+              process.stderr.write(
+                `${sym.info} Starting ${id} on ${branch} (from ${baseBranch}); aoe add makes the worktree, which can take a few minutes.\n`,
+              );
+            },
+          });
+        } catch (e) {
+          // Rolled back: exit as a stopped process does (130 for Ctrl-C), not as a failure.
+          const sig = trap.caught();
+          if (sig && e instanceof CliError) e.exitCode = signalExitCode(sig);
+          throw e;
+        } finally {
+          trap.dispose();
+          const sig = trap.caught();
+          if (sig) process.exitCode = signalExitCode(sig);
+        }
         if (o.json)
           return json({
             id: t.id,

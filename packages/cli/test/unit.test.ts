@@ -836,6 +836,19 @@ describe('doctor: hook consent', () => {
   });
 });
 
+describe('run: an aborted signal stops the child', () => {
+  it('kills it and says so; an already aborted signal never lets it run', async () => {
+    const ac = new AbortController();
+    const started = Date.now();
+    setTimeout(() => ac.abort(new Error('SIGTERM')), 100);
+    const r = await run('sleep', ['10'], { signal: ac.signal });
+    expect(r).toMatchObject({ code: null, aborted: true, timedOut: false });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(await run('sleep', ['10'], { signal: ac.signal })).toMatchObject({ aborted: true });
+    expect(await run('true', [])).not.toHaveProperty('aborted');
+  });
+});
+
 describe('AoeClient: a request that runs out of time', () => {
   it('says it timed out (AoE may still be at it), unlike an unreachable server, and a delete gets longer', async () => {
     const { createServer } = await import('node:http');
