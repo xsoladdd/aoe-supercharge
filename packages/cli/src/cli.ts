@@ -50,6 +50,7 @@ import {
   findTask,
   initProject,
   newTask,
+  reopenTask,
   replyToTask,
   resolveProject,
   savePlan,
@@ -527,6 +528,30 @@ export function buildProgram(): Command {
     });
 
   task
+    .command('reopen <task-id>')
+    .description(
+      'reopen a done task for follow-up work: back to implementing (and out of the archive), so it shows with the working workers again',
+    )
+    .option('-p, --project <name>', 'project (default: the one for this repository)')
+    .option('--note <text>', 'short note for the history')
+    .action(async (taskId: string, o: { project?: string; note?: string }) => {
+      const x = await ctx();
+      const who = await whoami(x, cwd()).catch(() => null);
+      const project = (await resolveProject(x, cwd(), o.project)).name;
+      const id = taskId.toUpperCase();
+      if (who?.role === 'worker' && who.task?.id !== id)
+        throw new CliError(`A worker reopens only its own task (${who.task?.id}).`, EXIT.usage);
+      const t = await reopenTask(x, {
+        project,
+        taskId: id,
+        actor: who?.role === 'worker' ? 'worker' : who?.role === 'control' ? 'control' : 'user',
+        via: 'cli',
+        note: o.note,
+      });
+      out(`${sym.ok} ${t.id} is reopened: ${c.bold(STAGE_LABEL[t.stage])}`);
+    });
+
+  task
     .command('cleanup [task-id]')
     .description(
       'remove a finished worker: its AoE session, worktree and branch. Refuses unless its work has landed on origin/<its base branch> (merged, cherry-picked or squashed) or in its merged pull request, and the worktree is clean',
@@ -717,27 +742,34 @@ export function buildProgram(): Command {
     .description(`report a stage change: ${STAGES.join(' | ')}`)
     .option('--note <text>', 'short note for the history')
     .option('--mr <url>', 'merge request URL (for mr_raised)')
-    .addOption(new Option('--force', 'skip transition checks (reopening, corrections)').hideHelp())
-    .action(async (stage: string, o: { note?: string; mr?: string; force?: boolean }) => {
-      if (!isStage(stage))
-        throw new CliError(`Unknown stage "${stage}".`, EXIT.usage, `Stages: ${STAGES.join(', ')}`);
-      const t = await stageTask(await ctx(), {
-        cwd: cwd(),
-        stage,
-        note: o.note,
-        mrUrl: o.mr,
-        force: o.force,
-      });
-      out(`${sym.ok} ${t.id} is now ${c.bold(STAGE_LABEL[t.stage])}`);
-      if (t.stage === 'mr_raised')
-        out(
-          `  Supercharge watches ${t.mr?.url} from here; it moves the task to Ready for review when it is.`,
-        );
-      if (t.stage === 'ready_for_review' && !t.mr)
-        out(
-          `  ${t.branch} waits to be merged into ${t.baseBranch}; Supercharge marks the task done once it lands there.`,
-        );
-    });
+    .option(
+      '--nothing-to-merge',
+      'with done: close a task that has nothing to merge (a read-only or report task); refused if the branch has commits, the worktree has files, or a merge request is open',
+    )
+    .addOption(new Option('--force', 'skip transition checks (corrections)').hideHelp())
+    .action(
+      async (stage: string, o: { note?: string; mr?: string; force?: boolean; nothingToMerge?: boolean }) => {
+        if (!isStage(stage))
+          throw new CliError(`Unknown stage "${stage}".`, EXIT.usage, `Stages: ${STAGES.join(', ')}`);
+        const t = await stageTask(await ctx(), {
+          cwd: cwd(),
+          stage,
+          note: o.note,
+          mrUrl: o.mr,
+          force: o.force,
+          nothingToMerge: o.nothingToMerge,
+        });
+        out(`${sym.ok} ${t.id} is now ${c.bold(STAGE_LABEL[t.stage])}`);
+        if (t.stage === 'mr_raised')
+          out(
+            `  Supercharge watches ${t.mr?.url} from here; it moves the task to Ready for review when it is.`,
+          );
+        if (t.stage === 'ready_for_review' && !t.mr)
+          out(
+            `  ${t.branch} waits to be merged into ${t.baseBranch}; Supercharge marks the task done once it lands there.`,
+          );
+      },
+    );
 
   program
     .command('ask <question>')

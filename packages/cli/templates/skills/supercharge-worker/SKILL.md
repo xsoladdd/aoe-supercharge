@@ -69,6 +69,19 @@ Supercharge rejects invalid moves and tells you what is allowed instead.
 
 6. **Fixing review feedback or a failed pipeline:** `supercharge stage implementing`, fix, push, then
    `supercharge stage verifying` and hand it over again as in step 5.
+7. **Nothing to merge (a read-only, research or report task).** Save what you produced in
+   `task.outputDir` from `supercharge whoami --json` (or wherever the brief says), never only as an
+   untracked file in the worktree: cleanup deletes the worktree. Then close the task yourself:
+
+   ```bash
+   supercharge stage done --nothing-to-merge
+   ```
+
+   It is refused while your branch has commits that aren't on the base branch, the worktree has
+   uncommitted or untracked files, or a merge request is open.
+8. **More work after your task is done:** run `supercharge task reopen <your task id>` first. It moves
+   the task back to `implementing`, so the user sees you working, then carry on from step 4. Never use
+   `--force` for this.
 
 Add `--note "<short note>"` to any stage change when it helps the user.
 

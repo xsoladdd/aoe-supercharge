@@ -1,5 +1,6 @@
 import {
   ArchiveIcon,
+  ArrowCounterClockwiseIcon,
   ArrowSquareOutIcon,
   ArrowUUpLeftIcon,
   BroomIcon,
@@ -29,7 +30,7 @@ import { useId, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { useLocation } from 'wouter';
 import { useAttachCommand } from '@/components/attach';
-import { CleanupTaskDialog } from '@/components/cleanup-task';
+import { CleanupTaskDialog, reopenTask } from '@/components/cleanup-task';
 import { copyText } from '@/components/copy';
 import {
   AlertDialog,
@@ -319,6 +320,12 @@ export function SessionMenu({
               <ArchiveIcon />
               Archive
               {lockedNote(!archivable.length)}
+            </ContextMenuItem>
+          )}
+          {one?.task?.stage === 'done' && (
+            <ContextMenuItem onSelect={() => void reopenTask(one.task!)}>
+              <ArrowCounterClockwiseIcon />
+              Reopen
             </ContextMenuItem>
           )}
           {one?.task?.stage === 'done' && (

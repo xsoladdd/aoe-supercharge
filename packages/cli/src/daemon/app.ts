@@ -57,6 +57,7 @@ import {
   answerQuestions,
   MenuOpenError,
   newTask,
+  reopenTask,
   PromptChangedError,
   replyToTask,
   runInSession,
@@ -654,7 +655,19 @@ export function createApp(deps: AppDeps) {
     }
   });
 
-  // Clean up a finished worker (session, worktree, branch), only when its work is on origin/main.
+  // Reopen a done task for follow-up work (done → implementing; out of the archive too).
+  app.post('/api/tasks/:project/:id/reopen', async (c) => {
+    const { project, id } = c.req.param();
+    try {
+      const task = await reopenTask(ctx, { project, taskId: id, actor: 'user', via: 'ui' });
+      deps.onClientConnected();
+      return c.json(task);
+    } catch (err) {
+      return sendError(c, err, 'reopen_failed');
+    }
+  });
+
+  // Clean up a finished worker (session, worktree, branch), only when its work is on origin/<base>.
   // GET says whether that is so and why not; the POST checks again before it removes anything.
   app.get('/api/tasks/:project/:id/cleanup', async (c) => {
     const { project, id } = c.req.param();

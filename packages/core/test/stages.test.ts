@@ -98,6 +98,26 @@ describe('guards and messages', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.allowed).toEqual(['implementing', 'blocked']);
   });
+  it('a worker closes its own task only with nothing to merge, and the refusal says how', () => {
+    for (const stage of ['planning', 'implementing', 'verifying', 'blocked'] as const) {
+      const from = { stage, blockedFrom: stage === 'blocked' ? ('implementing' as const) : null };
+      const r = transition(from, 'done', 'worker', OK_CTX);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.reason).toMatch(/--nothing-to-merge/);
+      expect(transition(from, 'done', 'worker', { ...OK_CTX, nothingToMerge: true }).ok).toBe(true);
+    }
+    // Not a way out of done, and not a way anywhere else.
+    expect(
+      transition({ stage: 'done', blockedFrom: null }, 'done', 'worker', { ...OK_CTX, nothingToMerge: true })
+        .ok,
+    ).toBe(false);
+    expect(
+      transition({ stage: 'planning', blockedFrom: null }, 'verifying', 'worker', {
+        ...OK_CTX,
+        nothingToMerge: true,
+      }).ok,
+    ).toBe(false);
+  });
   it('done is terminal unless forced', () => {
     expect(transition({ stage: 'done', blockedFrom: null }, 'implementing', 'user', OK_CTX).ok).toBe(false);
     expect(

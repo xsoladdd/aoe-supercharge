@@ -569,6 +569,78 @@ describe('workflow through the real CLI against fake AoE', () => {
     });
     expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
   });
+
+  it('a read-only task closes itself with --nothing-to-merge, and task reopen brings it back', async () => {
+    const out = JSON.parse((await sc(['task', 'new', 'Read-only gap list', '--force', '--json'])).stdout) as {
+      id: string;
+      worktree: string;
+      aoeSessionId: string;
+    };
+    const as = (args: string[]) =>
+      sc(args, { cwd: out.worktree, extraEnv: { AOE_INSTANCE_ID: out.aoeSessionId } });
+    const git = (...a: string[]) => execFileSync('git', a, { cwd: out.worktree, env, stdio: 'pipe' });
+
+    const plain = await as(['stage', 'done']);
+    expect(plain.code).toBe(3);
+    expect(plain.stderr).toMatch(/--nothing-to-merge/);
+    // Output that would only live in the worktree: refused, and told where it belongs.
+    await writeFile(join(out.worktree, 'gap-list.md'), '# Gaps\n');
+    const dirty = await as(['stage', 'done', '--nothing-to-merge']);
+    expect(dirty.code).toBe(3);
+    expect(dirty.stderr).toMatch(/gap-list\.md/);
+    expect(dirty.stderr).toMatch(/uploads\/northwind/);
+    await rm(join(out.worktree, 'gap-list.md'));
+    // A commit is something to merge.
+    git('commit', '-q', '--allow-empty', '-m', 'results');
+    const ahead = await as(['stage', 'done', '--nothing-to-merge']);
+    expect(ahead.code).toBe(3);
+    expect(ahead.stderr).toMatch(/something to merge/);
+    git('reset', '-q', '--hard', 'HEAD~1');
+    expect(JSON.parse((await as(['whoami', '--json'])).stdout).task.outputDir).toBe(
+      join(home, '.local/state/supercharge/uploads/northwind'),
+    );
+
+    const closed = await as(['stage', 'done', '--nothing-to-merge']);
+    expect(closed.code, closed.stderr).toBe(0);
+    expect((await readTask(out.id)).stage).toBe('done');
+    expect((await readTask(out.id)).history.at(-1)).toMatchObject({
+      to: 'done',
+      by: 'worker',
+      note: 'Nothing to merge',
+    });
+
+    // Follow-up work: the worker reopens its own task (and only its own).
+    expect((await as(['task', 'reopen', 'NO-0001'])).code).toBe(2);
+    const reopened = await as(['task', 'reopen', out.id.toLowerCase()]);
+    expect(reopened.code, reopened.stderr).toBe(0);
+    expect((await readTask(out.id)).history.at(-1)).toMatchObject({
+      from: 'done',
+      to: 'implementing',
+      by: 'worker',
+    });
+    expect((await sc(['task', 'reopen', out.id, '-p', 'northwind'])).code).toBe(3);
+
+    // Done and archived: reopening from outside brings its session back from the archive.
+    expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+    await fetch(`${fake.url}/__fake/sessions/${out.aoeSessionId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ archived_at: new Date().toISOString(), status: 'Stopped' }),
+    });
+    const back = await sc(['task', 'reopen', out.id, '-p', 'northwind', '--note', 'Follow-up on the gaps']);
+    expect(back.code, back.stderr).toBe(0);
+    expect(fake.state.sessions.find((s) => s.id === out.aoeSessionId)?.archived_at).toBeNull();
+    expect((await readTask(out.id)).history.at(-1)).toMatchObject({
+      by: 'user',
+      note: 'Follow-up on the gaps',
+    });
+    const audit = await readFile(join(home, '.local/state/supercharge/audit.jsonl'), 'utf8');
+    expect(audit).toMatch(
+      new RegExp(`"actor":"worker","action":"task_closed","project":"northwind","taskId":"${out.id}"`),
+    );
+    expect(audit).toMatch(new RegExp(`"action":"task_reopened".*"taskId":"${out.id}".*"unarchived":true`));
+    expect((await sc(['stage', 'done'], { cwd: out.worktree })).code).toBe(0);
+  });
 });
 
 describe('daemon: security, live state and the MR watcher', () => {

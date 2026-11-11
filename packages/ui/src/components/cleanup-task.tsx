@@ -1,4 +1,4 @@
-import { BroomIcon, CircleNotchIcon } from '@phosphor-icons/react';
+import { ArrowCounterClockwiseIcon, BroomIcon, CircleNotchIcon } from '@phosphor-icons/react';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useLocation } from 'wouter';
@@ -157,6 +157,38 @@ export function CleanupTaskButton({ task }: { task: TaskRecord }) {
       </Button>
       <CleanupTaskDialog task={task} open={open} onOpenChange={setOpen} />
     </>
+  );
+}
+
+/** Reopen a done task for follow-up work (back to Implementing, out of the archive). */
+export async function reopenTask(task: TaskRecord): Promise<boolean> {
+  try {
+    await sendJson('POST', `/api/tasks/${task.project}/${task.id}/reopen`, {});
+    toast.success(`${workerLabel(task)} is reopened`, { description: 'Back to Implementing.' });
+    return true;
+  } catch (e) {
+    toast.error('Could not reopen it', { description: e instanceof ApiError ? e.message : undefined });
+    return false;
+  }
+}
+
+export function ReopenTaskButton({ task }: { task: TaskRecord }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      disabled={busy}
+      title="Back to Implementing for follow-up work; keeps everything"
+      onClick={async () => {
+        setBusy(true);
+        await reopenTask(task);
+        setBusy(false);
+      }}
+    >
+      {busy ? <CircleNotchIcon className="animate-spin" /> : <ArrowCounterClockwiseIcon />}
+      Reopen
+    </Button>
   );
 }
 

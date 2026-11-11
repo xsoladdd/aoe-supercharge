@@ -23,7 +23,7 @@ import { toast } from 'sonner';
 import { Link } from 'wouter';
 import { useAttachCommand } from '@/components/attach';
 import { hasAsk, PromptCard, TaskAsks } from '@/components/answer';
-import { CleanupTaskButton } from '@/components/cleanup-task';
+import { CleanupTaskButton, ReopenTaskButton } from '@/components/cleanup-task';
 import { CommentablePlan, CommentList, useComments } from '@/components/plan-comments';
 import { CommandLine } from '@/components/copy';
 import { MrLinkBase, projectMrBase } from '@/components/chat/mr-link-base';
@@ -479,7 +479,12 @@ export function TaskPage({
               {task.title}
             </h1>
             <StageBadge stage={task.stage} size="sm" />
-            {task.stage === 'done' && <CleanupTaskButton task={task} />}
+            {task.stage === 'done' && (
+              <>
+                <ReopenTaskButton task={task} />
+                <CleanupTaskButton task={task} />
+              </>
+            )}
             {tab !== 'chat' && (
               <LiveStatus
                 status={session?.status ?? 'missing'}

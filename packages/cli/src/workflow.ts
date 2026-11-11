@@ -50,7 +50,7 @@ import { mrProviders, toMrState } from './mr/index.ts';
 import { installUserSkills, readTemplate, render, SKILL_NAMES, upsertManagedBlock } from './skills.ts';
 import { AoeError, TerminalBusyError } from './aoe/client.ts';
 import { menuOnScreen } from './prompt.ts';
-import { uploadArgs } from './uploads.ts';
+import { outputDir, uploadArgs } from './uploads.ts';
 import { transcriptStore, type TranscriptStore } from './transcript.ts';
 import { CliError, EXIT } from './util/errors.ts';
 import { daemonHealth } from './util/daemon-client.ts';
@@ -59,6 +59,7 @@ import {
   commitsAhead,
   currentBranch,
   defaultBranch,
+  dirtyPaths,
   mainCheckout,
   parseRemote,
   remoteUrl,
@@ -90,6 +91,8 @@ export interface WhoAmI {
     | (Pick<TaskRecord, 'id' | 'title' | 'stage' | 'branch' | 'baseBranch' | 'blockedFrom'> & {
         /** The saved plan, so a worker whose conversation was cleared can pick up where it was. */
         planFile: string | null;
+        /** Where output that must outlive the worktree goes (reports, a read-only task's findings). */
+        outputDir: string;
       })
     | null;
   /** Actor used for stage changes: the worker itself, or a human running the CLI in the worktree. */
@@ -168,6 +171,7 @@ export async function whoami(
       baseBranch: task.baseBranch,
       blockedFrom: task.blockedFrom,
       planFile: task.plan ? ctx.ledger.planFile(project.name, task.id) : null,
+      outputDir: outputDir(ctx.paths, project.name),
     },
     actor: sessionId ? 'worker' : 'user',
     autonomous: autonomous(ctx.config, project.name),
@@ -737,13 +741,30 @@ function rejection(task: TaskRecord, to: Stage, reason: string, allowed: Stage[]
 
 export async function stageTask(
   ctx: Ctx,
-  opts: { cwd: string; stage: Stage; note?: string; mrUrl?: string; force?: boolean },
+  opts: {
+    cwd: string;
+    stage: Stage;
+    note?: string;
+    mrUrl?: string;
+    force?: boolean;
+    /** done: a worker closes its own task, which has nothing to merge. */
+    nothingToMerge?: boolean;
+  },
 ): Promise<TaskRecord> {
   const who = await requireTask(ctx, opts.cwd);
   const task = who.record;
   let mr: MrState | null = task.mr;
+  if (opts.nothingToMerge && opts.stage !== 'done')
+    throw new CliError(
+      '--nothing-to-merge goes with done.',
+      EXIT.usage,
+      'supercharge stage done --nothing-to-merge',
+    );
+  const closed = opts.nothingToMerge ? await nothingToMerge(ctx, who.projectRecord, task, opts.cwd) : null;
 
   if (opts.stage === 'mr_raised') {
+    // A merged or closed MR from before the task was reopened is not this round's.
+    if (mr?.state === 'merged' || mr?.state === 'closed') mr = null;
     const providers = mrProviders(ctx.config, ctx.env);
     if (opts.mrUrl) {
       const found = providers.forUrl(opts.mrUrl);
@@ -779,6 +800,7 @@ export async function stageTask(
     hasMr: opts.stage === 'ready_for_review' ? !!task.mr : !!mr,
     question: task.openQuestion?.text ?? null,
     force: opts.force,
+    nothingToMerge: !!closed,
   });
   if (!res.ok) throw rejection(task, opts.stage, res.reason, res.allowed);
 
@@ -799,13 +821,114 @@ export async function stageTask(
       );
   }
 
-  return ctx.ledger.updateTask(task.project, task.id, (t) => {
-    const next = applyStage(t, opts.stage, who.actor, opts.note?.trim() || (opts.force ? 'Forced' : null));
+  const note = opts.note?.trim() || (closed ? 'Nothing to merge' : opts.force ? 'Forced' : null);
+  const saved = await ctx.ledger.updateTask(task.project, task.id, (t) => {
+    const next = applyStage(t, opts.stage, who.actor, note);
     if (opts.stage === 'mr_raised') return { ...next, mr };
     if (branchReady) return { ...next, readyHead };
     if (opts.stage === 'implementing' && t.readyHead) return { ...next, readyHead: null };
     return next;
   });
+  if (closed)
+    await appendAudit(ctx.paths, {
+      actor: who.actor,
+      action: 'task_closed',
+      project: task.project,
+      taskId: task.id,
+      sessionId: task.aoeSessionId,
+      details: { nothingToMerge: true, from: task.stage, head: closed.head, base: closed.base },
+    });
+  return saved;
+}
+
+/**
+ * Checks that a task really has nothing to merge before its worker closes it: no commits that aren't
+ * on the base branch, nothing uncommitted or untracked in the worktree (cleanup would delete it), and
+ * no open merge request. Returns the head and the base it was compared with.
+ */
+async function nothingToMerge(
+  ctx: Ctx,
+  project: ProjectRecord,
+  task: TaskRecord,
+  cwd: string,
+): Promise<{ head: string; base: string }> {
+  if (task.mr?.state === 'opened')
+    throw new CliError(
+      `${task.id} has an open merge request (${task.mr.url}).`,
+      EXIT.invalidTransition,
+      'Close it first, or hand the task over as usual.',
+    );
+  const wt = task.worktreePath ?? cwd;
+  const dirty = await dirtyPaths(wt);
+  if (dirty === null) throw new CliError(`Could not read ${wt} with git.`, EXIT.error);
+  if (dirty.length)
+    throw new CliError(
+      `The worktree has ${dirty.length} uncommitted or untracked file${dirty.length === 1 ? '' : 's'}: ${dirty.slice(0, 5).join(', ')}${dirty.length > 5 ? ', …' : ''}.`,
+      EXIT.invalidTransition,
+      `Cleanup deletes the worktree. Move output that should stay to ${outputDir(ctx.paths, project.name)} (or where the brief says), and delete or commit the rest.`,
+    );
+  const head = await revParse(wt, 'HEAD');
+  if (!head) throw new CliError(`Could not read the commit ${wt} is on.`, EXIT.error);
+  for (const base of [`origin/${task.baseBranch}`, task.baseBranch]) {
+    if ((await revParse(project.repoPath, base)) && (await commitsAhead(project.repoPath, base, head)) === 0)
+      return { head, base };
+  }
+  const ahead = await commitsAhead(project.repoPath, task.baseBranch, head);
+  throw new CliError(
+    `${task.branch} has ${ahead ?? 'some'} commit${ahead === 1 ? '' : 's'} that ${ahead === 1 ? "isn't" : "aren't"} on ${task.baseBranch}: there is something to merge.`,
+    EXIT.invalidTransition,
+    'Hand it over as usual (supercharge stage ready_for_review, or mr_raised with a merge request).',
+  );
+}
+
+/**
+ * Reopen a done task for follow-up work: done → implementing, so it shows with the working workers
+ * again instead of vanishing from the list. Its session comes back from AoE's archive if it was
+ * archived; a session that is gone (trashed, cleaned up) can't be reopened. Audited.
+ */
+export async function reopenTask(
+  ctx: Ctx,
+  opts: { project: string; taskId: string; actor: Actor; via: 'cli' | 'ui'; note?: string },
+): Promise<TaskRecord> {
+  const task = await ctx.ledger.getTask(opts.project, opts.taskId);
+  if (!task)
+    throw new CliError(
+      `No task ${opts.taskId} in project ${opts.project}.`,
+      EXIT.usage,
+      'Check "supercharge task list".',
+    );
+  if (task.stage !== 'done')
+    throw new CliError(
+      `${task.id} is ${STAGE_LABEL[task.stage]}, not Done: there is nothing to reopen.`,
+      EXIT.invalidTransition,
+    );
+  const id = task.aoeSessionId;
+  const session = (await ctx.aoe.listSessions('all')).find((s) => s.id === id);
+  if (!session || session.trashed_at)
+    throw new CliError(
+      `${task.id}'s AoE session is gone.`,
+      EXIT.invalidTransition,
+      'Start a new task for the follow-up: supercharge task new "<title>"',
+    );
+  const unarchived = !!session.archived_at;
+  if (unarchived) {
+    await ctx.aoe.setArchived(id, false);
+    // Archiving killed the pane; AoE brings it back (resuming the conversation) on ensure.
+    await ctx.aoe.ensureSession(id);
+  }
+  const saved = await ctx.ledger.updateTask(task.project, task.id, (t) => ({
+    ...applyStage(t, 'implementing', opts.actor, opts.note?.trim() || 'Reopened'),
+    readyHead: null,
+  }));
+  await appendAudit(ctx.paths, {
+    actor: opts.via === 'ui' ? 'ui' : opts.actor,
+    action: 'task_reopened',
+    project: task.project,
+    taskId: task.id,
+    sessionId: id,
+    details: { unarchived },
+  });
+  return saved;
 }
 
 export async function askQuestion(

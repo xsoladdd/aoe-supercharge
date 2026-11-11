@@ -176,11 +176,15 @@ supercharge stage implementing
 supercharge stage verifying --note "tests green"
 supercharge ask "Is the Friday copy deck final?"   # blocks the task with an open question
 supercharge stage mr_raised --mr https://gitlab.example.com/acme/web/-/merge_requests/41
+supercharge stage done --nothing-to-merge          # a read-only or report task closes itself
+supercharge task reopen AS-0007                     # follow-up work on a done task
 ```
 
 - Invalid moves are rejected with exit code 3 and a list of what's allowed from the current stage.
 - `watching_mr` and `ready_for_review` are set only by the MR watcher. The one exception is a project with `mr = "none"`: a worker with no MR runs `supercharge stage ready_for_review` itself once its branch is pushed (see [Merge requests](#merge-requests)).
 - Inside a worker, `AOE_INSTANCE_ID` is cross-checked against the task's session, so an agent in the wrong worktree is refused.
+- **Nothing to merge.** Only you, the control chat and the daemon move a task to done, with one exception: a worker whose task has nothing to merge (a read-only, research or report task) closes it with `supercharge stage done --nothing-to-merge`. It is refused while the branch has commits that aren't on the base branch, the worktree has uncommitted or untracked files (cleanup would delete them), or a merge request is open, and it writes `task_closed` to the audit log. Output that has to stay goes to `task.outputDir` from `supercharge whoami --json`, the project's folder under `~/.local/state/supercharge/uploads/`, which cleanup leaves alone and the dashboard links to.
+- **Reopen.** Follow-up work on a done task: `supercharge task reopen <task-id>` (you or the control chat; a worker only its own task), **Reopen** in its right-click menu, or the button on its page. It goes back to implementing, so it shows with the working workers again instead of vanishing, and comes out of AoE's archive if it was archived. Audited as `task_reopened`.
 
 ### Autonomous mode
 
@@ -223,12 +227,13 @@ For when you are away. **Project settings → Autonomous mode** switches it on u
 | `supercharge init [--name <p>] [--commit]` | Register the current repository |
 | `supercharge task new "<title>" [--brief …] [--brief-file …] [--base …] [--model …] [--effort …] [--permission-mode …]` | Create a task |
 | `supercharge task list [--project <p>] [--json]` | List tasks |
+| `supercharge task reopen <task-id> [--note …]` | Follow-up work on a done task: back to implementing (and out of the archive) |
 | `supercharge task quiet <task-id> [--off]` | No stalled notices for a worker you parked on purpose (questions and the rest still come); `--off` undoes it |
 | `supercharge task cleanup <task-id> \| --all-done [--dry-run] [--json]` | Remove a finished worker's session, worktree and branch. Refuses unless its work is on `origin/<base>` (its base branch) or in its merged pull request (see [Cleaning up](#cleaning-up-finished-workers)) |
 | `supercharge whoami [--json]` | `control`, `worker`, `general-control`, `general` or `none` for this session, and the project's autonomous mode |
 | `supercharge audit [--project <p>] [--since <time>] [--json]` | The audit log, oldest first |
 | `supercharge audit note "<text>"` | Record a decision in the audit log (the control chat, in autonomous mode) |
-| `supercharge stage <stage> [--note …] [--mr <url>]` | Report a stage change |
+| `supercharge stage <stage> [--note …] [--mr <url>]` | Report a stage change; `done --nothing-to-merge` closes a task with nothing to merge |
 | `supercharge ask "<question>"` | Block on a question |
 | `supercharge plan <file \| ->` `[--draft]` | Save the approved plan |
 | `supercharge reply <task-id> "<message>" [--yes]` | Send a prompt to a worker (asks for confirmation; audited) |

@@ -436,7 +436,9 @@ verifying ─► ready_for_review (worker, no MR: branch ready to merge, §11.3)
 | any active → blocked | worker (`ask`) | A question is required; stores `blockedFrom` |
 | blocked → `blockedFrom` (or a stage allowed from it) | worker | Sets `openQuestion.answeredAt` if not already set |
 | any → done | user / control (`stage done`), daemon on MR merged or branch landed (§11.3) | — |
-| done → * | — | Terminal. `--force` reopens with a history note. |
+| any → done | worker, `stage done --nothing-to-merge` | No commits ahead of `origin/<base>` or `<base>`, a clean worktree (no uncommitted or untracked files), no open MR. History note "Nothing to merge"; audited `task_closed` |
+| done → implementing | user / control / worker for its own task (`task reopen`, dashboard **Reopen**) | Its AoE session still exists; an archived one is unarchived. Clears `readyHead`; audited `task_reopened`. A later `mr_raised` without `--mr` ignores the old merged or closed MR |
+| done → * (anything else) | — | Terminal. A hidden `--force` still skips every check, for corrections. |
 
 - **Rejections** exit with code 3. Example: `Can't go planning → verifying. Next allowed: implementing (needs an approved plan: supercharge plan <file>), blocked (supercharge ask "…").`
 - **Daemon-only moves:** a worker calling `stage watching_mr`, or `stage ready_for_review` on a task with an MR, is told those happen automatically once the MR watcher sees it.

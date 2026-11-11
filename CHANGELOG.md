@@ -134,6 +134,19 @@
   by itself. A control chat's reply to a watch notice now sets its NEEDS YOU list instead of adding to it,
   and the control skill lists again what still waits, so the list no longer piles up.
 
+- **A read-only or report task can close itself.** A worker whose task has nothing to merge runs
+  `supercharge stage done --nothing-to-merge`. It is refused while the branch has commits that aren't on the
+  base branch, the worktree has uncommitted or untracked files, or a merge request is open, and it is
+  audited as `task_closed`. `whoami --json` shows `task.outputDir`, the project's folder under uploads, where
+  such output belongs: cleanup leaves it alone. The worker skill says so.
+
+- **Reopen a done task.** Follow-up work on a done task made its worker vanish from the list, and only a
+  hidden `stage --force` from its worktree brought it back. Now there is `supercharge task reopen <task-id>`
+  (you or the control chat; a worker only its own task), **Reopen** in the right-click menu, and a button
+  on the task page. It goes back to implementing, comes out of AoE's archive if it was archived, and is
+  audited as `task_reopened`. After a reopen, `stage mr_raised` without `--mr` no longer reuses the old
+  merged pull request.
+
 ## 1.8.0 (2026-10-27)
 
 - **No more play buttons; "Attach terminal" is in the chat's ⋯ menu.** A chat's icon in the sidebar no longer
