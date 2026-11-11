@@ -13,7 +13,7 @@ export type Mode = 'dark' | 'light';
 /**
  * What a theme colours: the palette, less what carries meaning. Status colours, the accent, bubbles,
  * nameplates and the whiteboard's surface and inks are the same in every theme, so a red bubble is the
- * same red as the Needs-you pill, and notes read the same everywhere. A theme sets only the board's frame.
+ * same red as the Needs-you pill, and the whiteboard is the same everywhere. A theme sets only its frame.
  */
 export type ThemeColours = Omit<
   Palette,

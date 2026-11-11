@@ -21,7 +21,6 @@ import {
   watchCapturePath,
   watchEnabled,
   autonomous,
-  type NoteChange,
 } from '@aoe-supercharge/core/node';
 import {
   buildOffice,
@@ -592,13 +591,6 @@ export function createApp(deps: AppDeps) {
     return c.json({ tasks: out });
   });
 
-  app.get('/api/projects/:name/notes', async (c) => {
-    const name = c.req.param('name');
-    if (!store.projects.some((p) => p.name === name))
-      return c.json({ error: 'not_found', message: 'Unknown project' }, 404);
-    return c.json({ text: await ctx.ledger.readNotes(name) });
-  });
-
   // A project's worker watch: its settings at a glance and the notices it sent, newest first.
   app.get('/api/projects/:name/watch', async (c) => {
     const name = c.req.param('name');
@@ -630,17 +622,6 @@ export function createApp(deps: AppDeps) {
       'cache-control': 'private, max-age=86400',
       'x-content-type-options': 'nosniff',
     });
-  });
-
-  app.put('/api/projects/:name/notes', async (c) => {
-    const name = c.req.param('name');
-    if (!store.projects.some((p) => p.name === name))
-      return c.json({ error: 'not_found', message: 'Unknown project' }, 404);
-    const body = (await c.req.json().catch(() => ({}))) as { text?: unknown };
-    if (typeof body.text !== 'string' || body.text.length > 200_000)
-      return c.json({ error: 'bad_request', message: 'Notes must be text, up to 200k characters.' }, 400);
-    await ctx.ledger.writeNotes(name, body.text);
-    return c.json({ ok: true });
   });
 
   app.post('/api/tasks/:project/:id/reply', async (c) => {
@@ -1140,62 +1121,6 @@ export function createApp(deps: AppDeps) {
       restartPrefixes: ['server', 'aoe', 'agent'],
       supervised: !!(process.env.SUPERCHARGE_SERVICE || process.env.SUPERCHARGE_SUPERVISED),
     });
-  });
-
-  // ── Notes and todos (SPEC §14.6). Claude's /note writes the files through the CLI; you write here. ──
-  const notesChanged = async () => store.setNotes(await ctx.notes.all());
-
-  app.get('/api/notes', async (c) => {
-    const archived = c.req.query('archived') === '1';
-    const notes = (await ctx.notes.all()).filter((n) => !!n.archivedAt === archived);
-    return c.json({ notes });
-  });
-
-  app.post('/api/notes', async (c) => {
-    const body = (await c.req.json().catch(() => null)) as {
-      kind?: unknown;
-      text?: unknown;
-      project?: unknown;
-    } | null;
-    if (!body || (body.kind !== 'note' && body.kind !== 'todo') || typeof body.text !== 'string')
-      return c.json(
-        { error: 'bad_request', message: 'Expected { kind: "note" | "todo", text, project }' },
-        400,
-      );
-    const project = typeof body.project === 'string' ? body.project : null;
-    if (project && !store.projects.some((p) => p.name === project))
-      return c.json({ error: 'not_found', message: `Unknown project "${project}"` }, 404);
-    try {
-      const note = await ctx.notes.add({ project, kind: body.kind, text: body.text, by: 'you' });
-      await notesChanged();
-      return c.json({ note }, 201);
-    } catch (err) {
-      return c.json({ error: 'bad_request', message: (err as Error).message }, 400);
-    }
-  });
-
-  // Tick a todo, edit the text, or archive (`archived: true`) and restore.
-  app.patch('/api/notes/:id', async (c) => {
-    const body = (await c.req.json().catch(() => null)) as {
-      done?: unknown;
-      text?: unknown;
-      archived?: unknown;
-    } | null;
-    const change: NoteChange = {};
-    if (typeof body?.done === 'boolean') change.done = body.done;
-    if (typeof body?.text === 'string') change.text = body.text;
-    if (typeof body?.archived === 'boolean')
-      change.archivedAt = body.archived ? new Date().toISOString() : null;
-    if (!Object.keys(change).length)
-      return c.json({ error: 'bad_request', message: 'Expected { done }, { text } or { archived }' }, 400);
-    try {
-      const note = await ctx.notes.update(c.req.param('id'), change);
-      if (!note) return c.json({ error: 'not_found', message: 'No note with that id' }, 404);
-      await notesChanged();
-      return c.json({ note });
-    } catch (err) {
-      return c.json({ error: 'bad_request', message: (err as Error).message }, 400);
-    }
   });
 
   // ── Scheduled prompts (SPEC §8.5). The list arrives with the snapshot. ──

@@ -6,7 +6,6 @@ import {
   type Health,
   type HeldMessage,
   type NeedsYouItem,
-  type NoteRecord,
   type OfficeState,
   type MrState,
   type SessionCost,
@@ -45,7 +44,6 @@ export class Store {
   general: GeneralRecord = EMPTY_GENERAL;
   tasks: TaskRecord[] = [];
   needsYou: NeedsYouItem[] = [];
-  notes: NoteRecord[] = [];
   usage: UsageReport | null = null;
   office: OfficeState = { marks: {} };
   costs: Record<string, SessionCost> = {};
@@ -85,7 +83,6 @@ export class Store {
       general: this.general,
       tasks: this.tasks,
       needsYou: this.needsYou,
-      notes: this.notes,
       usage: this.usage,
       office: this.office,
       costs: this.costs,
@@ -159,14 +156,6 @@ export class Store {
     this.general = general;
     this.emit({ type: 'general', data: general });
     this.recomputeNeedsYou();
-  }
-
-  /** Every note; the dashboard gets the ones not archived. */
-  setNotes(all: NoteRecord[]) {
-    const open = all.filter((n) => !n.archivedAt);
-    if (same(open, this.notes)) return;
-    this.notes = open;
-    this.emit({ type: 'notes', data: open });
   }
 
   setHealth(health: Health) {

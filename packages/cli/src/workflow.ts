@@ -1068,7 +1068,7 @@ export interface DeleteProjectResult {
 }
 
 /**
- * Remove a project from Supercharge: its ledger folder (record, tasks, plans, comments, notes). With
+ * Remove a project from Supercharge: its ledger folder (record, tasks, plans, comments). With
  * `deleteSessions`, its control chat and workers are deleted in AoE too, optionally with their
  * worktrees and branches. Irreversible; the dashboard asks you to type the project name first.
  */

@@ -7,7 +7,6 @@ An opinionated parent/child dashboard for Claude Code, built on [Agent of Empire
 - **Fixed stages for every worker:** `planning → implementing → verifying → mr_raised → watching_mr → ready_for_review`, plus `blocked` and `done`.
 - **One dashboard** you leave open on a side monitor. It shows every project, control chat, worker, plan and merge request, and pins whatever **needs you** at the top.
 - **An office** (`/office`, off by default: turn on **Show the Office** in Settings › Office) where every worker stands where its status puts it: rooms for each project, a line at your door, a review lounge with a pool table, a cost bar under everyone, runaway warnings, and a replayable history.
-- **Notes and todos** for you and Claude: `/note`, `/todo` and `/gnote` in any Claude Code session, and a whiteboard in the office.
 - **Merge requests, or none.** GitLab MRs are watched through `glab`, GitHub pull requests through `gh`, and an MR opened without telling Supercharge is found by its branch. A project that merges branches without MRs reports a branch ready to merge instead.
 
 It runs as a small local daemon (Node 24, about 70 MB idle) bound to `127.0.0.1`. Merge requests are watched by a script, never by an LLM loop.
@@ -170,8 +169,6 @@ It also refuses when the worktree has uncommitted or untracked files, when the s
 - Because the skills are visible to every Claude session on the machine, each one first runs `supercharge whoami` and steps aside unless the session is managed by Supercharge.
 - `supercharge init --commit` instead commits the skills and a marked `CLAUDE.md` block into the repository, for teams.
 
-**Notes and todos, for you and Claude.** Three more user-level skills, `/note`, `/todo` and `/gnote`, work in any Claude Code session. `/note` and `/todo` file under the project of the folder you're in (or of the control chat that started the session); `/gnote` is global. `/todo done <id>` ticks one off. Control chats read their project's open todos and tick them off when the work is done. Only you archive.
-
 **Stage reporting (workers call these; the branch is the key).**
 
 ```bash
@@ -259,9 +256,6 @@ For when you are away. **Project settings → Autonomous mode** switches it on u
 | `supercharge general new "<title>" [--brief …] [--brief-file …] [--model …] [--effort …] [--force] [--json]` | Start a General worker (from the General control chat) or a General chat; needs the daemon |
 | `supercharge general list [--json]` | The General chats and workers |
 | `supercharge general send <name> "<message>" [--yes]` | Send a message to a General chat or worker (audited) |
-| `supercharge note add <text \| ->` / `todo add <text \| ->` `[--project <p> \| --global]` | Add a note or a todo to this project (or global) |
-| `supercharge todo done <id>` / `todo reopen <id>` / `note archive <id>` | Tick, untick or archive one |
-| `supercharge notes [--project <p> \| --global \| --all] [--archived] [--json]` | The board as text: todos `[ ]`/`[x]` with ids, then notes |
 
 Exit codes:
 
@@ -422,7 +416,6 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - Keys on the floor: arrows or WASD to move, + and - to zoom, 0 for the whole office, F to follow, Escape to close the card.
   - **List** in the top bar shows the same people as a plain list. Without WebGL or a canvas, the page shows the list with a note.
   - Put your name on the door under Settings, Appearance. **Show in office** in any worker's right-click menu jumps to them.
-  - The **whiteboard** by your door has your todos and notes. Click it to zoom in and open it: tick, archive or add one.
   - **New window** opens the office on its own, to keep on another screen.
   - The daemon keeps an **office history**: who went where and when, one file per day, for 30 days (`office.history.retentionDays`).
 - **Chat** (each session, `/chat/<id>`): Claude's replies, with **Run** on every shell block and on inline `` `! command` ``. Run asks first, says where the command runs, and offers:
@@ -431,8 +424,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
   - **Run in a new terminal:** a terminal of its own, right under the command. You see the output, scroll back and answer its prompts; it stays, across reloads, until you close it. Each is one of AoE's extra paired terminals for the session, in the session's folder.
 
   Enter runs the highlighted choice (the one you used last; Run in chat at first) and Escape cancels. A command that can lose work for good (`aoe rm --purge`, `--delete-worktree`, `--delete-branch`, `aoe session empty-trash`, `rm -rf`, `git reset --hard`, `git push --force`, `git branch -D`, `git clean -f` and a few more) gets a red warning saying what it deletes, and Enter cancels it. Every run is audited (`command_run`).
-- **Control chat side panel:** what needs you, then **Plans**, **Comments**, **Watch** and **Shell**. It opens on Shell, the control chat's own shell in its folder: **Clear** clears the screen (Ctrl-L; the scrollback stays), **Restart** closes the shell and starts a fresh one. Notes have their own page.
-- **Notes** (`/notes`, under Office): every project's todos and notes, then the global ones. Add one, tick a todo, **Archive** it (or all the ticked ones at once); **Archived** lists them, to restore.
+- **Control chat side panel:** what needs you, then **Plans**, **Comments**, **Watch** and **Shell**. It opens on Shell, the control chat's own shell in its folder: **Clear** clears the screen (Ctrl-L; the scrollback stays), **Restart** closes the shell and starts a fresh one.
 - **Schedules** (`/schedules`): prompts sent to a chat at a set time each day (see [Scheduled prompts](#scheduled-prompts)). Add, edit, delete, turn one off, or **Run now**.
 - **Settings:** every config key, validated, with restart handling.
 
@@ -501,13 +493,13 @@ To go back to a tested AoE, reinstall that release: `curl -fsSL …/scripts/inst
 
 ```
 ~/.config/supercharge/            config.toml, auth.token (0600)
-~/.local/share/supercharge/       projects/<p>/project.json, tasks/<id>/{task.json, plan.md, session-prompt.md}, notes/{<p>,_global}.json, office/office.json,
+~/.local/share/supercharge/       projects/<p>/project.json, tasks/<id>/{task.json, plan.md, session-prompt.md}, office/office.json,
                                   schedules.json (scheduled prompts)
                                   general/{general.json, control-prompt.md, session-prompt.md}
 ~/.local/state/supercharge/       logs/daemon.log (rotated), audit.jsonl, daemon.json, compat.local.json, history/YYYY-MM-DD.jsonl,
                                   held.json (held messages), context/<conversation>.json (Claude Code's context figures, 7 days),
                                   terminals.json (terminals opened by Run)
-~/.claude/skills/supercharge-*    user-level skills, and note, todo, gnote (marker-owned; your own edits are never overwritten)
+~/.claude/skills/supercharge-*    user-level skills (marker-owned; your own edits are never overwritten)
 ~/Library/LaunchAgents/com.github.xsoladdd.aoe-supercharge.plist     (macOS)
 ~/.config/systemd/user/aoe-supercharge.service                       (Linux)
 ```

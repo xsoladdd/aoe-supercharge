@@ -22,7 +22,7 @@ import { BranchWatcher } from './branch-watcher.ts';
 import { MrWatcher } from './mr-watcher.ts';
 import { CostWatcher, OfficeWatcher, WeatherWatcher } from './office.ts';
 import { Store } from './store.ts';
-import { AoeWatcher, ConfigWatcher, LedgerWatcher, NotesWatcher } from './watchers.ts';
+import { AoeWatcher, ConfigWatcher, LedgerWatcher } from './watchers.ts';
 import { WorkerWatch } from './worker-watch.ts';
 import { HeldMessages } from './held.ts';
 import { Scheduler } from './scheduler.ts';
@@ -136,7 +136,6 @@ async function runWorker(): Promise<void> {
   const transcripts = transcriptStore(ctx);
   const aoeWatcher = new AoeWatcher(ctx, store, new PromptReader(ctx, transcripts), transcripts);
   const ledgerWatcher = new LedgerWatcher(ctx, store);
-  const notesWatcher = new NotesWatcher(ctx, store);
   const mrWatcher = new MrWatcher(ctx, store, () => mrProviders(ctx.config, ctx.env));
   const branchWatcher = new BranchWatcher(ctx, store);
   const officeWatcher = new OfficeWatcher(ctx, store);
@@ -171,7 +170,6 @@ async function runWorker(): Promise<void> {
   const shutdown = async (code: number) => {
     aoeWatcher.stop();
     ledgerWatcher.stop();
-    notesWatcher.stop();
     mrWatcher.stop();
     branchWatcher.stop();
     configWatcher.stop();
@@ -216,7 +214,6 @@ async function runWorker(): Promise<void> {
   });
 
   await ledgerWatcher.start();
-  await notesWatcher.start();
   await configWatcher.start();
   if (compat.ok) aoeWatcher.start();
   else {

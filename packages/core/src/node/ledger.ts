@@ -339,22 +339,9 @@ export class Ledger {
     });
   }
 
-  /** Forget a project: its record, tasks, plans, comments and notes (the ledger folder). */
+  /** Forget a project: its record, tasks, plans and comments (the ledger folder). */
   async removeProject(project: string): Promise<void> {
     await rm(this.projectDir(project), { recursive: true, force: true });
-  }
-
-  /** Your scratch notes for a project (the control chat's Notes tab). */
-  notesFile(project: string) {
-    return join(this.projectDir(project), 'notes.md');
-  }
-
-  async readNotes(project: string): Promise<string> {
-    return readFile(this.notesFile(project), 'utf8').catch(() => '');
-  }
-
-  async writeNotes(project: string, text: string): Promise<void> {
-    await writeFileAtomic(this.notesFile(project), text);
   }
 }
 

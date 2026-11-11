@@ -1,4 +1,5 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +12,7 @@ import {
   readAudit,
   resolvePaths,
   watchEnabled,
+  type Paths,
 } from '@aoe-supercharge/core/node';
 import {
   parseTerminalMenu,
@@ -44,7 +46,7 @@ import { buildProjectStatus } from '../src/status.ts';
 import { countUnresolvedThreads, GitLabProvider, parseMrView } from '../src/mr/gitlab.ts';
 import { deliverNotice, Notifier, type Notice, type NotifyOptions } from '../src/notify.ts';
 import { renderLaunchdPlist, renderSystemdUnit } from '../src/service/index.ts';
-import { removeManagedBlock, upsertManagedBlock } from '../src/skills.ts';
+import { MARKER, removeManagedBlock, retireUserSkills, upsertManagedBlock } from '../src/skills.ts';
 import { parseRemote } from '../src/util/git.ts';
 import { run } from '../src/util/exec.ts';
 import { redact } from '../src/util/logger.ts';
@@ -732,6 +734,38 @@ describe('service files', () => {
   it('renders a systemd user unit', () => expect(renderSystemdUnit(spec)).toMatchSnapshot());
   it('renders the Caddyfile bound to loopback', () =>
     expect(renderCaddyfile('supercharge.localhost', 4280)).toMatch(/bind 127\.0\.0\.1 ::1/));
+});
+
+describe('retired skills (/note, /todo, /gnote)', () => {
+  it('removes our unmodified copies, keeps an edited one, and never mentions one that was never ours', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'sc-skills-'));
+    const paths = { claudeSkillsDir: dir } as Paths;
+    const sha = (s: string) => createHash('sha256').update(s).digest('hex');
+    const put = async (name: string, text: string, marked: string | null) => {
+      await mkdir(join(dir, name), { recursive: true });
+      await writeFile(join(dir, name, 'SKILL.md'), text);
+      if (marked !== null)
+        await writeFile(join(dir, name, MARKER), JSON.stringify({ version: '1.8.0', sha256: sha(marked) }));
+    };
+    try {
+      await put('note', 'as shipped', 'as shipped');
+      await put('todo', 'edited by you', 'as shipped');
+      await put('gnote', 'your own', null);
+      const out = await retireUserSkills(paths);
+      expect(out.map((s) => [s.name, s.state])).toEqual([
+        ['note', 'retired'],
+        ['todo', 'user-modified'],
+      ]);
+      expect(existsSync(join(dir, 'note'))).toBe(false);
+      expect(await readFile(join(dir, 'todo', 'SKILL.md'), 'utf8')).toBe('edited by you');
+      expect(await readFile(join(dir, 'gnote', 'SKILL.md'), 'utf8')).toBe('your own');
+      // Nothing left to retire: a second run is quiet.
+      await rm(join(dir, 'todo'), { recursive: true });
+      expect(await retireUserSkills(paths)).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('CLAUDE.md managed block (--commit)', () => {

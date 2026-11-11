@@ -6,7 +6,6 @@ import type {
   SessionCost,
   Health,
   NeedsYouItem,
-  NoteRecord,
   ProjectRecord,
   GeneralRecord,
   SessionView,
@@ -97,7 +96,6 @@ function connectEvents() {
   on<ProjectRecord[]>('projects', (projects) => patchSnapshot({ projects }));
   on<GeneralRecord>('general', (general) => patchSnapshot({ general }));
   on<NeedsYouItem[]>('needs_you', (needsYou) => patchSnapshot({ needsYou }));
-  on<NoteRecord[]>('notes', (notes) => patchSnapshot({ notes }));
   on<Health>('health', (health) => patchSnapshot({ health }));
   on<UsageReport>('usage', (usage) => patchSnapshot({ usage }));
   on<OfficeState>('office', (office) => patchSnapshot({ office }));

@@ -86,6 +86,15 @@
   upgrading:** Settings › Office › Show the Office, or `supercharge config set office.enabled true`. Its
   clocks (the scheduler's time zone is `office.clocks.home`), cost tracking, runaway alerts and history keep
   running while it is off.
+- **Notes and todos are removed**, along with everything that served them:
+  - **Gone:** the **Notes** page, the office whiteboards' writing and their card, `/api/notes`, the
+    `supercharge note`, `todo` and `notes` commands, the control skill's "Notes and todos" section, and the
+    unused `projects/<name>/notes.md` endpoint. The office keeps blank whiteboards.
+  - **Your notes stay on disk:** `~/.local/share/supercharge/notes/` is left as it is. Only
+    `supercharge uninstall --purge` deletes it, with the rest of the data folder.
+  - **The `/note`, `/todo` and `/gnote` skills are retired.** `supercharge start` (and `init` and
+    `uninstall`) removes the copies Supercharge installed in `~/.claude/skills`, and only those it can prove
+    unchanged (marker present, sha256 matching the file). An edited copy is kept, with a one-line warning.
 
 - **`aoe add` gets as long as you need.** `task new` used to kill `aoe add` after a fixed 120 seconds, and
   `git worktree add` alone can take longer on a large repository. The timeout is now `aoe.addTimeoutSeconds`

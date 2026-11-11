@@ -13,7 +13,6 @@ import {
   resolvePaths,
   setConfigValue,
   ConfigValidationError,
-  type NoteChange,
 } from '@aoe-supercharge/core/node';
 import {
   isStage,
@@ -22,7 +21,6 @@ import {
   relativeTime,
   STAGE_LABEL,
   STAGES,
-  type NoteRecord,
   type ProjectStatus,
   type SessionView,
   type UsageReport,
@@ -36,7 +34,6 @@ import { proxyCommand } from './commands/proxy.ts';
 import { runDaemon } from './daemon/index.ts';
 import { serviceManager, servicePathEnv } from './service/index.ts';
 import { listGeneral, sendToGeneral, type NewGeneralSession } from './general.ts';
-import { findNote, formatNotes, noteAuthor, noteScope, type ScopeOpts } from './notes.ts';
 import { installUserSkills, removeUserSkills } from './skills.ts';
 import { connectStatusLine, disconnectStatusLine, statusLine, statusLineConnected } from './statusline.ts';
 import { buildProjectStatus } from './status.ts';
@@ -127,8 +124,14 @@ export function buildProgram(): Command {
       out(`${sym.ok} Service installed (${svc.kind}): ${svc.file}`);
       for (const s of skills.filter((k) => k.state === 'installed' || k.state === 'updated'))
         out(`${sym.ok} Skill ${s.state}: ${s.dir}`);
+      for (const s of skills.filter((k) => k.state === 'retired'))
+        out(`${sym.ok} Removed the retired /${s.name} skill: ${s.dir}`);
       for (const s of skills.filter((k) => k.state === 'user-modified' || k.state === 'user-owned'))
-        out(`${sym.warn} Left your ${s.name} skill alone (${s.state})`);
+        out(
+          s.retired
+            ? `${sym.warn} Left your edited /${s.name} skill alone; Supercharge no longer ships it: ${s.dir}`
+            : `${sym.warn} Left your ${s.name} skill alone (${s.state})`,
+        );
       if (await waitForDaemon(x)) {
         out(`${sym.ok} Dashboard: ${dashboardOrigin(x.config)}`);
         out(`  Sign in on this machine with: ${c.bold('supercharge open')}`);
@@ -341,9 +344,7 @@ export function buildProgram(): Command {
 
   program
     .command('remove-project <name>')
-    .description(
-      'forget a project (its tasks, plans, comments and notes); --sessions also deletes them in AoE',
-    )
+    .description('forget a project (its tasks, plans and comments); --sessions also deletes them in AoE')
     .option('--sessions', 'also delete its control chat and worker sessions in AoE')
     .option('--worktrees', 'with --sessions: delete their worktrees too')
     .option('--branches', 'with --sessions: delete their branches too')
@@ -384,7 +385,7 @@ export function buildProgram(): Command {
       out(`${sym.ok} Removed ${svc.file}`);
       for (const s of await removeUserSkills(x.paths, VERSION)) {
         out(
-          s.state === 'missing'
+          s.state === 'missing' || s.state === 'retired'
             ? `${sym.ok} Removed skill ${s.dir}`
             : `${sym.info} Kept ${s.dir} (${s.state})`,
         );
@@ -641,92 +642,6 @@ export function buildProgram(): Command {
         if (results.some((r) => !r.ok)) process.exitCode = EXIT.error;
       },
     );
-
-  // ── notes and todos (SPEC §14.6): the office whiteboard, Claude's /note, /todo and /gnote ──
-  const textOf = async (words: string[]) =>
-    words.length === 1 && words[0] === '-' ? readStdin() : words.join(' ');
-  const scoped = (cmd: Command) =>
-    cmd
-      .option('-p, --project <name>', 'for this project (default: the project of the folder you are in)')
-      .option('-g, --global', 'a global note, for no project in particular')
-      .option('--json');
-  const add = (kind: 'note' | 'todo') => async (words: string[], o: ScopeOpts & { json?: boolean }) => {
-    const x = await ctx();
-    const project = await noteScope(x, cwd(), o);
-    const added = await x.notes.add({ project, kind, text: await textOf(words), ...noteAuthor(x) });
-    if (o.json) return json(added);
-    out(`${sym.ok} ${kind === 'todo' ? 'Todo' : 'Note'} ${added.id} added to ${project ?? 'Global'}`);
-  };
-  const change =
-    (what: string, patch: (n: NoteRecord) => NoteChange) => async (id: string, o: { json?: boolean }) => {
-      const x = await ctx();
-      const note = await findNote(x, id);
-      const next = await x.notes.update(note.id, patch(note));
-      if (o.json) return json(next);
-      out(`${sym.ok} ${what} ${note.id}: ${note.text.split('\n')[0]}`);
-    };
-  const onlyTodo = (n: NoteRecord) => {
-    if (n.kind !== 'todo') throw new CliError(`${n.id} is a note, not a todo.`, EXIT.usage);
-  };
-
-  const note = program.command('note').description('add or archive notes (on the office whiteboard)');
-  scoped(note.command('add <text...>').description('add a note; "-" reads it from stdin')).action(
-    add('note'),
-  );
-  note
-    .command('archive <id>')
-    .description('take a note or todo off the board; it is kept, out of sight')
-    .option('--json')
-    .action(change('Archived', () => ({ archivedAt: new Date().toISOString() })));
-
-  const todo = program.command('todo').description('add, tick or reopen todos');
-  scoped(todo.command('add <text...>').description('add a todo; "-" reads it from stdin')).action(
-    add('todo'),
-  );
-  todo
-    .command('done <id>')
-    .description('tick a todo')
-    .option('--json')
-    .action(
-      change('Done', (n) => {
-        onlyTodo(n);
-        return { done: true };
-      }),
-    );
-  todo
-    .command('reopen <id>')
-    .description('untick a todo')
-    .option('--json')
-    .action(
-      change('Reopened', (n) => {
-        onlyTodo(n);
-        return { done: false };
-      }),
-    );
-
-  program
-    .command('notes')
-    .description("list notes and todos: this project's and the global ones")
-    .option('-p, --project <name>', "this project's and the global ones")
-    .option('-g, --global', 'only the global ones')
-    .option('-a, --all', "every project's")
-    .option('--archived', 'the archived ones instead')
-    .option('--json')
-    .action(async (o: ScopeOpts & { all?: boolean; archived?: boolean; json?: boolean }) => {
-      const x = await ctx();
-      const scope = o.all ? undefined : await noteScope(x, cwd(), o).catch(() => undefined);
-      const notes = (await x.notes.all()).filter(
-        (n) =>
-          !!n.archivedAt === !!o.archived &&
-          (scope === undefined || n.project === null || n.project === scope),
-      );
-      if (o.json) return json(notes);
-      if (!notes.length)
-        return out(
-          o.archived ? 'Nothing archived.' : 'No notes yet. Add one with: supercharge note add "<text>"',
-        );
-      for (const l of formatNotes(notes)) out(l);
-    });
 
   program
     .command('whoami')

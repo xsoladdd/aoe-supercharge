@@ -71,7 +71,7 @@ export class OfficeWatcher {
     this.frameTimer = setInterval(() => this.queue(true), 15 * 60_000);
     this.frameTimer.unref();
     this.unsubscribe = this.store.subscribe((e) => {
-      if (e.type === 'health' || e.type === 'usage' || e.type === 'notes') return;
+      if (e.type === 'health' || e.type === 'usage') return;
       this.schedule();
     });
     this.schedule();

@@ -2,7 +2,6 @@ import {
   AlarmIcon,
   BuildingOfficeIcon,
   CaretRightIcon,
-  ChalkboardSimpleIcon,
   ChatTeardropTextIcon,
   CircleNotchIcon,
   GearSixIcon,
@@ -258,32 +257,6 @@ export function AppSidebar({ snap, onToggleTheme }: { snap: Snapshot; onToggleTh
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               )}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === '/notes'}
-                  tooltip="Notes"
-                  className="h-8 text-[0.9375rem]"
-                >
-                  <Link href="/notes" aria-current={location === '/notes' ? 'page' : undefined}>
-                    <ChalkboardSimpleIcon
-                      weight={location === '/notes' ? 'fill' : 'regular'}
-                      className="size-4"
-                    />
-                    <span>Notes</span>
-                  </Link>
-                </SidebarMenuButton>
-                {(() => {
-                  const open = snap.notes.filter((n) => n.kind === 'todo' && !n.done).length;
-                  return (
-                    open > 0 && (
-                      <SidebarMenuBadge className="tabular text-muted-foreground" title={`${open} to do`}>
-                        {open}
-                      </SidebarMenuBadge>
-                    )
-                  );
-                })()}
-              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild

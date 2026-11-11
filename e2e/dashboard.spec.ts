@@ -1032,7 +1032,7 @@ test.describe('project', () => {
     const control = await sessionId('northwind-web control');
     await page.goto(`/chat/${control}`);
     const panel = page.getByRole('complementary', { name: 'Project panel' });
-    // Plans, Comments, Watch and Shell (notes have their own page); a control chat opens on its shell.
+    // Plans, Comments, Watch and Shell; a control chat opens on its shell.
     await expect(panel.getByRole('tab')).toHaveText(['Plans', 'Comments', 'Watch', 'Shell']);
     await expect(panel.getByRole('tab', { name: 'Shell' })).toHaveAttribute('aria-selected', 'true');
     // The panel hides from inside, and the labelled Panel button in the header brings it back.

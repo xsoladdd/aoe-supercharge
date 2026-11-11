@@ -154,28 +154,6 @@ export interface GeneralRecord {
   sessions: Record<string, string>;
 }
 
-/**
- * A note or a todo on the whiteboard (SPEC §14.6): for one project, or for everything (`project: null`,
- * a global note). Archived ones are kept, out of sight.
- */
-export interface NoteRecord {
-  /** Short, to type in `supercharge todo done <id>`: four letters and digits. */
-  id: string;
-  project: string | null;
-  kind: 'note' | 'todo';
-  text: string;
-  /** A todo you ticked. */
-  done: boolean;
-  doneAt: string | null;
-  archivedAt: string | null;
-  /** Who wrote it: Claude (from a session, through the /note skills) or you. */
-  by: 'claude' | 'you';
-  /** The AoE session Claude wrote it from, when there was one. */
-  sessionId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
 /** Dashboard-level session status, normalised from AoE's PascalCase enum. */
 export type LiveStatus = 'working' | 'waiting' | 'idle' | 'error' | 'stopped' | 'unknown';
 
@@ -313,8 +291,6 @@ export interface Snapshot {
   general: GeneralRecord;
   tasks: TaskRecord[];
   needsYou: NeedsYouItem[];
-  /** Notes and todos that are not archived, oldest first. */
-  notes: NoteRecord[];
   /** Your 5-hour and weekly usage and whether another worker may start (null until the daemon has read it). */
   usage: UsageReport | null;
   office: OfficeState;
@@ -372,7 +348,6 @@ export type SnapshotEvent =
   | { type: 'projects'; data: ProjectRecord[] }
   | { type: 'general'; data: GeneralRecord }
   | { type: 'needs_you'; data: NeedsYouItem[] }
-  | { type: 'notes'; data: NoteRecord[] }
   | { type: 'usage'; data: UsageReport }
   | { type: 'office'; data: OfficeState }
   | { type: 'costs'; data: Record<string, SessionCost> }

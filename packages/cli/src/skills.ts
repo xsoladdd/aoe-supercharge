@@ -6,11 +6,11 @@ import { readJson, writeFileAtomic, writeJsonAtomic, type Paths } from '@aoe-sup
 
 /** The role skills; `init --commit` can also commit these into a repository. */
 export const SKILL_NAMES = ['supercharge-control', 'supercharge-worker'] as const;
-/** Your /note, /todo and /gnote (SPEC §14.6): for every Claude session, so only ever in ~/.claude/skills. */
-export const NOTE_SKILLS = ['note', 'todo', 'gnote'] as const;
 /** The General control chat's (SPEC §14.7): not tied to a repository, so never committed into one. */
 export const GENERAL_SKILLS = ['supercharge-general'] as const;
-const USER_SKILLS = [...SKILL_NAMES, ...GENERAL_SKILLS, ...NOTE_SKILLS];
+const USER_SKILLS = [...SKILL_NAMES, ...GENERAL_SKILLS];
+/** Skills no longer shipped (/note, /todo and /gnote went with Notes): taken out of ~/.claude/skills. */
+export const RETIRED_SKILLS = ['note', 'todo', 'gnote'] as const;
 export const MARKER = '.supercharge-managed';
 
 /** Works from both src/ (tests) and dist/supercharge.mjs (published): templates/ is a sibling of either. */
@@ -27,12 +27,14 @@ export function render(template: string, vars: Record<string, string>): string {
 }
 
 export type SkillState =
-  'installed' | 'updated' | 'current' | 'missing' | 'user-owned' | 'user-modified' | 'outdated';
+  'installed' | 'updated' | 'current' | 'missing' | 'user-owned' | 'user-modified' | 'outdated' | 'retired';
 
 export interface SkillReport {
   name: string;
   dir: string;
   state: SkillState;
+  /** One Supercharge no longer ships ('retired' once removed). */
+  retired?: true;
 }
 
 interface Marker {
@@ -72,7 +74,7 @@ export async function skillsStatus(paths: Paths, version: string): Promise<Skill
  * unmodified); a skill you edited or created yourself is left alone and reported by `doctor`.
  */
 export async function installUserSkills(paths: Paths, version: string): Promise<SkillReport[]> {
-  const out: SkillReport[] = [];
+  const out: SkillReport[] = await retireUserSkills(paths);
   for (const n of USER_SKILLS) {
     const info = await inspect(paths, n, version);
     if (info.state === 'missing' || info.state === 'outdated') {
@@ -87,7 +89,7 @@ export async function installUserSkills(paths: Paths, version: string): Promise<
 }
 
 export async function removeUserSkills(paths: Paths, version: string): Promise<SkillReport[]> {
-  const out: SkillReport[] = [];
+  const out: SkillReport[] = await retireUserSkills(paths);
   for (const n of USER_SKILLS) {
     const info = await inspect(paths, n, version);
     if (info.state === 'current' || info.state === 'outdated') {
@@ -96,6 +98,26 @@ export async function removeUserSkills(paths: Paths, version: string): Promise<S
     } else {
       out.push({ name: n, dir: info.dir, state: info.state });
     }
+  }
+  return out;
+}
+
+/**
+ * Removes the retired skills Supercharge installed: only with its marker, and only while the SKILL.md on
+ * disk still has the marker's sha. Its template is gone, so this never reads one (inspect() would throw).
+ * A copy you edited is kept and reported; one without a marker was never ours and is not mentioned.
+ */
+export async function retireUserSkills(paths: Paths): Promise<SkillReport[]> {
+  const out: SkillReport[] = [];
+  for (const name of RETIRED_SKILLS) {
+    const dir = join(paths.claudeSkillsDir, name);
+    const marker = await readJson<Marker>(join(dir, MARKER)).catch(() => null);
+    if (!marker) continue;
+    const onDisk = await readFile(join(dir, 'SKILL.md'), 'utf8').catch(() => null);
+    if (onDisk !== null && marker.sha256 === sha(onDisk)) {
+      await rm(dir, { recursive: true, force: true });
+      out.push({ name, dir, state: 'retired', retired: true });
+    } else out.push({ name, dir, state: 'user-modified', retired: true });
   }
   return out;
 }

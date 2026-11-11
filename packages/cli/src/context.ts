@@ -2,7 +2,6 @@ import {
   checkCompat,
   Ledger,
   loadConfig,
-  Notes,
   readLocalCompat,
   resolvePaths,
   type CompatFile,
@@ -28,7 +27,6 @@ export interface Ctx {
   aoeCli: AoeCli;
   aoe: AoeClient;
   ledger: Ledger;
-  notes: Notes;
   env: NodeJS.ProcessEnv;
   /** Told whenever something is typed into a session (the daemon's typing gate listens). */
   onTyped?: (sessionId: string) => void;
@@ -58,7 +56,6 @@ export async function createCtx(
     aoeCli,
     aoe: new AoeClient(aoeCli, config.aoe.url),
     ledger: new Ledger(paths),
-    notes: new Notes(paths),
     env,
   };
 }

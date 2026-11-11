@@ -1022,7 +1022,7 @@ function StartFresh({
   };
   const kept =
     role.kind === 'control'
-      ? 'Your tasks, workers, plans and notes stay in Supercharge, and the control chat catches up from them when you next ask it something.'
+      ? 'Your tasks, workers, plans and comments stay in Supercharge, and the control chat catches up from them when you next ask it something.'
       : role.kind === 'worker'
         ? `${role.taskId}'s brief, stage and approved plan stay in Supercharge; the worker reads them back with supercharge whoami.`
         : 'Nothing is kept for this session: it is not part of a Supercharge project.';
@@ -1145,7 +1145,9 @@ function ChatHeader({
           size="sm"
           className="h-8"
           aria-pressed={panel.open}
-          title={panel.open ? 'Hide the project panel' : 'Show the project panel: notes, plans and comments'}
+          title={
+            panel.open ? 'Hide the project panel' : 'Show the project panel: plans, comments, watch and shell'
+          }
           onClick={panel.toggle}
         >
           <SidebarSimpleIcon className="size-4 -scale-x-100" weight={panel.open ? 'fill' : 'regular'} />

@@ -2,7 +2,6 @@ import {
   AppWindowIcon,
   ClockCounterClockwiseIcon,
   ArrowsOutIcon,
-  ChalkboardSimpleIcon,
   CoffeeIcon,
   CookingPotIcon,
   DoorOpenIcon,
@@ -16,11 +15,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
   activityLight,
   AMBIENCE,
-  DOOR_BOARD,
-  roomBoardId,
   weatherKind,
   windowLook,
-  type NoteRecord,
   type OfficeState,
 } from '@aoe-supercharge/core/shared';
 import { AwaySummaryButton } from '@/components/office/away';
@@ -29,10 +25,8 @@ import { HistoryBar } from '@/components/office/history-bar';
 import { CostSummary } from '@/components/office/cost';
 import { OfficeRoster } from '@/components/office/roster';
 import { ThemePicker, useOfficeTheme } from '@/components/office/theme-picker';
-import { WhiteboardCard } from '@/components/office/whiteboard-card';
 import { WorkerCard } from '@/components/office/worker-card';
 import { Button } from '@/components/ui/button';
-import { allBoardLines } from '@/lib/notes';
 import type { OfficeModel } from '@/lib/office';
 import { useHistoryPlayer } from '@/lib/office-history';
 import { openOfficeWindow } from '@/lib/office-window';
@@ -124,8 +118,6 @@ export interface FloorProps {
   announcement: string;
   /** In the office window, which has no way to open another. */
   standalone?: boolean;
-  /** Everything on the whiteboards: each room's, and the one by your door. */
-  notes: NoteRecord[];
   /** `ui.officeAnimations`: off, everyone jumps to their place as with reduced motion. */
   animations?: boolean;
   /** Changes with every whole snapshot (a reconnect): everyone is placed again without walking. */
@@ -151,7 +143,6 @@ export default function OfficeFloor({
   linkFocus,
   announcement,
   standalone = false,
-  notes,
   animations = true,
   epoch = 0,
   tokenLimit = 50_000_000,
@@ -166,10 +157,6 @@ export default function OfficeFloor({
   const prefersReduced = useReducedMotion();
   const reduced = prefersReduced || !animations;
   const [selected, setSelected] = useState<string | null>(linkWorker);
-  /** The whiteboard whose card is open: `board` by your door, or `board:<project>`. */
-  const [boardOpen, setBoardOpen] = useState<string | null>(
-    !linkWorker && linkFocus?.startsWith(DOOR_BOARD) ? linkFocus : null,
-  );
   const [steal, setSteal] = useState(!!linkWorker);
   const [called, setCalled] = useState<string | null>(null);
   const [following, setFollowing] = useState<string | null>(null);
@@ -196,7 +183,6 @@ export default function OfficeFloor({
 
   function pick(key: string | null, from: 'floor' | 'roster' | 'link' | 'call') {
     setSelected(key);
-    if (key) setBoardOpen(null);
     setSteal(from === 'link');
     if (!key || from === 'floor' || from === 'call') return;
     if (scene) scene.focusWorker(key, cardShift());
@@ -219,18 +205,6 @@ export default function OfficeFloor({
   function close() {
     setSelected(null);
     setFollowing(null);
-    setBoardOpen(null);
-  }
-
-  /** Up to a whiteboard (by your door, or a room's), close enough to read, with its card open. */
-  function openBoard(id = DOOR_BOARD) {
-    setSelected(null);
-    setFollowing(null);
-    setBoardOpen(id);
-    // The card is 26rem plus its margin; on a narrow floor it covers the board whatever we do.
-    const cover = (host.current?.clientWidth ?? 0) > 760 ? 430 : 0;
-    if (scene) scene.focusBoard(id, cover);
-    else pending.current = { area: id };
   }
 
   // The scene calls back through this, so it always sees the latest state.
@@ -248,7 +222,6 @@ export default function OfficeFloor({
     },
     plates: (eaters) => setPlates(eaters.join(',')),
     door: callNext,
-    board: (id) => openBoard(id),
     openMr: (url) => window.open(url, '_blank', 'noopener,noreferrer'),
     zoom: setZoom,
   };
@@ -266,7 +239,6 @@ export default function OfficeFloor({
       errands: (e, a) => handlers.current?.errands(e, a),
       plates: (eaters) => handlers.current?.plates(eaters),
       door: () => handlers.current?.door(),
-      board: (id) => handlers.current?.board(id),
       openMr: (url) => handlers.current?.openMr(url),
       zoom: (z) => handlers.current?.zoom(z),
     };
@@ -308,12 +280,6 @@ export default function OfficeFloor({
     scene.setModel(office);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene, office]);
-  const rooms = office.teams.map((t) => t.project);
-  const roomKey = rooms.join('\n');
-  useEffect(
-    () => scene?.setBoards(allBoardLines(notes, roomKey ? roomKey.split('\n') : [])),
-    [scene, notes, roomKey],
-  );
   useEffect(() => scene?.setTheme(theme), [scene, theme]);
   useEffect(() => scene?.setOfficeTheme(officeTheme), [scene, officeTheme]);
   useEffect(() => scene?.setDoorLabel(door), [scene, door]);
@@ -340,7 +306,6 @@ export default function OfficeFloor({
     const p = pending.current;
     pending.current = null;
     if (p.worker) scene.focusWorker(p.worker, cardShift());
-    else if (p.area?.startsWith(DOOR_BOARD)) openBoard(p.area);
     else if (p.area) scene.focus(p.area === 'desk' ? 'office' : p.area);
   }, [scene]);
   useEffect(() => {
@@ -348,9 +313,7 @@ export default function OfficeFloor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkWorker]);
   useEffect(() => {
-    if (linkFocus?.startsWith(DOOR_BOARD) && !linkWorker) {
-      if (scene) openBoard(linkFocus);
-    } else if (linkFocus && !linkWorker) scene?.focus(linkFocus === 'desk' ? 'office' : linkFocus);
+    if (linkFocus && !linkWorker) scene?.focus(linkFocus === 'desk' ? 'office' : linkFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkFocus]);
 
@@ -369,7 +332,7 @@ export default function OfficeFloor({
 
   // Escape closes the card from anywhere on the page (Safari does not focus buttons on click), but not
   // while typing an answer or when a menu or dialog has it.
-  const open = !!sel || boardOpen;
+  const open = !!sel;
   useEffect(() => {
     if (!open) return;
     const onEscape = (e: KeyboardEvent) => {
@@ -380,7 +343,6 @@ export default function OfficeFloor({
       e.preventDefault();
       setSelected(null);
       setFollowing(null);
-      setBoardOpen(null);
       host.current?.focus();
     };
     window.addEventListener('keydown', onEscape);
@@ -568,9 +530,6 @@ export default function OfficeFloor({
             <Chip icon={FolderIcon} {...at('review')}>
               Review lounge
             </Chip>
-            <Chip icon={ChalkboardSimpleIcon} pressed={boardOpen === DOOR_BOARD} onClick={() => openBoard()}>
-              Whiteboard
-            </Chip>
             {office.teams.map((t) => (
               <Chip key={t.project} icon={UsersThreeIcon} {...at(t.project)}>
                 {t.project}
@@ -628,25 +587,10 @@ export default function OfficeFloor({
             </div>
           )}
 
-          {!sel && !boardOpen && (
+          {!sel && (
             <p className="pointer-events-none absolute bottom-4 left-4 hidden max-w-[calc(100%-18rem)] truncate rounded-full bg-card/80 px-3 py-1.5 text-sm text-muted-foreground backdrop-blur xl:block">
               Drag to look around, scroll to zoom, double-click to zoom in
             </p>
-          )}
-
-          {boardOpen && !sel && (
-            <div className="pointer-events-none absolute top-16 bottom-16 left-3 flex flex-col justify-end">
-              <WhiteboardCard
-                board={boardOpen}
-                all={notes}
-                projects={rooms}
-                now={now}
-                onClose={() => {
-                  close();
-                  host.current?.focus();
-                }}
-              />
-            </div>
           )}
 
           {sel && (
@@ -688,7 +632,6 @@ export default function OfficeFloor({
                 section: null,
                 steal,
                 onSelect: fallback ? undefined : (key) => pick(key, 'roster'),
-                onBoard: fallback ? undefined : (project) => openBoard(roomBoardId(project)),
               }}
             />
           </aside>
