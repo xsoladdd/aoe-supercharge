@@ -1153,10 +1153,11 @@ export class SessionLockedError extends CliError {
 
 /**
  * One right-click action on one AoE session, audited. Lock is Supercharge's own; the rest go to AoE.
- * Delete moves the session to AoE's trash (restorable from AoE) unless `permanent`, which purges it
- * with optional worktree and branch, and either way takes a worker's task out of the ledger (kept
- * under removed/, so a restored session brings it back). A project's control chat is deleted with
- * the project, from its settings, not from here.
+ * Delete moves the session to AoE's trash (restorable from AoE) and takes a worker's task out of the
+ * ledger (kept under removed/, so a restored session brings it back). `permanent` purges a session that
+ * is not a task, with optional worktree and branch; a task's files go only through `task cleanup`,
+ * which checks first that nothing is lost. A project's control chat is deleted with the project, from
+ * its settings, not from here.
  */
 export async function sessionAction(
   ctx: Ctx,
@@ -1210,12 +1211,24 @@ export async function sessionAction(
       await aoe.ensureSession(id);
       break;
     case 'delete':
-      if (opts.permanent)
-        await aoe.deleteSession(id, {
+      if (opts.permanent) {
+        if (task)
+          throw new CliError(
+            `${task.id} is a Supercharge task: its files are deleted for good only by Clean up.`,
+            EXIT.usage,
+            `Clean up checks first that its work landed and nothing is uncommitted: "supercharge task cleanup ${task.id}", or Clean up… in its menu. Or move it to the trash, which deletes no files.`,
+          );
+        const res = await aoe.deleteSession(id, {
           deleteWorktree: !!opts.deleteWorktree,
           deleteBranch: !!opts.deleteBranch,
+          timeoutMs: ctx.config.aoe.deleteTimeoutSeconds * 1000,
         });
-      else await aoe.trashSession(id);
+        if (res.status !== 'deleted')
+          throw new CliError(
+            `AoE did not delete session ${id} (it said "${res.status}"${res.messages?.length ? `: ${res.messages.join(' ')}` : ''}).`,
+            EXIT.error,
+          );
+      } else await aoe.trashSession(id);
       if (task) await ctx.ledger.removeTask(task.project, task.id);
       if (opts.permanent) await rm(join(ctx.paths.uploadsDir, id), { recursive: true, force: true });
       break;

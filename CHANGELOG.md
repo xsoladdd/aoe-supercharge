@@ -168,6 +168,13 @@
   starting. Run from a control chat with the daemon up, it no longer waits 30 seconds for the worker's
   prompt: the daemon sends the first message. The New task dialog no longer says "up to two minutes".
 
+- **"Delete" and "Archive" say what they do.** The right-click menu now reads **Archive (keep files)**,
+  **Move to trash…** (was Delete…), **Clean up…** and **Reopen**, each with a line on what it keeps and what
+  it deletes. Deleting permanently is offered only for sessions that aren't tasks (General chats, crew), and
+  the daemon refuses it for a task: a task's files are deleted only by Clean up, after its checks. A
+  permanent delete AoE refuses is now an error instead of being taken as done. The README has a table of
+  all four.
+
 ## 1.8.0 (2026-10-27)
 
 - **No more play buttons; "Attach terminal" is in the chat's ⋯ menu.** A chat's icon in the sidebar no longer

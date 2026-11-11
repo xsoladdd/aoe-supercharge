@@ -97,7 +97,7 @@ test.describe('overview', () => {
     await axe(page, 'overview');
   });
 
-  test('"Control chat replied" can be dismissed until the control chat replies again', async ({
+  test('every Needs-you item can be dismissed; "Control chat replied" until the chat replies again', async ({
     signedIn: page,
   }) => {
     await unreadReply();
@@ -106,29 +106,25 @@ test.describe('overview', () => {
       hasText: 'Control chat replied',
     });
     await expect(replied).toHaveCount(1);
-    // Only that kind can be dismissed.
-    await expect(needs.locator('[data-dismiss^="control_replied:"]')).toHaveCount(
-      await needs.locator('li', { hasText: 'Control chat replied' }).count(),
-    );
+    // Every item has its Dismiss button.
+    await expect(needs.locator('[data-dismiss]')).toHaveCount(await needs.locator('li').count());
     await replied.getByRole('button', { name: /^Dismiss: northwind-web control chat/ }).click();
     await expect(replied).toHaveCount(0);
     // It stays dismissed after a reload: the daemon keeps it.
     await page.reload();
     await expect(needs.getByText('Question', { exact: true })).toBeVisible();
     await expect(replied).toHaveCount(0);
-    // Only "Control chat replied" can be dismissed.
+    // An item that isn't there can't be dismissed.
     const res = await page.evaluate(async () => {
       const { token } = (await (await fetch('/api/csrf')).json()) as { token: string };
-      const items = (await (await fetch('/api/snapshot')).json()).needsYou as { id: string; kind: string }[];
-      const other = items.find((i) => i.kind !== 'control_replied')!;
       const r = await fetch('/api/needs-you/dismiss', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-csrf-token': token },
-        body: JSON.stringify({ id: other.id }),
+        body: JSON.stringify({ id: 'question:NW-9999' }),
       });
       return r.status;
     });
-    expect(res).toBe(400);
+    expect(res).toBe(404);
     // A newer reply brings it back.
     const control = await sessionId('northwind-web control');
     await fake(`/__fake/sessions/${control}`, {
@@ -1287,7 +1283,7 @@ test.describe('right-click', () => {
     await expect(row(names[0]!).getByRole('img', { name: 'Locked' })).toBeVisible({ timeout: 15_000 });
     await row(names[0]!).click({ button: 'right' });
     await expect(menu.getByRole('menuitem', { name: /Archive/ })).toHaveAttribute('data-disabled', '');
-    await expect(menu.getByRole('menuitem', { name: /Delete/ })).toHaveAttribute('data-disabled', '');
+    await expect(menu.getByRole('menuitem', { name: /Move to trash/ })).toHaveAttribute('data-disabled', '');
     await menu.getByRole('menuitem', { name: 'Unlock' }).click();
     await expect(row(names[0]!).getByRole('img', { name: 'Locked' })).toHaveCount(0, { timeout: 15_000 });
     // Let the closing menu finish leaving, so the next one is the only menu on the page.
@@ -1311,15 +1307,18 @@ test.describe('right-click', () => {
     await expect(page.getByText('Unarchived')).toBeVisible();
     await expect(page.getByLabel(/^Message /)).toBeVisible({ timeout: 15_000 });
 
-    // Delete: to AoE's trash, after saying so.
+    // Each item says what it keeps and what it deletes.
     await page.goto('/');
     await archived.locator('summary').click();
     await row(names[0]!).click({ button: 'right' });
-    await menu.getByRole('menuitem', { name: 'Delete…' }).click();
+    await expect(menu.getByRole('menuitem', { name: /^Archive \(keep files\)/ })).toHaveCount(0);
+    await expect(menu.getByRole('menuitem', { name: /Move to trash…/ })).toContainText('Deletes no files');
+    // Move to trash: to AoE's trash, after saying so.
+    await menu.getByRole('menuitem', { name: /Move to trash…/ }).click();
     const dialog = page.getByRole('alertdialog');
     await expect(dialog).toContainText('AoE’s trash');
     await dialog.getByRole('button', { name: 'Move to trash' }).click();
-    await expect(page.getByText('Deleted', { exact: true })).toBeVisible();
+    await expect(page.getByText('Moved to the trash', { exact: true })).toBeVisible();
     await expect(row(names[0]!)).toHaveCount(0, { timeout: 15_000 });
     const state = (await fake('/__fake/state')) as {
       sessions: { title: string; trashed_at?: string | null }[];

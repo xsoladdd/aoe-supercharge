@@ -143,8 +143,8 @@ no project, each in a fresh AoE scratch folder (`aoe add --scratch`) that AoE de
   no tasks, stages, plans or merge requests here.
 - General chats and workers count toward the worker cap while they work or wait on you; an idle one does
   not.
-- Moving one to the trash keeps its folder until AoE empties the trash. **Delete permanently** deletes the
-  folder and everything in it.
+- **Move to trash…** keeps its folder until AoE empties the trash. **Delete permanently**, in the same
+  dialog, deletes the folder and everything in it (see [Archive, trash, delete, clean up](#archive-trash-delete-clean-up)).
 - A new scratch folder may open on Claude Code's folder-trust dialog; answer it in the chat.
 
 ### Cleaning up finished workers
@@ -191,6 +191,19 @@ supercharge task reopen AS-0007                     # follow-up work on a done t
 - Inside a worker, `AOE_INSTANCE_ID` is cross-checked against the task's session, so an agent in the wrong worktree is refused.
 - **Nothing to merge.** Only you, the control chat and the daemon move a task to done, with one exception: a worker whose task has nothing to merge (a read-only, research or report task) closes it with `supercharge stage done --nothing-to-merge`. It is refused while the branch has commits that aren't on the base branch, the worktree has uncommitted or untracked files (cleanup would delete them), or a merge request is open, and it writes `task_closed` to the audit log. Output that has to stay goes to `task.outputDir` from `supercharge whoami --json`, the project's folder under `~/.local/state/supercharge/uploads/`, which cleanup leaves alone and the dashboard links to.
 - **Reopen.** Follow-up work on a done task: `supercharge task reopen <task-id>` (you or the control chat; a worker only its own task), **Reopen** in its right-click menu, or the button on its page. It goes back to implementing, so it shows with the working workers again instead of vanishing, and comes out of AoE's archive if it was archived. Audited as `task_reopened`.
+
+### Archive, trash, delete, clean up
+
+A session's right-click menu names each action by what it does to your files, with one line under it on what it keeps and what it deletes:
+
+| Action | What happens | Kept | Deleted | Undo |
+| --- | --- | --- | --- | --- |
+| **Archive (keep files)** | AoE stops the session (its tmux panes) and lists it under Archived. A task keeps its stage. | Worktree, branch, chat, task | Nothing | **Unarchive** (its conversation resumes) |
+| **Move to trash…** | After a confirm, the session goes to AoE's trash, and a task leaves Supercharge (its plan and history move to `removed/`). | Worktree, branch, chat, until AoE empties the trash (30 days by default) | Nothing | **Restore** in AoE; the task comes back |
+| **Delete permanently** (in the trash dialog) | For sessions that aren't tasks only (General chats, sessions a control chat started): AoE deletes the session for good, with its worktree and branch if you tick them. A General chat's scratch folder goes too. Not offered for a task, and the daemon refuses it for one. | Whatever you don't tick | The session, and the worktree or branch you ticked | None |
+| **Clean up…** (done or archived tasks) | Checks that the task's work landed on `origin/<base>` and nothing is uncommitted (see [Cleaning up](#cleaning-up-finished-workers)), then deletes the session, worktree and branch for good, and moves the task to `removed/`. | The task's plan and history (`removed/`) | Session, worktree, branch | None (refused when anything would be lost) |
+
+**Reopen** (done tasks) is in the same menu: back to implementing, keeping everything. A locked session can't be archived, trashed or deleted; a project's control chat is deleted only with its project, from its settings.
 
 ### Autonomous mode
 

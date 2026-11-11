@@ -87,7 +87,7 @@ const DONE: Record<Action, string> = {
   start: 'Started',
   archive: 'Archived',
   unarchive: 'Unarchived',
-  delete: 'Deleted',
+  delete: 'Moved to the trash',
 };
 
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
@@ -103,6 +103,7 @@ async function runAction(
       ids,
       ...extra,
     });
+    const done = extra.permanent ? 'Deleted' : DONE[action];
     const ok = results.filter((r) => r.ok).length;
     const locked = results.filter((r) => r.locked).length;
     const failed = results.filter((r) => !r.ok && !r.locked);
@@ -113,10 +114,10 @@ async function runAction(
       .filter(Boolean)
       .join(' ');
     if (ok)
-      toast.success(ids.length === 1 ? DONE[action] : `${DONE[action]} ${plural(ok, 'session')}`, {
+      toast.success(ids.length === 1 ? done : `${done} ${plural(ok, 'session')}`, {
         description: notes || undefined,
       });
-    else toast.error(`Nothing ${DONE[action].toLowerCase()}`, { description: notes || undefined });
+    else toast.error(`Nothing ${done.toLowerCase()}`, { description: notes || undefined });
     return results;
   } catch (e) {
     toast.error('That did not work', { description: e instanceof ApiError ? e.message : undefined });
@@ -315,32 +316,44 @@ export function SessionMenu({
               Unarchive
             </ContextMenuItem>
           )}
+          {/* Named by what they do to your files, each with what it keeps and what it deletes. */}
           {live.length > 0 && (
-            <ContextMenuItem disabled={!archivable.length} onSelect={() => run('archive', archivable)}>
+            <ContextMenuItem
+              className={TWO_LINES}
+              disabled={!archivable.length}
+              onSelect={() => run('archive', archivable)}
+            >
               <ArchiveIcon />
-              Archive
+              <Says
+                name="Archive (keep files)"
+                note="Stops it. Keeps worktree, branch and chat; Unarchive brings it back."
+              />
               {lockedNote(!archivable.length)}
             </ContextMenuItem>
           )}
           {one?.task?.stage === 'done' && (
-            <ContextMenuItem onSelect={() => void reopenTask(one.task!)}>
+            <ContextMenuItem className={TWO_LINES} onSelect={() => void reopenTask(one.task!)}>
               <ArrowCounterClockwiseIcon />
-              Reopen
+              <Says name="Reopen" note="Back to Implementing for follow-up work. Keeps everything." />
             </ContextMenuItem>
           )}
           {one?.task && (one.task.stage === 'done' || one.session.archived) && (
-            <ContextMenuItem onSelect={() => setCleaning(one.task!)}>
+            <ContextMenuItem className={TWO_LINES} onSelect={() => setCleaning(one.task!)}>
               <BroomIcon />
-              Clean up…
+              <Says
+                name="Clean up…"
+                note="Checks its work landed, then deletes session, worktree and branch for good."
+              />
             </ContextMenuItem>
           )}
           <ContextMenuItem
+            className={TWO_LINES}
             variant="destructive"
             disabled={!deletable.length}
             onSelect={() => setDeleting(targets)}
           >
             <TrashIcon />
-            Delete…
+            <Says name="Move to trash…" note="Into AoE's trash; Restore brings it back. Deletes no files." />
             {deletable.length ? null : (
               <ContextMenuShortcut>{allLocked ? 'Locked' : 'With project'}</ContextMenuShortcut>
             )}
@@ -381,7 +394,23 @@ export function SessionMenu({
   );
 }
 
-/** Confirm a delete: to AoE's trash by default (restorable from AoE), or permanently. */
+const TWO_LINES = 'items-start [&>svg]:mt-0.5';
+
+/** A menu item's name, and one line on what it keeps and what it deletes. */
+function Says({ name, note }: { name: string; note: string }) {
+  return (
+    <span className="flex min-w-0 flex-col">
+      <span>{name}</span>
+      <span className="max-w-60 text-xs text-muted-foreground">{note}</span>
+    </span>
+  );
+}
+
+/**
+ * Confirm a move to AoE's trash (restorable from AoE), or a permanent delete. Only sessions that aren't
+ * Supercharge tasks can be deleted permanently from here: a task's files go through Clean up, which
+ * checks first that its work landed and nothing is uncommitted.
+ */
 function DeleteSessions({
   targets,
   onClose,
@@ -402,6 +431,8 @@ function DeleteSessions({
   const controls = list.filter((t) => t.control && !t.session.locked).length;
   const workers = go.filter((t) => t.task).length;
   const scratch = go.filter((t) => t.scratch).length;
+  // Never for a task: its files are deleted only by Clean up, after its checks.
+  const forGood = permanent && workers === 0;
   const name = (t: Target) => (t.task ? `${workerLabel(t.task)} ${t.task.title}` : t.session.title);
 
   return (
@@ -417,16 +448,17 @@ function DeleteSessions({
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>
-            Delete {go.length === 1 ? name(go[0]!) : plural(go.length, 'session')}?
+            {forGood ? 'Delete' : 'Move'} {go.length === 1 ? name(go[0]!) : plural(go.length, 'session')}
+            {forGood ? ' for good?' : ' to the trash?'}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {permanent
+            {forGood
               ? 'AoE deletes them for good. This cannot be undone.'
-              : 'They go to AoE’s trash, where you can restore them until AoE empties it (30 days by default).'}
+              : 'They go to AoE’s trash, where you can restore them until AoE empties it (30 days by default). No files are deleted.'}
             {workers > 0 &&
-              ` ${workers === 1 ? 'Its worker leaves' : 'Their workers leave'} Supercharge; the plan and comments are kept${permanent ? '' : ', and come back if you restore the session'}.`}
+              ` ${workers === 1 ? 'Its worker leaves' : 'Their workers leave'} Supercharge; the plan and comments are kept, and come back if you restore the session.`}
             {scratch > 0 &&
-              (permanent
+              (forGood
                 ? ` The scratch folder of ${scratch === 1 ? 'its General chat' : `${plural(scratch, 'General chat')}`} is deleted too, with everything in it.`
                 : ` A General chat keeps its scratch folder in the trash; deleting it for good deletes the folder and everything in it.`)}
           </AlertDialogDescription>
@@ -452,29 +484,38 @@ function DeleteSessions({
               .join(' ')}
           </p>
         )}
-        <div className="space-y-1.5 text-[0.9375rem]">
-          <label className="flex items-center gap-2">
-            <input
-              id={`${id}-permanent`}
-              type="checkbox"
-              checked={permanent}
-              onChange={(e) => setPermanent(e.target.checked)}
-            />
-            Delete permanently instead of moving to the trash
-          </label>
-          {permanent && (
-            <div className="space-y-1.5 pl-6">
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={worktree} onChange={(e) => setWorktree(e.target.checked)} />
-                and their worktrees (uncommitted work in them is lost)
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={branch} onChange={(e) => setBranch(e.target.checked)} />
-                and their branches
-              </label>
-            </div>
-          )}
-        </div>
+        {workers > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            To delete {workers === 1 ? 'a task’s' : 'tasks’'} worktree and branch for good, use{' '}
+            <strong className="font-medium text-foreground">Clean up…</strong> in{' '}
+            {workers === 1 ? 'its' : 'each one’s'} menu: it checks first that the work landed and nothing is
+            uncommitted.
+          </p>
+        ) : (
+          <div className="space-y-1.5 text-[0.9375rem]">
+            <label className="flex items-center gap-2">
+              <input
+                id={`${id}-permanent`}
+                type="checkbox"
+                checked={permanent}
+                onChange={(e) => setPermanent(e.target.checked)}
+              />
+              Delete permanently instead of moving to the trash
+            </label>
+            {permanent && (
+              <div className="space-y-1.5 pl-6">
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={worktree} onChange={(e) => setWorktree(e.target.checked)} />
+                  and their worktrees (uncommitted work in them is lost)
+                </label>
+                <label className="flex items-center gap-2">
+                  <input type="checkbox" checked={branch} onChange={(e) => setBranch(e.target.checked)} />
+                  and their branches
+                </label>
+              </div>
+            )}
+          </div>
+        )}
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction
@@ -486,14 +527,14 @@ function DeleteSessions({
               const r = await runAction(
                 'delete',
                 go.map((t) => t.id),
-                permanent ? { permanent, deleteWorktree: worktree, deleteBranch: branch } : {},
+                forGood ? { permanent: true, deleteWorktree: worktree, deleteBranch: branch } : {},
               );
               setBusy(false);
               if (r?.some((x) => x.ok)) onDeleted();
             }}
           >
             {busy ? <CircleNotchIcon className="animate-spin" /> : <TrashIcon />}
-            {permanent ? 'Delete permanently' : 'Move to trash'}
+            {forGood ? 'Delete permanently' : 'Move to trash'}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

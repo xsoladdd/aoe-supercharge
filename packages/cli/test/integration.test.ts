@@ -902,6 +902,38 @@ describe('daemon: security, live state and the MR watcher', () => {
     expect(snap.needsYou.find((n) => n.kind === 'approval')?.taskId).toBe('NO-0001');
   });
 
+  it('any Needs-you item can be dismissed, and a new wait brings it back', async () => {
+    const auth = { authorization: `Bearer ${bearer}` };
+    const items = async () =>
+      ((await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot).needsYou;
+    const dismiss = (id: string) =>
+      fetch(`${base()}/api/needs-you/dismiss`, {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+    const item = (await items()).find((n) => n.kind === 'approval')!;
+    expect((await dismiss(item.id)).status).toBe(200);
+    await until(async () => !(await items()).some((n) => n.id === item.id));
+    expect((await dismiss('approval:nobody')).status).toBe(404);
+    const stored = JSON.parse(await readFile(join(home, '.local/share/supercharge/needs-you.json'), 'utf8'));
+    expect(stored.items[item.id]).toBeTruthy();
+    // It works, then waits again: something new, so it is back.
+    const status = (s: string) =>
+      fetch(`${fake.url}/__fake/sessions/${item.sessionId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status: s }),
+      });
+    await status('Running');
+    await until(async () => {
+      const s = (await (await fetch(`${base()}/api/snapshot`, { headers: auth })).json()) as Snapshot;
+      return s.sessions.find((x) => x.id === item.sessionId)?.status === 'working';
+    });
+    await status('Waiting');
+    await until(async () => (await items()).some((n) => n.id === item.id));
+  });
+
   it('reads a waiting menu, holds stray messages, and answers it by number (audited)', async () => {
     const auth = { authorization: `Bearer ${bearer}` };
     const post = (path: string, body: unknown) =>
@@ -1663,6 +1695,13 @@ describe('daemon: security, live state and the MR watcher', () => {
     const control = (await snapshot()).projects.find((p) => p.name === 'northwind')!.controlSessionId!;
     expect((await act('delete', [control])).results[0]).toMatchObject({ ok: false });
     expect(fake.state.sessions.find((s) => s.id === control)?.trashed_at ?? null).toBeNull();
+
+    // A task's files go for good only through Clean up and its checks, never from here.
+    const forGood = (await act('delete', [id], { permanent: true, deleteWorktree: true })).results[0]!;
+    expect(forGood).toMatchObject({ ok: false });
+    expect(forGood.error).toMatch(/only by Clean up/);
+    expect(fake.state.sessions.some((s) => s.id === id)).toBe(true);
+    expect(existsSync(made.worktree)).toBe(true);
 
     expect((await act('delete', [id])).results[0]!.ok).toBe(true);
     expect(fake.state.sessions.find((s) => s.id === id)?.trashed_at).toBeTruthy();

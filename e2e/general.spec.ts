@@ -51,7 +51,7 @@ test.describe('General', () => {
     ).toHaveCount(0);
 
     await row.click({ button: 'right' });
-    await page.getByRole('menuitem', { name: 'Delete…' }).click();
+    await page.getByRole('menuitem', { name: /Move to trash…/ }).click();
     const confirm = page.getByRole('alertdialog');
     await expect(confirm).toContainText('A General chat keeps its scratch folder in the trash');
     await confirm
