@@ -24,10 +24,10 @@ export interface NeedsYouInput {
   now: Date;
   waitingDebounceSeconds: number;
   /**
-   * "Control chat replied" items you dismissed: when, by control chat session id. Hidden until a newer
-   * reply (one whose idle stretch began after the dismissal).
+   * Items you dismissed: when, by item id. One stays hidden until something new happens on it (its
+   * `since` moves past the dismissal: a new question, a new waiting stretch, a newer reply).
    */
-  dismissedReplies?: Record<string, string>;
+  dismissed?: Record<string, string>;
   /** Scheduled prompts: one whose last run failed needs you until it runs again or you change it. */
   schedules?: ScheduledPrompt[];
 }
@@ -56,12 +56,12 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
   const debounceMs = input.waitingDebounceSeconds * 1000;
   const iso = (s: string | null, fallback: string) => s ?? fallback;
   const nowIso = now.toISOString();
-  const dismissed = (sessionId: string, since: string) => {
-    const at = input.dismissedReplies?.[sessionId];
-    return !!at && Date.parse(at) >= Date.parse(since);
-  };
+  /** A control chat's item is dismissed against when it was first listed, not when the list began. */
+  const listedAt = new Map<string, string>();
 
   for (const t of tasks) {
+    // Archived: put away on purpose, like its session (and `supercharge status`).
+    if (sessionById.get(t.aoeSessionId)?.archived) continue;
     if (t.stage === 'blocked' && t.openQuestion && !t.openQuestion.answeredAt) {
       items.push({
         id: `question:${t.id}`,
@@ -96,7 +96,8 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         sessionId: t.aoeSessionId,
         title: `${workerLabel(t)} ${t.title}`,
         detail: `MR !${t.mr.iid} was closed without merging`,
-        since: iso(t.mr.checkedAt, t.updatedAt),
+        // Not checkedAt: it moves on every poll, and would bring a dismissed item straight back.
+        since: t.history.at(-1)?.at ?? t.updatedAt,
       });
     }
     if (aoeReachable && t.stage !== 'done' && !sessionById.has(t.aoeSessionId)) {
@@ -145,7 +146,8 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         detail: isControl ? 'Control chat is waiting for you' : promptDetail(s.prompt),
         since,
       });
-    } else if (s.status === 'error') {
+    } else if (s.status === 'error' && task?.stage !== 'done') {
+      // A done worker's error (a delete that failed half-way, say) has nothing left for you to do.
       // An empty first capture reads as an error while Claude Code starts: give it the debounce, and a minute.
       const created = s.createdAt ? Date.parse(s.createdAt) : NaN;
       if (now.getTime() - Date.parse(since) < debounceMs || now.getTime() - created < STARTING_MS) continue;
@@ -159,7 +161,7 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         detail: s.lastError ?? 'AoE reports an error for this session',
         since,
       });
-    } else if (s.status === 'idle' && isControl && s.unread && !dismissed(s.id, since)) {
+    } else if (s.status === 'idle' && isControl && s.unread) {
       items.push({
         id: `control_replied:${s.id}`,
         kind: 'control_replied',
@@ -194,16 +196,22 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
     if (!project && !parentIds.has(s.id)) continue;
     const workers = workersOf(s, project);
     const lead = `${controlName(s, project)} control chat`;
+    const gone = project ? goneTaskIds(project, tasks) : () => false;
     for (const a of s.asks.items) {
       const hash = fnv1a(a.text).toString(16);
       const target = relayTarget(a.text, workers);
+      // About a worker that was cleaned up or deleted: nothing about it can need you any more.
+      if (target === null && gone(a.text)) continue;
       const worker = target === 'ambiguous' ? null : target;
       const open = worker ? workerItems.filter((i) => i.sessionId === worker.sessionId) : [];
-      const state = worker ? relayState(a.since ?? s.asks.at, worker, open) : 'own';
+      const listed = a.since ?? s.asks.at;
+      const state = worker ? relayState(listed, worker, open) : 'own';
       if (state === 'cleared') continue;
       if (worker && state === 'open') {
+        const id = `control_relayed:${s.id}:${hash}`;
+        listedAt.set(id, listed);
         items.push({
-          id: `control_relayed:${s.id}:${hash}`,
+          id,
           kind: 'control_relayed',
           project: project?.name ?? null,
           taskId: null,
@@ -220,8 +228,10 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
         });
         continue;
       }
+      const id = `control_needs:${s.id}:${hash}`;
+      listedAt.set(id, listed);
       items.push({
-        id: `control_needs:${s.id}:${hash}`,
+        id,
         kind: a.blocker ? 'control_blocker' : 'control_needs',
         project: project?.name ?? null,
         taskId: null,
@@ -250,5 +260,21 @@ export function computeNeedsYou(input: NeedsYouInput): NeedsYouItem[] {
     });
   }
 
-  return items.sort((a, b) => Date.parse(a.since) - Date.parse(b.since));
+  // Last, so a worker's dismissed item still decides whether the control chat relays it.
+  const dismissed = (i: NeedsYouItem) => {
+    const at = input.dismissed?.[i.id];
+    return !!at && Date.parse(at) >= Date.parse(listedAt.get(i.id) ?? i.since);
+  };
+  return items.filter((i) => !dismissed(i)).sort((a, b) => Date.parse(a.since) - Date.parse(b.since));
+}
+
+/**
+ * Whether a text names one of the project's task ids that is no longer in the ledger (cleaned up, or
+ * deleted with its session). Ids are never reused, so such an id can only mean a worker that left.
+ */
+function goneTaskIds(project: ProjectRecord, tasks: TaskRecord[]): (text: string) => boolean {
+  if (!/^[A-Za-z0-9]+$/.test(project.idPrefix ?? '')) return () => false;
+  const live = new Set(tasks.filter((t) => t.project === project.name).map((t) => t.id.toUpperCase()));
+  const id = new RegExp(`(?<![\\p{L}\\p{N}_])${project.idPrefix}-\\d+(?![\\p{L}\\p{N}_])`, 'giu');
+  return (text) => [...text.matchAll(id)].some((m) => !live.has(m[0].toUpperCase()));
 }

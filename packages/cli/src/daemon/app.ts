@@ -15,7 +15,7 @@ import {
   patchConfig,
   safeEqual,
   updateOfficeMark,
-  dismissControlReply,
+  dismissNeedsYou,
   readContext,
   readWatchLog,
   watchCapturePath,
@@ -1264,19 +1264,17 @@ export function createApp(deps: AppDeps) {
     return c.json(history);
   });
 
-  // Dismiss a "Control chat replied" item (SPEC §10.2) until the control chat replies again. Only that
-  // kind: everything else in Needs you clears when what it is about is done.
+  // Dismiss a Needs-you item (SPEC §10.2) until something new happens on it: a new question, a new
+  // wait, a newer reply. What it is about clearing (an answer, a merge, done) clears it anyway.
   app.post('/api/needs-you/dismiss', async (c) => {
     const body = (await c.req.json().catch(() => null)) as { id?: unknown } | null;
     if (typeof body?.id !== 'string')
       return c.json({ error: 'bad_request', message: 'Expected { id }' }, 400);
     const item = store.needsYou.find((i) => i.id === body.id);
     if (!item) return c.json({ error: 'not_found', message: 'No such Needs-you item' }, 404);
-    if (item.kind !== 'control_replied' || !item.sessionId)
-      return c.json({ error: 'bad_request', message: 'Only "Control chat replied" can be dismissed' }, 400);
-    // At least the reply's own time, so a clock skew cannot leave it showing.
+    // At least the item's own time, so a clock skew cannot leave it showing.
     const at = new Date(Math.max(Date.now(), Date.parse(item.since))).toISOString();
-    store.setDismissedReplies(await dismissControlReply(ctx.paths, item.sessionId, at));
+    store.setDismissed(await dismissNeedsYou(ctx.paths, item.id, at));
     return c.json({ ok: true });
   });
 

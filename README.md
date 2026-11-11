@@ -341,7 +341,7 @@ Changes to `server`, `aoe` and `agent` need a restart; the dashboard shows a **R
 
 `http://supercharge.localhost:4280`. Dark by default, with a light mode. It's built to be read from across a desk.
 
-- **Needs you** (pinned): blocked questions, approvals or input waiting in AoE, control chats waiting on you or that have replied (a reply is marked read as soon as you have its chat open and visible; the chat's side panel also has a Dismiss button), session errors, MRs ready for review, MRs closed, scheduled prompts that failed. Oldest first, each one click from its context.
+- **Needs you** (pinned): blocked questions, approvals or input waiting in AoE, control chats waiting on you or that have replied (a reply is marked read as soon as you have its chat open and visible), session errors, MRs ready for review, MRs closed, scheduled prompts that failed. Oldest first, each one click from its context. Every item has a Dismiss button (×): it stays away until something new happens on it (a new question, a new wait, a newer reply). Items clear by themselves once their task is done or cleaned up; archived workers give none, and a control chat's item about a worker that is done, archived or cleaned up clears too.
 - **Sidebar:** projects, then each control chat, then its workers. Every row shows a status icon and stage. Then **General** (chats with no project, and the General control chat; see [General chats](#general-chats-no-project)). Your other AoE sessions are grouped under their parent too.
 - **Project page:** a **New task** button that starts a worker from a form, the control chat's live status and a rollup of its workers, then a worker list showing:
   - stage stepper,

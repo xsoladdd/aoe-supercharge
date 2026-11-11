@@ -55,19 +55,18 @@ export function hrefFor(item: NeedsYouItem): string {
 }
 
 /**
- * Dismiss a "Control chat replied" item until the control chat replies again (SPEC §10.2). The only
- * kind you can dismiss: everything else clears when what it is about is done.
+ * Dismiss a Needs-you item until something new happens on it (SPEC §10.2): a new question, a new wait,
+ * a newer reply. It also clears by itself once what it is about is done.
  */
-export function DismissReply({ item, className }: { item: NeedsYouItem; className?: string }) {
+export function DismissItem({ item, className }: { item: NeedsYouItem; className?: string }) {
   const [busy, setBusy] = useState(false);
-  if (item.kind !== 'control_replied') return null;
   return (
     <button
       type="button"
       disabled={busy}
       data-dismiss={item.id}
-      aria-label={`Dismiss: ${item.title} replied`}
-      title="Dismiss until it replies again"
+      aria-label={`Dismiss: ${item.title}, ${KIND[item.kind].label}`}
+      title="Dismiss until something new happens"
       onClick={async () => {
         setBusy(true);
         try {
@@ -136,11 +135,11 @@ export function NeedsYouStrip({ items }: { items: NeedsYouItem[] }) {
                     </span>
                   </span>
                   <span className="min-w-0 truncate text-[0.9375rem] font-medium">{item.title}</span>
-                  <span className="line-clamp-2 text-sm break-words text-muted-foreground">
+                  <span className="line-clamp-2 pr-7 text-sm break-words text-muted-foreground">
                     {item.detail}
                   </span>
                 </Link>
-                <DismissReply item={item} className="absolute right-2 bottom-2" />
+                <DismissItem item={item} className="absolute right-2 bottom-2" />
               </li>
             );
           })}

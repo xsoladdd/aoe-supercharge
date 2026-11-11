@@ -261,17 +261,17 @@ export class Store {
     this.emit({ type: 'snapshot', data: this.snapshot() });
   }
 
-  /** "Control chat replied" items you dismissed (by session id, when). */
-  dismissedReplies: Record<string, string> = {};
+  /** Needs-you items you dismissed (by item id, when). */
+  dismissed: Record<string, string> = {};
 
-  setDismissedReplies(d: Record<string, string>) {
-    this.dismissedReplies = d;
+  setDismissed(d: Record<string, string>) {
+    this.dismissed = d;
     this.recomputeNeedsYou();
   }
 
   recomputeNeedsYou() {
     const next = computeNeedsYou({
-      dismissedReplies: this.dismissedReplies,
+      dismissed: this.dismissed,
       tasks: this.tasks,
       sessions: this.sessions,
       projects: this.projects,

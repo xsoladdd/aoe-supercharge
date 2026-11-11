@@ -119,7 +119,7 @@ async function runWorker(): Promise<void> {
   const store = new Store(health, {
     waitingDebounceSeconds: () => ctx.config.notifications.waitingDebounceSeconds,
   });
-  store.dismissedReplies = await readDismissed(ctx.paths).catch(() => ({}));
+  store.dismissed = await readDismissed(ctx.paths).catch(() => ({}));
   store.ui = {
     theme: ctx.config.ui.theme,
     density: ctx.config.ui.density,

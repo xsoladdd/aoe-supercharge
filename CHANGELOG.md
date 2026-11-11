@@ -127,6 +127,13 @@
   sets `poll.reconcile` to 5 seconds, so a lost event costs seconds, not a minute. No product code changed.
   On Linux, use Node 24.22 or newer so the dashboard doesn't lag behind the ledger either.
 
+- **"Needs you" clears.** It showed 19 items with 4 workers, and only "Control chat replied" could be
+  dismissed. Now every item has a Dismiss button (×), and it stays away until something new happens on it
+  (a new question, a new wait, a newer reply). Archived workers give no items, a done worker's session
+  error is left out, and a control chat's item about a worker that is done, archived or cleaned up clears
+  by itself. A control chat's reply to a watch notice now sets its NEEDS YOU list instead of adding to it,
+  and the control skill lists again what still waits, so the list no longer piles up.
+
 ## 1.8.0 (2026-10-27)
 
 - **No more play buttons; "Attach terminal" is in the chat's ⋯ menu.** A chat's icon in the sidebar no longer

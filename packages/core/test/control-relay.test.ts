@@ -85,7 +85,7 @@ describe('relayState: open while the worker waits on you, then cleared or the co
     expect(relayState(since, w({ status: 'stopped', statusSince: '2026-10-08T10:00:00Z' }), [])).toBe('own');
   });
 
-  it('a done task counts by when it was done', () => {
+  it('a done or archived worker has left: cleared, whenever it left', () => {
     const done = (at: string) =>
       taskWorker(
         task({
@@ -95,8 +95,13 @@ describe('relayState: open while the worker waits on you, then cleared or the co
         }),
         session({ id: 's-AS-1', status: 'working' }),
       );
-    expect(relayState(since, done('2026-10-08T10:00:00Z'), [])).toBe('own');
+    expect(relayState(since, done('2026-10-08T10:00:00Z'), [])).toBe('cleared');
     expect(relayState(since, done('2026-10-08T11:00:00Z'), [])).toBe('cleared');
+    const archived = taskWorker(
+      task({ id: 'AS-2' }),
+      session({ id: 's-AS-2', status: 'stopped', statusSince: '2026-10-08T10:00:00Z', archived: true }),
+    );
+    expect(relayState(since, archived, [])).toBe('cleared');
   });
 });
 

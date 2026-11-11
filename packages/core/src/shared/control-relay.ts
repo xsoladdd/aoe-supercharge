@@ -1,8 +1,8 @@
 /**
  * A control chat's NEEDS YOU item that is about one of its workers is *relayed* (SPEC §14.5): the
  * worker waits at your door for it, so the control chat does not queue for it too, and it clears by
- * itself once the worker has nothing waiting on you. Anything else on the list is the control chat's
- * own ask. Pure, so the dashboard and the daemon agree.
+ * itself once the worker has nothing waiting on you, or has left (done, archived or cleaned up).
+ * Anything else on the list is the control chat's own ask. Pure, so the dashboard and the daemon agree.
  */
 import { workerLabel, workerName } from './names.ts';
 import type { LiveStatus, NeedsYouItem, SessionView, TaskRecord } from './types.ts';
@@ -24,6 +24,8 @@ export interface RelayWorker {
   status: LiveStatus | null;
   /** When something about it last changed: its status, its question answered, its stage. */
   changedAt: string | null;
+  /** Done or archived: an item about it needs nothing more from you. */
+  left?: boolean;
 }
 
 /** A session title this short ("api", "docs") is too common a word to say who an item is about. */
@@ -53,6 +55,7 @@ export function taskWorker(task: TaskRecord, session: SessionView | null): Relay
       task.openQuestion?.answeredAt,
       task.history.at(-1)?.at,
     ),
+    left: done || !!session?.archived,
   };
 }
 
@@ -68,6 +71,7 @@ export function crewWorker(session: SessionView, crew: string | null): RelayWork
     titles: [session.title],
     status: session.status,
     changedAt: session.statusSince,
+    left: session.archived,
   };
 }
 
@@ -110,14 +114,14 @@ export type RelayState = 'open' | 'cleared' | 'own';
  * What an item that names one worker is now, given that worker's open Needs-you items and when the
  * control chat first listed the item (`since`):
  * - `open` while the worker waits on you (an item, or its session waiting inside the debounce);
- * - `cleared` once it has moved on: its session works, or something about it changed since the
- *   item was listed (you answered it, its stage moved, it left);
+ * - `cleared` once it has moved on: it is done or archived, its session works, or something about it
+ *   changed since the item was listed (you answered it, its stage moved);
  * - `own` when it is idle or stopped and nothing changed since: the control chat is telling you about
  *   the worker (a stall, say), not passing on something the worker asked.
  */
 export function relayState(since: string, worker: RelayWorker, open: NeedsYouItem[]): RelayState {
   if (open.length || worker.status === 'waiting') return 'open';
-  if (worker.status === 'working') return 'cleared';
+  if (worker.left || worker.status === 'working') return 'cleared';
   if (worker.changedAt && Date.parse(worker.changedAt) > Date.parse(since)) return 'cleared';
   return 'own';
 }

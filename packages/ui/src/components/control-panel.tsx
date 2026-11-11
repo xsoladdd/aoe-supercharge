@@ -22,7 +22,7 @@ import {
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'wouter';
 import { watchKind } from '@/components/chat/notice';
-import { DismissReply, KIND } from '@/components/needs-you';
+import { DismissItem, KIND } from '@/components/needs-you';
 import { CommentablePlan, CommentList, useComments } from '@/components/plan-comments';
 import { StageBadge } from '@/components/status';
 import { Button } from '@/components/ui/button';
@@ -133,7 +133,7 @@ function StatusBrief({
                 ) : (
                   <div className="flex min-w-0 flex-1 items-start gap-2 px-2 py-1.5">{body}</div>
                 )}
-                <DismissReply item={item} className="mt-0.5" />
+                <DismissItem item={item} className="mt-0.5" />
               </li>
             );
           })}

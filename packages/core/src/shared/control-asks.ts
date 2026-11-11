@@ -101,9 +101,10 @@ const replyText = (m: ChatMessage) => m.blocks.map((b) => (b.kind === 'text' ? b
 
 /**
  * What a control chat's NEEDS YOU list is after a conversation. Its last reply to each of your
- * messages sets the list. A reply to a watch notice only adds to it: you answered nothing, so what
- * was waiting on you still is. The list keeps the time it first had something on it, and each item
- * the time it was first listed.
+ * messages sets the list. A reply to a watch notice sets it too when it lists something (the control
+ * skill lists again what still waits, so the list never piles up), and leaves it as it was when it
+ * lists nothing: you answered nothing, so what was waiting on you still is. The list keeps the time
+ * it first had something on it, and each item the time it was first listed.
  */
 export function asksFromChat(messages: ChatMessage[]): ControlAskList | null {
   let list: ControlAskList | null = null;
@@ -116,14 +117,8 @@ export function asksFromChat(messages: ChatMessage[]): ControlAskList | null {
     // An item the list already had keeps the time it was first listed.
     const first = new Map(list?.items.map((i) => [i.text, i.since]));
     const items = controlAsks(replyText(reply)).map((i) => ({ ...i, since: first.get(i.text) ?? repliedAt }));
-    if (!fromNotice) list = items.length ? { at, items } : null;
-    else if (items.length) {
-      const known = new Set(list?.items.map((i) => i.text));
-      list = {
-        at,
-        items: [...(list?.items ?? []), ...items.filter((i) => !known.has(i.text))].slice(0, MAX_ASKS),
-      };
-    }
+    if (items.length) list = { at, items };
+    else if (!fromNotice) list = null;
   };
   for (const m of messages) {
     if (m.role === 'assistant') {

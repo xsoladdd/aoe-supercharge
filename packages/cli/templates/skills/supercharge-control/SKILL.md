@@ -111,7 +111,7 @@ Supercharge watches this project's workers (its tasks, and sessions you started 
 Several can arrive in one message, one per line. The user did not type them, and they are not the user's answer to anything. For each:
 
 1. Read `detail`, and the `log` file (the worker's last 200 lines of screen) when you need more.
-2. Tell the user what happened, putting questions, permission prompts, errors, stalls and `threads` (a task that was ready for review got new review threads; `detail` has the count and the MR) under `🔴 NEEDS YOU` (4.1), each starting with the worker's name and task id. Keep what was already listed there: a notice answers nothing. A `done` worker goes under `✅ DONE`; for a task, it is waiting for review or merge.
+2. Tell the user what happened, putting questions, permission prompts, errors, stalls and `threads` (a task that was ready for review got new review threads; `detail` has the count and the MR) under `🔴 NEEDS YOU` (4.1), each starting with the worker's name and task id. List again what is still waiting from before (a notice answers nothing), and leave out what is answered, done or cleaned up: the dashboard shows your latest list as the whole list. A `done` worker goes under `✅ DONE`; for a task, it is waiting for review or merge.
 3. Don't answer a worker's question or prompt yourself, and don't reply to a worker unless the user asks you to (section 5), except in autonomous mode (5.2). Don't start polling because of a notice.
 
 The user turns the watch on or off per project in the dashboard's Settings. It is always on while autonomous mode is.
