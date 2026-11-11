@@ -49,7 +49,8 @@ import { parseRemote } from '../src/util/git.ts';
 import { run } from '../src/util/exec.ts';
 import { redact } from '../src/util/logger.ts';
 import { controlPick, modelArgs, setSessionModel, unarchiving, workerModel } from '../src/workflow.ts';
-import { AoeError } from '../src/aoe/client.ts';
+import { AoeClient, AoeError } from '../src/aoe/client.ts';
+import type { AoeCli } from '../src/aoe/cli.ts';
 import type { Ctx } from '../src/context.ts';
 
 const FIXTURES = join(import.meta.dirname, '../../../fixtures/aoe');
@@ -832,6 +833,44 @@ describe('doctor: hook consent', () => {
     expect(hookConsentFix('1.21.0')).toMatch(/aoe hooks approve/);
     expect(hookConsentFix('1.19.0')).toMatch(/aoe hooks approve/);
     expect(hookConsentFix('1.18.0')).toMatch(/Run "aoe" once/);
+  });
+});
+
+describe('AoeClient: a request that runs out of time', () => {
+  it('says it timed out (AoE may still be at it), unlike an unreachable server, and a delete gets longer', async () => {
+    const { createServer } = await import('node:http');
+    // Answers only the session list; anything else hangs.
+    const server = createServer((req, res) => {
+      if (req.url?.startsWith('/api/sessions?')) {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ sessions: [], workspace_ordering: [] }));
+      }
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address() as { port: number };
+    const cli = {
+      origin: async () => `http://127.0.0.1:${port}`,
+      token: async () => null,
+    } as unknown as AoeCli;
+    try {
+      const client = new AoeClient(cli);
+      const err = await client
+        .deleteSession('s1', { deleteWorktree: true, deleteBranch: true, timeoutMs: 200 })
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(AoeError);
+      expect(err).toMatchObject({ kind: 'unreachable', timedOut: true });
+      expect((err as Error).message).toMatch(/did not answer DELETE \/api\/sessions\/s1 within 0 s/);
+      // The same server still answers: a timeout does not forget where it is.
+      expect(await client.listSessions()).toEqual([]);
+      const gone = new AoeClient({
+        origin: async () => 'http://127.0.0.1:9',
+        token: async () => null,
+      } as unknown as AoeCli);
+      expect(await gone.listSessions().catch((e: unknown) => e)).toMatchObject({ timedOut: false });
+    } finally {
+      server.closeAllConnections();
+      server.close();
+    }
   });
 });
 

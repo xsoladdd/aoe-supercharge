@@ -479,12 +479,8 @@ export function TaskPage({
               {task.title}
             </h1>
             <StageBadge stage={task.stage} size="sm" />
-            {task.stage === 'done' && (
-              <>
-                <ReopenTaskButton task={task} />
-                <CleanupTaskButton task={task} />
-              </>
-            )}
+            {task.stage === 'done' && <ReopenTaskButton task={task} />}
+            {(task.stage === 'done' || session?.archived) && <CleanupTaskButton task={task} />}
             {tab !== 'chat' && (
               <LiveStatus
                 status={session?.status ?? 'missing'}

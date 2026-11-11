@@ -919,6 +919,7 @@ export async function reopenTask(
   const saved = await ctx.ledger.updateTask(task.project, task.id, (t) => ({
     ...applyStage(t, 'implementing', opts.actor, opts.note?.trim() || 'Reopened'),
     readyHead: null,
+    cleanup: null,
   }));
   await appendAudit(ctx.paths, {
     actor: opts.via === 'ui' ? 'ui' : opts.actor,
@@ -1063,6 +1064,7 @@ export async function deleteProject(
         await ctx.aoe.deleteSession(id, {
           deleteWorktree: opts.deleteWorktrees,
           deleteBranch: opts.deleteBranches,
+          timeoutMs: ctx.config.aoe.deleteTimeoutSeconds * 1000,
         });
         deleted.push(id);
         await rm(join(ctx.paths.uploadsDir, id), { recursive: true, force: true });

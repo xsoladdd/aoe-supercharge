@@ -29,6 +29,7 @@ import {
   type SessionView,
 } from '@aoe-supercharge/core/shared';
 import { AoeError } from '../aoe/client.ts';
+import { finishCleanup } from '../cleanup.ts';
 import type { AoeCliListEntry, AoeSession } from '../aoe/schemas.ts';
 import { SHIPPED_COMPAT, type Ctx } from '../context.ts';
 import type { PromptReader } from '../prompt.ts';
@@ -343,6 +344,15 @@ export class AoeWatcher {
         if (a.polls < 3 || Date.now() - a.since < 30_000) continue;
       }
       this.absent.delete(id);
+      // A clean-up whose delete ran out of time: AoE has finished it, so finish Supercharge's part.
+      if (reason === 'deleted' && t.cleanup) {
+        const done = await finishCleanup(this.ctx, t, 'daemon').catch((err: Error) => {
+          this.ctx.logger.warn('could not finish a clean-up', { task: t.id, err: err.message });
+          return null;
+        });
+        if (done) this.ctx.logger.info('clean-up finished after AoE deleted the session', { task: t.id });
+        continue;
+      }
       if (!(await this.ctx.ledger.removeTask(t.project, t.id))) continue;
       this.ctx.logger.info('worker removed with its session', { task: t.id, reason });
       await appendAudit(this.ctx.paths, {

@@ -554,16 +554,23 @@ export function buildProgram(): Command {
   task
     .command('cleanup [task-id]')
     .description(
-      'remove a finished worker: its AoE session, worktree and branch. Refuses unless its work has landed on origin/<its base branch> (merged, cherry-picked or squashed) or in its merged pull request, and the worktree is clean',
+      'remove a finished (done, or archived) worker: its AoE session, worktree and branch. Refuses unless its work has landed on origin/<its base branch> (merged, cherry-picked or squashed) or in its merged pull request, and the worktree is clean',
     )
     .option('-p, --project <name>', 'project (default: the one for this repository)')
-    .option('--all-done', 'every done task of the project; the ones that are not safe are skipped')
+    .option(
+      '--all-done',
+      'every done or archived task of the project; the ones that are not safe are skipped',
+    )
     .option('--dry-run', 'only check and say what would be removed')
+    .option(
+      '--discard',
+      'one task only: drop its commits that never landed (a results or report commit) instead of refusing; lists each one and writes them to the audit log',
+    )
     .option('--json', 'machine-readable output')
     .action(
       async (
         taskId: string | undefined,
-        o: { project?: string; allDone?: boolean; dryRun?: boolean; json?: boolean },
+        o: { project?: string; allDone?: boolean; dryRun?: boolean; discard?: boolean; json?: boolean },
       ) => {
         if (!taskId === !o.allDone)
           throw new CliError(
@@ -571,19 +578,27 @@ export function buildProgram(): Command {
             EXIT.usage,
             'supercharge task cleanup AS-0007',
           );
+        if (o.discard && !taskId)
+          throw new CliError('--discard takes one task id, not --all-done.', EXIT.usage);
         const x = await ctx();
         const project = (await resolveProject(x, cwd(), o.project)).name;
         const opts = { actor: 'cli' as const, dryRun: o.dryRun };
         const results = taskId
-          ? [await cleanupTask(x, project, taskId.toUpperCase(), opts)]
+          ? [await cleanupTask(x, project, taskId.toUpperCase(), { ...opts, discard: o.discard })]
           : await cleanupAllDone(x, project, opts);
         if (o.json) json(results);
         else {
-          if (!results.length) out(`${sym.info} No done tasks in ${project}.`);
+          if (!results.length) out(`${sym.info} No done or archived tasks in ${project}.`);
           for (const r of results) {
             if (r.removed) out(`${sym.ok} ${r.taskId} cleaned up (${r.branch}, ${r.landedBy})`);
+            else if (r.pending) out(`${sym.info} ${r.taskId}: ${r.reason}\n  ${r.hint}`);
             else if (r.ok) out(`${sym.info} ${r.taskId} is safe to clean up (${r.branch}, ${r.landedBy})`);
-            else {
+            if (r.ok && r.discarded?.length) {
+              out(`  ${r.removed ? 'Dropped' : 'Drops'} ${r.discarded.length} commit(s) that never landed:`);
+              for (const d of r.discarded) out(`    ${d}`);
+            }
+            for (const k of r.kept ?? []) out(`  ${sym.warn} kept ${k}`);
+            if (!r.ok) {
               out(`${sym.warn} ${r.taskId} not cleaned up: ${r.reason}`);
               for (const d of r.detail ?? []) out(`    ${d}`);
               if (r.hint) out(`  ${r.hint}`);

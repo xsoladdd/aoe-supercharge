@@ -106,6 +106,10 @@ export function ProjectPage({
   }
   const done = view.counts.done;
   const archived = view.tasks.filter((t) => sessions.get(t.aoeSessionId)?.archived).length;
+  // What "Clean up all done" checks: done tasks, and archived ones that stopped before done.
+  const finished = view.tasks.filter(
+    (t) => t.stage === 'done' || sessions.get(t.aoeSessionId)?.archived,
+  ).length;
   return (
     <div className="space-y-6">
       <PageHeader
@@ -159,7 +163,7 @@ export function ProjectPage({
                 Show done ({done})
               </label>
             )}
-            {done > 0 && <CleanupDoneButton project={view.project.name} count={done} />}
+            {finished > 0 && <CleanupDoneButton project={view.project.name} count={finished} />}
           </div>
         </div>
         <WorkerList

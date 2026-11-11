@@ -60,6 +60,11 @@ export const ConfigSchema = z.strictObject({
         1,
         'Seconds to wait for `aoe add` when a task starts. It creates the worktree, which can take minutes on a large repository. A start that runs out is rolled back.',
       ),
+      deleteTimeoutSeconds: seconds(
+        600,
+        1,
+        'Seconds to wait for AoE to delete a session for good (task cleanup, a permanent delete). Deleting a large worktree can take minutes; when this runs out AoE is still deleting, and cleanup finishes once the session is gone.',
+      ),
     })
     .prefault({}),
   agent: z

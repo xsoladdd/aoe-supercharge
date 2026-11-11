@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Ledger, resolvePaths } from '@aoe-supercharge/core/node';
 import type { MrState, TaskRecord } from '@aoe-supercharge/core/shared';
 import { project as projectRecord, task as taskRecord } from '../../core/test/office-fixtures.ts';
+import { AoeError } from '../src/aoe/client.ts';
 import { checkCleanup, cleanupAllDone, cleanupTask } from '../src/cleanup.ts';
 import type { Ctx } from '../src/context.ts';
 import { rollbackStart } from '../src/workflow.ts';
@@ -84,10 +85,30 @@ async function world(over: Partial<TaskRecord> = {}, branch?: string) {
     ...over,
   });
   await ledger.createTask(t);
-  const deleteSession = vi.fn(async () => ({ status: 'deleted' }));
-  const ctx = { ledger, paths, aoe: { deleteSession } } as unknown as Ctx;
-  return { ...w, ctx, ledger, paths, deleteSession };
+  // AoE's sessions; deleting one removes its worktree, as AoE does (and leaves the branch to us).
+  const sessions = [{ id: 'sess-1', archived_at: null as string | null, trashed_at: null }];
+  const worktrees: Record<string, string> = { 'sess-1': w.wt };
+  const listSessions = vi.fn(async () => sessions.map((x) => ({ ...x })));
+  const deleteSession = vi.fn(async (id: string, _opts?: object) => {
+    const i = sessions.findIndex((x) => x.id === id);
+    if (i >= 0) sessions.splice(i, 1);
+    // A folder git no longer reads as a worktree goes too.
+    if (worktrees[id] && existsSync(worktrees[id]))
+      await g(w.repo, 'worktree', 'remove', '--force', worktrees[id]).catch(() =>
+        rm(worktrees[id]!, { recursive: true, force: true }),
+      );
+    return { status: 'deleted' };
+  });
+  const ctx = {
+    ledger,
+    paths,
+    config: { aoe: { deleteTimeoutSeconds: 600 } },
+    aoe: { deleteSession, listSessions, setArchived: vi.fn() },
+  } as unknown as Ctx;
+  return { ...w, ctx, ledger, paths, deleteSession, listSessions, sessions };
 }
+
+const DELETE = { deleteWorktree: true, deleteBranch: true, force: false, timeoutMs: 600_000 };
 
 describe('checkCleanup: only when the work is on origin/main', () => {
   it('merged (merge commit): ok, as an ancestor', async () => {
@@ -253,7 +274,7 @@ describe('checkCleanup: only when the work is on origin/main', () => {
 
   it('not done, locked, or another project: refused', async () => {
     const w = await world({ stage: 'ready_for_review' });
-    expect((await checkCleanup(w.ctx, 'alpha', 'AS-0001')).reason).toMatch(/not done/);
+    expect((await checkCleanup(w.ctx, 'alpha', 'AS-0001')).reason).toMatch(/not done or archived/);
     await w.ledger.updateTask('alpha', 'AS-0001', (t) => ({ ...t, stage: 'done' }));
     await w.ledger.setLocked(['sess-1'], true);
     expect((await checkCleanup(w.ctx, 'alpha', 'AS-0001')).reason).toMatch(/locked/);
@@ -280,8 +301,11 @@ describe('cleanupTask', () => {
 
     const r = await cleanupTask(w.ctx, 'alpha', 'AS-0001', { actor: 'ui' });
     expect(r).toMatchObject({ ok: true, removed: true, landedBy: 'ancestor' });
-    expect(w.deleteSession).toHaveBeenCalledWith('sess-1', { deleteWorktree: true, deleteBranch: true });
+    expect(w.deleteSession).toHaveBeenCalledWith('sess-1', DELETE);
     expect(await w.ledger.getTask('alpha', 'AS-0001')).toBeNull();
+    // AoE's own `branch -d` refuses a branch it can't see merged; cleanup deletes it after its check.
+    expect(r.branchDeleted).toBe(true);
+    expect(await g(w.repo, 'branch', '--list', w.branch)).toBe('');
     const audit = (await readFile(w.paths.auditFile, 'utf8'))
       .trim()
       .split('\n')
@@ -292,7 +316,7 @@ describe('cleanupTask', () => {
       project: 'alpha',
       taskId: 'AS-0001',
       sessionId: 'sess-1',
-      details: { branch: w.branch, head: w.head, landedBy: 'ancestor' },
+      details: { branch: w.branch, head: w.head, landedBy: 'ancestor', branchDeleted: true },
     });
   });
 
@@ -302,7 +326,7 @@ describe('cleanupTask', () => {
     await g(w.repo, 'push', '-q', 'origin', 'main');
     w.deleteSession.mockResolvedValueOnce({ status: 'kept' });
     await expect(cleanupTask(w.ctx, 'alpha', 'AS-0001', { actor: 'cli' })).rejects.toThrow(/did not remove/);
-    expect(await w.ledger.getTask('alpha', 'AS-0001')).not.toBeNull();
+    expect(await w.ledger.getTask('alpha', 'AS-0001')).toMatchObject({ cleanup: null });
   });
 
   it('--all-done cleans the merged ones and skips the rest, with reasons', async () => {
@@ -327,6 +351,164 @@ describe('cleanupTask', () => {
     ]);
     expect(w.deleteSession).toHaveBeenCalledTimes(1);
     expect(await w.ledger.getTask('alpha', 'AS-0003')).not.toBeNull();
+  });
+});
+
+describe('cleanup: a branch that is gone, an archived task, a slow delete', () => {
+  const merge = async (w: Awaited<ReturnType<typeof world>>) => {
+    await g(w.repo, 'merge', '-q', '--no-ff', '--no-edit', w.branch);
+    await g(w.repo, 'push', '-q', 'origin', 'main');
+  };
+  /** The worktree and the local branch both gone, as after a cleanup by hand. */
+  const dropBranch = async (w: Awaited<ReturnType<typeof world>>) => {
+    await g(w.repo, 'worktree', 'remove', '--force', w.wt);
+    await g(w.repo, 'branch', '-D', w.branch);
+  };
+
+  it('branch gone: the worktree HEAD still counts, so commits only there are never lost', async () => {
+    const w = await world();
+    await g(w.wt, 'checkout', '-q', '--detach');
+    await g(w.repo, 'branch', '-D', w.branch);
+    const c = await checkCleanup(w.ctx, 'alpha', 'AS-0001');
+    expect(c.ok).toBe(false);
+    expect(c.reason).toMatch(/2 commits .* are not on origin\/main/);
+  });
+
+  it("branch gone: the merged pull request's head, then origin/<branch>, say what it was", async () => {
+    const w = await world({ mr: mr({ headSha: undefined }) });
+    await g(w.repo, 'merge', '-q', '--squash', w.branch);
+    await g(w.repo, 'commit', '-q', '-m', 'Squashed (#12)');
+    await g(w.repo, 'push', '-q', 'origin', 'main');
+    await dropBranch(w);
+    expect((await checkCleanup(w.ctx, 'alpha', 'AS-0001')).reason).toMatch(
+      /is gone and its last commit is not known/,
+    );
+    await w.ledger.updateTask('alpha', 'AS-0001', (t) => ({ ...t, mr: mr({ headSha: w.head }) }));
+    expect(await checkCleanup(w.ctx, 'alpha', 'AS-0001')).toMatchObject({
+      ok: true,
+      landedBy: 'merged_pr',
+      head: w.head,
+    });
+
+    const v = await world();
+    await g(v.wt, 'push', '-q', 'origin', v.branch);
+    await merge(v);
+    await dropBranch(v);
+    expect(await checkCleanup(v.ctx, 'alpha', 'AS-0001')).toMatchObject({
+      ok: true,
+      landedBy: 'ancestor',
+      head: v.head,
+    });
+    // Pushed but never merged: refused, with what is missing.
+    const u = await world();
+    await g(u.wt, 'push', '-q', 'origin', u.branch);
+    await dropBranch(u);
+    expect((await checkCleanup(u.ctx, 'alpha', 'AS-0001')).reason).toMatch(
+      /2 commits .* are not on origin\/main/,
+    );
+  }, 60_000);
+
+  it('an archived task that never reached done: the same checks, and an active one is still refused', async () => {
+    const w = await world({ stage: 'implementing' });
+    await merge(w);
+    expect((await checkCleanup(w.ctx, 'alpha', 'AS-0001')).reason).toMatch(/not done or archived/);
+    w.sessions[0]!.archived_at = '2026-11-10T10:00:00Z';
+    expect(await checkCleanup(w.ctx, 'alpha', 'AS-0001')).toMatchObject({ ok: true, landedBy: 'ancestor' });
+    expect(
+      (await cleanupAllDone(w.ctx, 'alpha', { actor: 'cli' })).map((r) => [r.taskId, r.removed]),
+    ).toEqual([['AS-0001', true]]);
+    // Archived with work that never landed: refused all the same.
+    const u = await world({ stage: 'planning' });
+    u.sessions[0]!.archived_at = '2026-11-10T10:00:00Z';
+    expect(await checkCleanup(u.ctx, 'alpha', 'AS-0001')).toMatchObject({ ok: false });
+  });
+
+  it('a delete that runs out of time is still under way: marked, and the next run finishes it', async () => {
+    const w = await world();
+    await merge(w);
+    w.deleteSession.mockRejectedValueOnce(new AoeError('slow', 'unreachable', undefined, undefined, true));
+    const r = await cleanupTask(w.ctx, 'alpha', 'AS-0001', { actor: 'cli' });
+    expect(r).toMatchObject({ ok: true, removed: false, pending: true });
+    expect(r.reason).toMatch(/still deleting/);
+    expect((await w.ledger.getTask('alpha', 'AS-0001'))!.cleanup).toMatchObject({
+      head: w.head,
+      landedBy: 'ancestor',
+    });
+
+    // AoE got part of the way: tracked files deleted. That is not uncommitted work now.
+    await rm(join(w.wt, 'b.txt'));
+    expect(await checkCleanup(w.ctx, 'alpha', 'AS-0001')).toMatchObject({ ok: true, resumed: true });
+    // A change or a new file is, all the same.
+    await writeFile(join(w.wt, 'c.txt'), 'edited\n');
+    expect((await checkCleanup(w.ctx, 'alpha', 'AS-0001')).reason).toMatch(/uncommitted changes/);
+    await g(w.wt, 'checkout', '--', 'c.txt');
+    // ...and git no longer reading the folder (AoE took its .git link): also AoE's doing.
+    await rm(join(w.wt, '.git'));
+    expect(await checkCleanup(w.ctx, 'alpha', 'AS-0001')).toMatchObject({ ok: true, resumed: true });
+    await g(w.repo, 'worktree', 'prune');
+    const done = await cleanupTask(w.ctx, 'alpha', 'AS-0001', { actor: 'cli' });
+    expect(done).toMatchObject({ removed: true, branchDeleted: true });
+    expect(w.deleteSession).toHaveBeenLastCalledWith('sess-1', { ...DELETE, force: true });
+    expect(done.kept).toEqual([]);
+  });
+
+  it('without that mark, deleted files and an unreadable worktree are refused', async () => {
+    const w = await world();
+    await merge(w);
+    await rm(join(w.wt, 'b.txt'));
+    expect((await checkCleanup(w.ctx, 'alpha', 'AS-0001')).reason).toMatch(/uncommitted changes/);
+    await g(w.wt, 'checkout', '--', 'b.txt');
+    await rm(join(w.wt, '.git'));
+    expect((await checkCleanup(w.ctx, 'alpha', 'AS-0001')).reason).toMatch(/Could not read the worktree/);
+  });
+
+  it('a session AoE finished deleting since: only Supercharge’s part is left', async () => {
+    const w = await world();
+    await merge(w);
+    w.deleteSession.mockRejectedValueOnce(new AoeError('slow', 'unreachable', undefined, undefined, true));
+    await cleanupTask(w.ctx, 'alpha', 'AS-0001', { actor: 'cli' });
+    w.sessions.splice(0);
+    await g(w.repo, 'worktree', 'remove', '--force', w.wt);
+    const r = await cleanupTask(w.ctx, 'alpha', 'AS-0001', { actor: 'cli' });
+    expect(r).toMatchObject({ removed: true, branchDeleted: true });
+    expect(w.deleteSession).toHaveBeenCalledTimes(1);
+    expect(await w.ledger.getTask('alpha', 'AS-0001')).toBeNull();
+  });
+
+  it('keeps a branch that moved past the commit it checked', async () => {
+    const w = await world();
+    await merge(w);
+    w.deleteSession.mockImplementationOnce(async () => {
+      w.sessions.splice(0);
+      await g(w.repo, 'worktree', 'remove', '--force', w.wt);
+      await g(w.repo, 'branch', '-f', w.branch, 'origin/main');
+      return { status: 'deleted' };
+    });
+    const r = await cleanupTask(w.ctx, 'alpha', 'AS-0001', { actor: 'cli' });
+    expect(r).toMatchObject({ removed: true, branchDeleted: false });
+    expect(r.kept).toEqual([expect.stringMatching(/moved past the commit/)]);
+    expect(await g(w.repo, 'branch', '--list', w.branch)).toContain(w.branch.split('/').at(-1));
+  });
+
+  it('--discard drops commits that never landed, lists them, and audits every one', async () => {
+    const w = await world();
+    const dry = await cleanupTask(w.ctx, 'alpha', 'AS-0001', { actor: 'cli', discard: true, dryRun: true });
+    expect(dry).toMatchObject({ ok: true, removed: false, landedBy: 'discarded' });
+    expect(dry.discarded).toEqual([expect.stringContaining('c.txt'), expect.stringContaining('b.txt')]);
+    // Never past a dirty worktree.
+    await writeFile(join(w.wt, 'notes.md'), 'x\n');
+    expect((await cleanupTask(w.ctx, 'alpha', 'AS-0001', { actor: 'cli', discard: true })).ok).toBe(false);
+    await rm(join(w.wt, 'notes.md'));
+    const r = await cleanupTask(w.ctx, 'alpha', 'AS-0001', { actor: 'cli', discard: true });
+    expect(r).toMatchObject({ removed: true, branchDeleted: true });
+    const audit = (await readFile(w.paths.auditFile, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((l) => JSON.parse(l));
+    expect(audit.at(-1)).toMatchObject({
+      action: 'task_cleaned_up',
+      details: { landedBy: 'discarded', discarded: dry.discarded },
+    });
   });
 });
 

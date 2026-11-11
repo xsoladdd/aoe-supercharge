@@ -25,6 +25,8 @@ export class AoeError extends Error {
     public status?: number,
     /** AoE's `error` field, e.g. `session_archived`. */
     public code?: string,
+    /** No answer in time: AoE may still be doing what it was asked (a large worktree delete, say). */
+    public timedOut = false,
   ) {
     super(message);
   }
@@ -61,9 +63,10 @@ export class AoeClient {
     path: string,
     schema: S,
     body?: unknown,
-    retried = false,
+    opts: { timeoutMs?: number; retried?: boolean } = {},
   ): Promise<z.output<S>> {
     if (!this.origin) await this.discover();
+    const timeoutMs = opts.timeoutMs ?? 10_000;
     let res: Response;
     try {
       res = await fetch(`${this.origin}${path}`, {
@@ -74,15 +77,23 @@ export class AoeClient {
           ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
         },
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (err) {
+      if ((err as Error).name === 'TimeoutError')
+        throw new AoeError(
+          `aoe serve did not answer ${method} ${path} within ${Math.round(timeoutMs / 1000)} s`,
+          'unreachable',
+          undefined,
+          undefined,
+          true,
+        );
       this.origin = null;
       throw new AoeError(`Cannot reach aoe serve: ${(err as Error).message}`, 'unreachable');
     }
-    if (res.status === 401 && !retried) {
+    if (res.status === 401 && !opts.retried) {
       await this.discover();
-      return this.request(method, path, schema, body, true);
+      return this.request(method, path, schema, body, { ...opts, retried: true });
     }
     if (res.status === 401) throw new AoeError('aoe serve rejected the token', 'auth', 401);
     const ct = res.headers.get('content-type') ?? '';
@@ -287,13 +298,27 @@ export class AoeClient {
     );
   }
 
-  async deleteSession(id: string, opts: { deleteWorktree: boolean; deleteBranch: boolean }) {
-    return this.request('DELETE', `/api/sessions/${encodeURIComponent(id)}`, AoeDeleteResponseSchema, {
-      delete_worktree: opts.deleteWorktree,
-      delete_branch: opts.deleteBranch,
-      delete_sandbox: true,
-      force_delete: false,
-      keep_scratch: false,
-    });
+  /**
+   * Remove a session for good. Deleting a large worktree can take minutes, so it gets
+   * `aoe.deleteTimeoutSeconds` (callers pass it), not the usual 10 s; when that runs out AoE may still be deleting
+   * (`AoeError.timedOut`). `force` removes a worktree with changes (only after Supercharge's own checks).
+   */
+  async deleteSession(
+    id: string,
+    opts: { deleteWorktree: boolean; deleteBranch: boolean; force?: boolean; timeoutMs?: number },
+  ) {
+    return this.request(
+      'DELETE',
+      `/api/sessions/${encodeURIComponent(id)}`,
+      AoeDeleteResponseSchema,
+      {
+        delete_worktree: opts.deleteWorktree,
+        delete_branch: opts.deleteBranch,
+        delete_sandbox: true,
+        force_delete: !!opts.force,
+        keep_scratch: false,
+      },
+      { timeoutMs: opts.timeoutMs ?? 600_000 },
+    );
   }
 }

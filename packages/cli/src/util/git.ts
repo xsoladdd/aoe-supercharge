@@ -76,15 +76,24 @@ export async function fetchBranch(cwd: string, branch: string, remote = 'origin'
 
 /** Paths with uncommitted changes, untracked files included; null when git cannot say. */
 export async function dirtyPaths(cwd: string): Promise<string[] | null> {
+  return (await dirtyEntries(cwd))?.map((e) => e.path) ?? null;
+}
+
+/** `git status --porcelain`, each path with its two-letter code (` D`, `??`, …); null when git cannot say. */
+export async function dirtyEntries(cwd: string): Promise<{ code: string; path: string }[] | null> {
   // Not through git(): its trim() would eat the leading space of " M path".
   const r = await run('git', ['status', '--porcelain'], { cwd, timeoutMs: 10_000 });
   return r.code === 0
     ? r.stdout
         .split('\n')
         .filter(Boolean)
-        .map((l) => l.slice(3))
+        .map((l) => ({ code: l.slice(0, 2), path: l.slice(3) }))
     : null;
 }
+
+/** Only tracked files deleted, nothing changed or added: what a worktree being deleted looks like. */
+export const onlyDeletions = (entries: { code: string }[]) =>
+  entries.every((e) => e.code === ' D' || e.code === 'D ' || e.code === 'DD');
 
 /** `head` is `base` or reachable from it (fast-forward or merge commit). */
 export async function isAncestor(cwd: string, head: string, base: string): Promise<boolean> {

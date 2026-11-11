@@ -147,6 +147,20 @@
   audited as `task_reopened`. After a reopen, `stage mr_raised` without `--mr` no longer reuses the old
   merged pull request.
 
+- **Cleanup no longer mistakes a slow delete for a dead AoE.** Every AoE call had 10 seconds, and deleting a
+  large worktree takes minutes, so cleanup said "Cannot reach aoe serve" while AoE kept deleting, and the
+  half-deleted worktree then read as uncommitted work. The delete now gets `aoe.deleteTimeoutSeconds`
+  (default 600, on the Settings page). Running out means "AoE is still deleting": the task is marked
+  first, and the daemon (or the next `task cleanup`) finishes once the session is gone. While marked, a
+  worktree with only deleted files, or one git no longer reads, counts as deletion in progress.
+
+- **Cleanup covers more finished workers.** A task whose branch is gone is checked against the worktree's
+  HEAD, its merged pull request's head, or `origin/<branch>` instead of "check by hand". A task that never
+  reached done but whose session is archived can be cleaned up with the same checks (`--all-done` and
+  **Clean up all done** include them). Cleanup deletes the branch itself after AoE, since AoE's
+  `branch -d` refuses squash-merged branches. `task cleanup <id> --discard` drops a results commit that
+  never needed merging, and lists and audits every commit it drops.
+
 ## 1.8.0 (2026-10-27)
 
 - **No more play buttons; "Attach terminal" is in the chat's ⋯ menu.** A chat's icon in the sidebar no longer

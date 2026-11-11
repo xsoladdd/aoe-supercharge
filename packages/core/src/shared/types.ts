@@ -113,6 +113,13 @@ export interface TaskRecord {
   kickoffTries?: number;
   /** Parked on purpose (`supercharge task quiet`): the watch sends no stalled notices for it. */
   quiet?: boolean;
+  /**
+   * Set by `task cleanup` once its checks passed, just before it asks AoE to delete the session: the
+   * head it found landed (or chose to drop, `discarded`). While set, a worktree AoE half deleted reads as
+   * "deletion in progress", not as uncommitted work, and the daemon finishes the clean-up once the
+   * session is gone. Null or absent otherwise.
+   */
+  cleanup?: { startedAt: string; head: string; landedBy: string; discarded?: string[] } | null;
   createdAt: string;
   updatedAt: string;
   history: HistoryEntry[];

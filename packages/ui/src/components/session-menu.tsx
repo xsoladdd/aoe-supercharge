@@ -328,7 +328,7 @@ export function SessionMenu({
               Reopen
             </ContextMenuItem>
           )}
-          {one?.task?.stage === 'done' && (
+          {one?.task && (one.task.stage === 'done' || one.session.archived) && (
             <ContextMenuItem onSelect={() => setCleaning(one.task!)}>
               <BroomIcon />
               Clean up…

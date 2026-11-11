@@ -148,14 +148,19 @@ no project, each in a fresh AoE scratch folder (`aoe add --scratch`) that AoE de
 
 ### Cleaning up finished workers
 
-A done worker is still a live AoE session with a worktree and a branch. `supercharge task cleanup <task-id>` (or the **Clean up** button on a done task, in its right-click menu, and **Clean up all done** on the project page) removes them, and it checks first so unmerged work is never lost. It fetches `origin` and refuses unless one of these is true:
+A done worker is still a live AoE session with a worktree and a branch. `supercharge task cleanup <task-id>` (or the **Clean up** button on a done task, in its right-click menu, and **Clean up all done** on the project page) removes them, and it checks first so unmerged work is never lost. A task that never reached done but whose session you archived (a worker that stopped early) can be cleaned up the same way, with the same checks; an active one can't. It fetches `origin` and refuses unless one of these is true:
 
 - the task's branch is an ancestor of `origin/<base>` (fast-forward or merge commit);
 - every commit has an equivalent patch there (cherry-picked or rebased; `git cherry`);
 - the MR watcher recorded its pull request as merged and the worktree holds nothing past that pull request's head (squash merges);
 - merging the branch into `origin/<base>` would change nothing, because its changes are all there already (squash merges without a recorded pull request). This is also tried for each pushed branch that contains it, so a task that reached `dev` counts once `dev` is squash-merged into `main`. It needs git 2.38 or later; a conflict or any difference, such as a change `main` reverted later, is not landed.
 
-It also refuses when the worktree has uncommitted or untracked files, when the session is locked, or when the task is not done. The message says why, lists up to five files or commits, and says what to do. Otherwise it removes the AoE session with its worktree and branch (what `aoe rm --purge --delete-worktree --delete-branch` does, without `--force`), moves the task to `removed/` and writes `task_cleaned_up` to the audit log. `--all-done` checks each done task of the project on its own and skips the ones that are not safe. `--dry-run` only checks. It never touches a session outside the project.
+When the task's branch is gone, the commit it ended on is taken from the worktree (if it is still there), the head it was reported ready at, its merged pull request's head (fetched by its pull or merge-request ref if needed), or `origin/<branch>`; only when none of them is known does it say "check by hand".
+
+It also refuses when the worktree has uncommitted or untracked files, when the session is locked, or when the task is neither done nor archived. The message says why, lists up to five files or commits, and says what to do. Otherwise it removes the AoE session with its worktree and branch (what `aoe rm --purge --delete-worktree --delete-branch` does, without `--force`), then deletes the branch itself if it is still there at the commit it checked (AoE's `branch -d` refuses a squash-merged one), moves the task to `removed/` and writes `task_cleaned_up` to the audit log. `--all-done` checks each done or archived task of the project on its own and skips the ones that are not safe. `--dry-run` only checks. It never touches a session outside the project.
+
+- **A slow delete is not a failure.** Deleting a large worktree can take minutes. AoE gets `aoe.deleteTimeoutSeconds` (default 600) to answer. If it runs out, cleanup says AoE is still deleting, not that it can't reach AoE: the task was marked before the delete, and once AoE no longer lists the session the daemon (or the next `task cleanup`) finishes Supercharge's part. While that mark is there, a worktree AoE half deleted (only deleted files, or a folder git no longer reads) counts as "deletion in progress", not as uncommitted work, and the delete is sent again; a changed or new file is still refused.
+- **`--discard`** (one task, from the CLI only) is for a results or report commit that never needed merging: instead of refusing, it lists every commit that never landed and drops them, and the audit log records each one (`git branch rescue <sha>` brings one back until git's garbage collection). A dirty worktree is refused all the same.
 
 **The control chat never removes a worker itself.** It may run `--dry-run` to check, then gives you the command in a `bash` block for the **Run** button. A guard backs that up: every session Supercharge starts gets a `PreToolUse` hook (in `~/.local/state/supercharge/claude-settings.json`) that stops a control chat's own Bash tool from running `task cleanup` without `--dry-run`, `aoe rm`/`aoe remove`, or `aoe session archive`/`empty-trash`. Your **Run in chat** (Claude Code's `!` shell mode, which runs no hooks) and **Run in terminal** still run them, and workers and General chats are not stopped. Claude Code reads that file when a session starts, so a control chat started before this version gets the guard at its next restart. It is a guard against mistakes, not a security boundary (see [Security](#security)).
 
@@ -229,7 +234,7 @@ For when you are away. **Project settings → Autonomous mode** switches it on u
 | `supercharge task list [--project <p>] [--json]` | List tasks |
 | `supercharge task reopen <task-id> [--note …]` | Follow-up work on a done task: back to implementing (and out of the archive) |
 | `supercharge task quiet <task-id> [--off]` | No stalled notices for a worker you parked on purpose (questions and the rest still come); `--off` undoes it |
-| `supercharge task cleanup <task-id> \| --all-done [--dry-run] [--json]` | Remove a finished worker's session, worktree and branch. Refuses unless its work is on `origin/<base>` (its base branch) or in its merged pull request (see [Cleaning up](#cleaning-up-finished-workers)) |
+| `supercharge task cleanup <task-id> \| --all-done [--dry-run] [--discard] [--json]` | Remove a finished (done or archived) worker's session, worktree and branch. Refuses unless its work is on `origin/<base>` (its base branch) or in its merged pull request (see [Cleaning up](#cleaning-up-finished-workers)); `--discard` drops a task's unlanded commits instead, listed and audited |
 | `supercharge whoami [--json]` | `control`, `worker`, `general-control`, `general` or `none` for this session, and the project's autonomous mode |
 | `supercharge audit [--project <p>] [--since <time>] [--json]` | The audit log, oldest first |
 | `supercharge audit note "<text>"` | Record a decision in the audit log (the control chat, in autonomous mode) |
@@ -269,6 +274,7 @@ hostname = "supercharge.localhost"
 profile = "main"
 autoStart = true                   # start `aoe serve --daemon` when needed
 addTimeoutSeconds = 300            # how long `aoe add` (it makes the worktree) may take
+deleteTimeoutSeconds = 600         # how long AoE may take to delete a session for good (cleanup)
 
 [agent]
 workerPermissionMode = "plan"      # plan | default | acceptEdits | auto
