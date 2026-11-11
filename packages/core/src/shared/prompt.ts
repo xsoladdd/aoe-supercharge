@@ -78,6 +78,11 @@ export interface ParsedMenu {
   multi: boolean;
   /** False for a menu drawn without numbers (the trust dialog): no digit picks a row, the arrows and Enter do. */
   numbered: boolean;
+  /**
+   * One of Claude Code's startup dialogs (trust, MCP approval, the bypass-permissions warning): they end in
+   * "Enter to confirm · Esc to cancel", which its tool prompts never use ("Esc to cancel · Tab to amend").
+   */
+  startup: boolean;
   /** The `n` of the highlighted option. */
   cursor: number;
 }
@@ -170,6 +175,7 @@ function parseNumbered(lines: string[], end: number): ParsedMenu | null {
     tabs,
     multi,
     numbered: true,
+    startup: CONFIRM_FOOTER.test(lines[end]!.trim()),
     cursor,
   };
 }
@@ -216,17 +222,18 @@ function parseUnnumbered(lines: string[], end: number): ParsedMenu | null {
     tabs: [],
     multi: false,
     numbered: false,
+    startup: true,
     cursor,
   };
 }
 
 /**
  * What kind of menu it is, from the tool call Claude is waiting on (if the transcript has one). A startup
- * dialog (trust, MCP approval: the unnumbered menus) is about the folder, never a tool call: a resumed
- * session can show one while its transcript still ends in an unanswered call.
+ * dialog is about the session, never a tool call: a resumed session can show one while its transcript
+ * still ends in an unanswered call.
  */
 export function promptKind(pendingTool: string | null, menu: ParsedMenu): PromptKind {
-  if (!menu.numbered) return 'menu';
+  if (menu.startup) return 'menu';
   if (pendingTool === 'ExitPlanMode') return 'plan';
   if (pendingTool === 'AskUserQuestion') return 'question';
   if (pendingTool) return 'permission';

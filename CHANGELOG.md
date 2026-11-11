@@ -48,11 +48,18 @@
     General chat's breadcrumb, and an unread control reply they set up themselves.
   - **CI runs on pushes to `dev` too** (and can be started by hand), so `dev` is checked before the
     release PR.
+  - **`E2E_PORT`** moves the Playwright dashboard port (and the fake AoE's, the next one up) from 47391, so
+    worktrees can run the e2e suite side by side.
 - **AoE 1.22.x is supported.** The live contract passes against AoE 1.22.3 (22/22, macOS), and the tested
   range is now `>=1.17.2 <1.23.0`.
-- **The trust dialog shows as the question it is.** A session showing a startup dialog (trust, MCP approval)
-  while its transcript still ends in an unanswered tool call was shown as "Claude needs permission" for that
-  call. The dialog on screen now wins.
+- **The trust dialog shows as the question it is.** A session showing a startup dialog (trust, MCP approval,
+  the bypass-permissions warning) while its transcript still ends in an unanswered tool call was shown as
+  "Claude needs permission" for that call. A screen ending in "Enter to confirm · Esc to cancel", which
+  Claude Code's tool prompts never use, now shows as the dialog it is.
+- **Images show in the chat again.** Since 1.7.0 a picked, pasted or dropped file's path goes into the text,
+  and the chat only showed images from `Attached:` lines, so a sent screenshot appeared as a bare path. Upload
+  paths in the text now show as images (and files) too, and a held message taken back to edit gets its chips
+  back.
 - **Attaching a marked-up image keeps the other files' paths.** Picking an image and a file together, the
   file's path landed in the box while the image was being marked up, and **Attach** then replaced the box
   with the dialog's text. The path is kept now, and the image's own path goes right after its message.

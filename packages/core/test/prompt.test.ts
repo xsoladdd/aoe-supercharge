@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { ASK_MENU, PERMISSION_MENU, PLAN_MENU } from '../../fake-aoe/src/server.ts';
+import { ASK_MENU, CONSENT_MENU, PERMISSION_MENU, PLAN_MENU } from '../../fake-aoe/src/server.ts';
 import {
   computeNeedsYou,
   inputBox,
@@ -43,6 +43,12 @@ describe('parseTerminalMenu: menus at the bottom of a Claude Code pane', () => {
     expect(promptKind('Bash', menu)).toBe('menu');
     expect(promptKind('ExitPlanMode', menu)).toBe('menu');
     expect(promptKind(null, parseTerminalMenu(fixture('claude-2.1.285-mcp-approval.txt'))!)).toBe('menu');
+    // The numbered screen that can follow the trust dialog ends the same way.
+    const consent = parseTerminalMenu(pane(CONSENT_MENU))!;
+    expect(consent).toMatchObject({ numbered: true, startup: true });
+    expect(promptKind('Bash', consent)).toBe('menu');
+    // A tool prompt is not one.
+    expect(parseTerminalMenu(pane(PERMISSION_MENU))!.startup).toBe(false);
   });
 
   it('reads the real MCP approval from a repo .mcp.json: its title is the question, the cursor is on the last row', () => {
@@ -299,6 +305,21 @@ describe('prettyModel', () => {
 });
 
 describe('attachments ride in the message as paths', () => {
+  it('lists uploads written in the text as files too, leaving the text as it is', () => {
+    const shot = '/home/me/.local/state/supercharge/uploads/abc123/20261005T031500-1a2b-screenshot.png';
+    const msg = withAttachments(`The box is off ${'`'}${shot}${'`'} and ${'`'}/tmp/mine.png${'`'}`, [
+      shot,
+      '/tmp/x.txt',
+    ]);
+    const { text, files } = splitAttachments(msg);
+    expect(text).toBe(`The box is off ${'`'}${shot}${'`'} and ${'`'}/tmp/mine.png${'`'}`);
+    // The Attached: line first, then the upload in the text; a path you typed is not an upload.
+    expect(files.map((f) => [f.name, f.url, f.image])).toEqual([
+      ['x.txt', null, false],
+      ['screenshot.png', '/api/uploads/abc123/20261005T031500-1a2b-screenshot.png', true],
+    ]);
+  });
+
   it('attaching a marked-up image keeps the paths that landed while the dialog was open, not ones taken out', () => {
     const zip = '/u/1-logs.zip';
     const old = '/u/0-old.txt';

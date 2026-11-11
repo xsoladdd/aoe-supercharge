@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { CONSENT_MENU, PERMISSION_MENU, trustMenu } from '../packages/fake-aoe/src/server.ts';
 import type { Locator, Page } from '@playwright/test';
+import { E2E_PORT } from '../playwright.config.ts';
 import { axe, expect, fake, test, world } from './fixtures.ts';
 
 const sentTo = async (id: string) =>
@@ -1353,7 +1354,7 @@ test.describe('settings', () => {
     await expect(
       page.getByText(/Number must be greater than or equal to 1024|Too small|>=1024/i),
     ).toBeVisible();
-    await port.fill('47391');
+    await port.fill(String(E2E_PORT));
     const mr = page.getByLabel('Merge requests (s)');
     await mr.fill(String(Number(await mr.inputValue()) + 1));
     await page.getByRole('button', { name: 'Save changes' }).click();

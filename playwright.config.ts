@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-export const E2E_PORT = 47391;
+// The dashboard's port; the fake AoE takes the next one. E2E_PORT moves both, so parallel worktrees can run side by side.
+export const E2E_PORT = Number(process.env.E2E_PORT) || 47391;
 
 export default defineConfig({
   testDir: './e2e',
