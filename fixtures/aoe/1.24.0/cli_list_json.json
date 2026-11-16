@@ -1,0 +1,32 @@
+[
+  {
+    "id": "de972a2a11f64259",
+    "title": "contract control",
+    "path": "/tmp/sc-contract-NC7VC6/repo",
+    "group": "",
+    "tool": "claude",
+    "command": "/tmp/sc-contract-NC7VC6/bin/fake-agent",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-11-16T14:10:20.880880808Z",
+    "workspace_repos": []
+  },
+  {
+    "id": "03653ab9c46e476c",
+    "title": "contract worker",
+    "path": "/tmp/sc-contract-NC7VC6/repo-worktrees/contract-worker",
+    "group": "",
+    "tool": "claude",
+    "command": "/tmp/sc-contract-NC7VC6/bin/fake-agent",
+    "profile": "main",
+    "state": "live",
+    "created_at": "2026-11-16T14:10:20.980484655Z",
+    "workspace_repos": [],
+    "worktree": {
+      "branch": "sc/contract-1",
+      "main_repo_path": "/tmp/sc-contract-NC7VC6/repo",
+      "managed_by_aoe": true
+    },
+    "parent_session_id": "de972a2a11f64259"
+  }
+]
